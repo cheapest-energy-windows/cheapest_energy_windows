@@ -147,7 +147,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 data_schema=vol.Schema({}),
                 errors={"base": "no_price_sensors"},
                 description_placeholders={
-                    "info": "⚠️ No compatible price sensors found!\n\nPlease install the Nordpool integration from HACS first:\n1. Go to HACS → Integrations\n2. Search for 'Nordpool'\n3. Install and configure it\n4. Return here to continue setup\n\nThe sensor must have a 'raw_today' attribute with hourly or 15-minute price data."
+                    "info": "⚠️ No compatible price sensors found!\n\nPlease install a compatible price sensor first. Supported sensors:\n• Nordpool (HACS)\n• ENTSO-E (HACS)\n\nVisit our GitHub page for setup instructions.\n\nThe sensor must have a 'raw_today' (Nordpool) or 'prices_today' (ENTSO-E) attribute with hourly or 15-minute price data."
                 },
             )
 
