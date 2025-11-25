@@ -21,6 +21,11 @@ CONF_BATTERY_ENERGY_SENSOR: Final = "battery_available_energy_sensor"
 CONF_BATTERY_CHARGE_SENSOR: Final = "battery_daily_charge_sensor"
 CONF_BATTERY_DISCHARGE_SENSOR: Final = "battery_daily_discharge_sensor"
 CONF_BATTERY_POWER_SENSOR: Final = "battery_power_sensor"
+CONF_BASE_USAGE: Final = "base_usage"
+CONF_BASE_USAGE_CHARGE_STRATEGY: Final = "base_usage_charge_strategy"
+CONF_BASE_USAGE_IDLE_STRATEGY: Final = "base_usage_idle_strategy"
+CONF_BASE_USAGE_DISCHARGE_STRATEGY: Final = "base_usage_discharge_strategy"
+CONF_BASE_USAGE_AGGRESSIVE_STRATEGY: Final = "base_usage_aggressive_strategy"
 
 # Default values
 DEFAULT_PRICE_SENSOR: Final = ""
@@ -48,6 +53,17 @@ DEFAULT_TIME_OVERRIDE_START: Final = "00:00:00"
 DEFAULT_TIME_OVERRIDE_END: Final = "00:00:00"
 DEFAULT_CALCULATION_WINDOW_START: Final = "00:00:00"
 DEFAULT_CALCULATION_WINDOW_END: Final = "23:59:59"
+DEFAULT_BASE_USAGE: Final = 0
+DEFAULT_BASE_USAGE_CHARGE_STRATEGY: Final = "grid_covers_both"
+DEFAULT_BASE_USAGE_IDLE_STRATEGY: Final = "grid_covers"
+DEFAULT_BASE_USAGE_DISCHARGE_STRATEGY: Final = "subtract_base"
+DEFAULT_BASE_USAGE_AGGRESSIVE_STRATEGY: Final = "same_as_discharge"
+
+# Base usage strategy options
+BASE_USAGE_CHARGE_OPTIONS: Final = ["grid_covers_both", "battery_covers_base"]
+BASE_USAGE_IDLE_OPTIONS: Final = ["grid_covers", "battery_covers"]
+BASE_USAGE_DISCHARGE_OPTIONS: Final = ["already_included", "subtract_base"]
+BASE_USAGE_AGGRESSIVE_OPTIONS: Final = ["same_as_discharge", "already_included", "subtract_base"]
 
 # Update intervals
 UPDATE_INTERVAL: Final = timedelta(seconds=10)
@@ -91,6 +107,10 @@ ATTR_COMPLETED_CHARGE_WINDOWS: Final = "completed_charge_windows"
 ATTR_COMPLETED_DISCHARGE_WINDOWS: Final = "completed_discharge_windows"
 ATTR_COMPLETED_CHARGE_COST: Final = "completed_charge_cost"
 ATTR_COMPLETED_DISCHARGE_REVENUE: Final = "completed_discharge_revenue"
+ATTR_COMPLETED_BASE_USAGE_COST: Final = "completed_base_usage_cost"
+ATTR_COMPLETED_BASE_USAGE_BATTERY: Final = "completed_base_usage_battery"
+ATTR_TOTAL_COST: Final = "total_cost"
+ATTR_PLANNED_TOTAL_COST: Final = "planned_total_cost"
 ATTR_NUM_WINDOWS: Final = "num_windows"
 ATTR_MIN_SPREAD_REQUIRED: Final = "min_spread_required"
 ATTR_SPREAD_PERCENTAGE: Final = "spread_percentage"
@@ -132,6 +152,13 @@ CALCULATION_AFFECTING_KEYS: Final = {
     "vat",
     "tax",
     "additional_cost",
+
+    # Base usage
+    "base_usage",
+    "base_usage_charge_strategy",
+    "base_usage_idle_strategy",
+    "base_usage_discharge_strategy",
+    "base_usage_aggressive_strategy",
 
     # Battery settings
     "battery_rte",

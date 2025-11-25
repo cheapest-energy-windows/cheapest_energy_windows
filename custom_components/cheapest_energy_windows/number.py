@@ -27,6 +27,7 @@ from .const import (
     DEFAULT_ADDITIONAL_COST,
     DEFAULT_TAX,
     DEFAULT_VAT_RATE,
+    DEFAULT_BASE_USAGE,
     DEFAULT_BATTERY_RTE,
     DEFAULT_CHARGE_POWER,
     DEFAULT_DISCHARGE_POWER,
@@ -118,6 +119,11 @@ async def async_setup_entry(
             hass, config_entry, "discharge_power", "Discharge Power",
             0, 10000, DEFAULT_DISCHARGE_POWER, 100, "W",
             "mdi:lightning-bolt", NumberMode.BOX
+        ),
+        CEWNumber(
+            hass, config_entry, "base_usage", "Base Usage",
+            0, 5000, DEFAULT_BASE_USAGE, 100, "W",
+            "mdi:home-lightning-bolt", NumberMode.BOX
         ),
         CEWNumber(
             hass, config_entry, "price_override_threshold", "Price Override Threshold",
@@ -230,21 +236,12 @@ class CEWNumber(NumberEntity):
         self.async_write_ha_state()
 
         # Only trigger coordinator update for numbers that affect calculations
-        calculation_affecting_numbers = {
-            "charging_windows", "charging_windows_tomorrow",
-            "expensive_windows", "expensive_windows_tomorrow",
-            "cheap_percentile", "cheap_percentile_tomorrow",
-            "expensive_percentile", "expensive_percentile_tomorrow",
-            "min_spread", "min_spread_tomorrow",
-            "min_spread_discharge", "min_spread_discharge_tomorrow",
-            "aggressive_discharge_spread", "aggressive_discharge_spread_tomorrow",
-            "min_price_difference", "min_price_difference_tomorrow",
-            "price_override_threshold", "price_override_threshold_tomorrow",
-            "additional_cost", "tax", "vat", "battery_rte",
-        }
-
-        if self._key in calculation_affecting_numbers:
+        # Check against the centralized registry of calculation-affecting keys
+        if self._key in CALCULATION_AFFECTING_KEYS:
             if DOMAIN in self.hass.data and self._config_entry.entry_id in self.hass.data[DOMAIN]:
                 coordinator = self.hass.data[DOMAIN][self._config_entry.entry_id].get("coordinator")
                 if coordinator:
+                    _LOGGER.debug(f"Number {self._key} affects calculations, triggering coordinator refresh")
                     await coordinator.async_request_refresh()
+        else:
+            _LOGGER.debug(f"Number {self._key} doesn't affect calculations, skipping coordinator refresh")

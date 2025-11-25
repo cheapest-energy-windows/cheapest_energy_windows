@@ -2,13 +2,13 @@
   "domain": "cheapest_energy_windows",
   "name": "Cheapest Energy Windows",
   "after_dependencies": ["input_number", "input_boolean", "input_select", "input_datetime", "input_text"],
-  "codeowners": ["@cew-hacs"],
+  "codeowners": ["@cheapest-energy-windows"],
   "config_flow": true,
   "dependencies": [],
-  "documentation": "https://github.com/cew-hacs/cheapest_energy_windows",
+  "documentation": "https://github.com/cheapest-energy-windows/cheapest_energy_windows",
   "integration_type": "hub",
   "iot_class": "calculated",
-  "issue_tracker": "https://github.com/cew-hacs/cheapest_energy_windows/issues",
+  "issue_tracker": "https://github.com/cheapest-energy-windows/cheapest_energy_windows/issues",
   "requirements": ["numpy>=1.24.0"],
   "version": "1.0.7"
 }

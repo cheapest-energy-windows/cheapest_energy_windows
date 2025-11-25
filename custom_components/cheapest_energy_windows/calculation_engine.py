@@ -843,21 +843,122 @@ class WindowCalculationEngine:
             if w["timestamp"] + timedelta(minutes=w["duration"]) <= current_time
         )
 
-        # Calculate costs (use actual windows to include price/time overrides)
+        # Calculate costs with base usage strategies
         charge_power = config.get("charge_power", 2400) / 1000  # Convert to kW
         discharge_power = config.get("discharge_power", 2400) / 1000
+        base_usage = config.get("base_usage", 0) / 1000
 
-        completed_charge_cost = sum(
-            w["price"] * (w["duration"] / 60) * charge_power
-            for w in actual_charge
-            if w["timestamp"] + timedelta(minutes=w["duration"]) <= current_time
-        )
+        # Get strategies
+        charge_strategy = config.get("base_usage_charge_strategy", "grid_covers_both")
+        idle_strategy = config.get("base_usage_idle_strategy", "grid_covers")
+        discharge_strategy = config.get("base_usage_discharge_strategy", "subtract_base")
+        aggressive_strategy = config.get("base_usage_aggressive_strategy", "same_as_discharge")
 
-        completed_discharge_revenue = sum(
-            w["price"] * (w["duration"] / 60) * discharge_power
-            for w in actual_discharge
-            if w["timestamp"] + timedelta(minutes=w["duration"]) <= current_time
-        )
+        # Initialize tracking variables
+        completed_charge_cost = 0
+        completed_discharge_revenue = 0
+        completed_base_usage_cost = 0  # Grid cost for base usage
+        completed_base_usage_battery = 0  # Battery kWh used for base usage
+
+        # CHARGE windows: Apply charge strategy
+        for w in actual_charge:
+            if w["timestamp"] + timedelta(minutes=w["duration"]) <= current_time:
+                duration_hours = w["duration"] / 60
+                if charge_strategy == "grid_covers_both":
+                    # Grid provides charge power + base usage
+                    completed_charge_cost += w["price"] * duration_hours * (charge_power + base_usage)
+                else:  # battery_covers_base
+                    # Grid provides charge power only, battery covers base
+                    completed_charge_cost += w["price"] * duration_hours * charge_power
+                    completed_base_usage_battery += duration_hours * base_usage
+
+        # DISCHARGE/AGGRESSIVE windows: Apply discharge/aggressive strategies
+        # Separate by state for strategy application
+        for w in actual_discharge:
+            if w["timestamp"] + timedelta(minutes=w["duration"]) <= current_time:
+                duration_hours = w["duration"] / 60
+
+                # Determine which strategy to use based on window state
+                if w.get("state") == STATE_DISCHARGE_AGGRESSIVE:
+                    # Aggressive discharge window
+                    if aggressive_strategy == "same_as_discharge":
+                        strategy = discharge_strategy
+                    else:
+                        strategy = aggressive_strategy
+                else:
+                    # Regular discharge window
+                    strategy = discharge_strategy
+
+                if strategy == "already_included":
+                    # Full discharge power generates revenue
+                    completed_discharge_revenue += w["price"] * duration_hours * discharge_power
+                else:  # subtract_base (NoM)
+                    # Battery covers base first, exports the rest
+                    net_export = max(0, discharge_power - base_usage)
+                    completed_discharge_revenue += w["price"] * duration_hours * net_export
+                    completed_base_usage_battery += duration_hours * base_usage
+
+        # IDLE periods: Apply idle strategy
+        # Build sets of timestamps for active windows
+        charge_timestamps = {w["timestamp"] for w in actual_charge}
+        discharge_timestamps = {w["timestamp"] for w in actual_discharge}
+
+        for price_data in prices:
+            timestamp = price_data["timestamp"]
+            if timestamp + timedelta(minutes=price_data["duration"]) <= current_time:
+                # Check if this period is idle (not in any active window)
+                is_active = timestamp in charge_timestamps or timestamp in discharge_timestamps
+
+                if not is_active:
+                    duration_hours = price_data["duration"] / 60
+                    if idle_strategy == "grid_covers":
+                        # Grid provides base usage, add to cost
+                        completed_base_usage_cost += price_data["price"] * duration_hours * base_usage
+                    else:  # battery_covers (NoM)
+                        # Battery provides base usage, track battery consumption
+                        completed_base_usage_battery += duration_hours * base_usage
+
+        # Calculate planned total cost for ALL windows (for tomorrow's estimate)
+        # Unlike total_cost which only counts completed windows, this estimates the full day
+        planned_charge_cost = 0
+        planned_discharge_revenue = 0
+        planned_base_usage_cost = 0
+
+        # All charge windows (not just completed)
+        for w in actual_charge:
+            duration_hours = w["duration"] / 60
+            if charge_strategy == "grid_covers_both":
+                planned_charge_cost += w["price"] * duration_hours * (charge_power + base_usage)
+            else:  # battery_covers_base
+                planned_charge_cost += w["price"] * duration_hours * charge_power
+
+        # All discharge windows (not just completed)
+        for w in actual_discharge:
+            duration_hours = w["duration"] / 60
+
+            # Determine strategy based on state
+            if w.get("state") == STATE_DISCHARGE_AGGRESSIVE:
+                strategy = aggressive_strategy if aggressive_strategy != "same_as_discharge" else discharge_strategy
+            else:
+                strategy = discharge_strategy
+
+            if strategy == "already_included":
+                planned_discharge_revenue += w["price"] * duration_hours * discharge_power
+            else:  # subtract_base
+                net_export = max(0, discharge_power - base_usage)
+                planned_discharge_revenue += w["price"] * duration_hours * net_export
+
+        # All idle periods
+        for price_data in prices:
+            timestamp = price_data["timestamp"]
+            is_active = timestamp in charge_timestamps or timestamp in discharge_timestamps
+
+            if not is_active:
+                duration_hours = price_data["duration"] / 60
+                if idle_strategy == "grid_covers":
+                    planned_base_usage_cost += price_data["price"] * duration_hours * base_usage
+
+        planned_total_cost = round(planned_charge_cost + planned_base_usage_cost - planned_discharge_revenue, 3)
 
         # Build result
         result = {
@@ -876,6 +977,10 @@ class WindowCalculationEngine:
             "completed_discharge_windows": completed_discharge,
             "completed_charge_cost": round(completed_charge_cost, 3),
             "completed_discharge_revenue": round(completed_discharge_revenue, 3),
+            "completed_base_usage_cost": round(completed_base_usage_cost, 3),
+            "completed_base_usage_battery": round(completed_base_usage_battery, 3),
+            "total_cost": round(completed_charge_cost + completed_base_usage_cost - completed_discharge_revenue, 3),
+            "planned_total_cost": planned_total_cost,
             "num_windows": len(charge_windows),
             "min_spread_required": config.get("min_spread", 10),
             "spread_percentage": round(spread_pct, 1),
@@ -915,6 +1020,10 @@ class WindowCalculationEngine:
             "completed_discharge_windows": 0,
             "completed_charge_cost": 0,
             "completed_discharge_revenue": 0,
+            "completed_base_usage_cost": 0,
+            "completed_base_usage_battery": 0,
+            "total_cost": 0,
+            "planned_total_cost": 0,
             "num_windows": 0,
             "min_spread_required": 0,
             "spread_percentage": 0,

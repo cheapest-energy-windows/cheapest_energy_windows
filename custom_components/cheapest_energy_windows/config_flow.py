@@ -18,6 +18,11 @@ from .const import (
     CONF_VAT_RATE,
     CONF_TAX,
     CONF_ADDITIONAL_COST,
+    CONF_BASE_USAGE,
+    CONF_BASE_USAGE_CHARGE_STRATEGY,
+    CONF_BASE_USAGE_IDLE_STRATEGY,
+    CONF_BASE_USAGE_DISCHARGE_STRATEGY,
+    CONF_BASE_USAGE_AGGRESSIVE_STRATEGY,
     CONF_BATTERY_SYSTEM_NAME,
     CONF_BATTERY_SOC_SENSOR,
     CONF_BATTERY_ENERGY_SENSOR,
@@ -28,6 +33,15 @@ from .const import (
     DEFAULT_VAT_RATE,
     DEFAULT_TAX,
     DEFAULT_ADDITIONAL_COST,
+    DEFAULT_BASE_USAGE,
+    DEFAULT_BASE_USAGE_CHARGE_STRATEGY,
+    DEFAULT_BASE_USAGE_IDLE_STRATEGY,
+    DEFAULT_BASE_USAGE_DISCHARGE_STRATEGY,
+    DEFAULT_BASE_USAGE_AGGRESSIVE_STRATEGY,
+    BASE_USAGE_CHARGE_OPTIONS,
+    BASE_USAGE_IDLE_OPTIONS,
+    BASE_USAGE_DISCHARGE_OPTIONS,
+    BASE_USAGE_AGGRESSIVE_OPTIONS,
     DEFAULT_CHARGE_POWER,
     DEFAULT_DISCHARGE_POWER,
     DEFAULT_BATTERY_RTE,
@@ -201,11 +215,23 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Required(CONF_ADDITIONAL_COST, default=DEFAULT_ADDITIONAL_COST): vol.All(
                     vol.Coerce(float), vol.Range(min=0, max=1)
                 ),
+                vol.Optional(CONF_BASE_USAGE, default=DEFAULT_BASE_USAGE): vol.All(
+                    vol.Coerce(int), vol.Range(min=0, max=5000)
+                ),
+                vol.Optional(CONF_BASE_USAGE_CHARGE_STRATEGY, default=DEFAULT_BASE_USAGE_CHARGE_STRATEGY):
+                    vol.In(BASE_USAGE_CHARGE_OPTIONS),
+                vol.Optional(CONF_BASE_USAGE_IDLE_STRATEGY, default=DEFAULT_BASE_USAGE_IDLE_STRATEGY):
+                    vol.In(BASE_USAGE_IDLE_OPTIONS),
+                vol.Optional(CONF_BASE_USAGE_DISCHARGE_STRATEGY, default=DEFAULT_BASE_USAGE_DISCHARGE_STRATEGY):
+                    vol.In(BASE_USAGE_DISCHARGE_OPTIONS),
+                vol.Optional(CONF_BASE_USAGE_AGGRESSIVE_STRATEGY, default=DEFAULT_BASE_USAGE_AGGRESSIVE_STRATEGY):
+                    vol.In(BASE_USAGE_AGGRESSIVE_OPTIONS),
             }),
             description_placeholders={
                 "vat_help": "VAT rate as decimal (e.g., 0.21 for 21%)",
                 "tax_help": "Tax per kWh in EUR",
                 "cost_help": "Additional costs per kWh in EUR",
+                "base_usage_help": "Average household power consumption in Watts (for cost tracking)",
             },
         )
 

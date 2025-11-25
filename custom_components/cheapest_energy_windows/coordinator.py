@@ -17,6 +17,11 @@ from .const import (
     UPDATE_INTERVAL,
     CONF_PRICE_SENSOR,
     DEFAULT_PRICE_SENSOR,
+    DEFAULT_BASE_USAGE,
+    DEFAULT_BASE_USAGE_CHARGE_STRATEGY,
+    DEFAULT_BASE_USAGE_IDLE_STRATEGY,
+    DEFAULT_BASE_USAGE_DISCHARGE_STRATEGY,
+    DEFAULT_BASE_USAGE_AGGRESSIVE_STRATEGY,
     PREFIX,
 )
 
@@ -256,6 +261,11 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             "battery_rte": float(options.get("battery_rte", DEFAULT_BATTERY_RTE)),
             "charge_power": float(options.get("charge_power", DEFAULT_CHARGE_POWER)),
             "discharge_power": float(options.get("discharge_power", DEFAULT_DISCHARGE_POWER)),
+            "base_usage": float(options.get("base_usage", DEFAULT_BASE_USAGE)),
+            "base_usage_charge_strategy": options.get("base_usage_charge_strategy", DEFAULT_BASE_USAGE_CHARGE_STRATEGY),
+            "base_usage_idle_strategy": options.get("base_usage_idle_strategy", DEFAULT_BASE_USAGE_IDLE_STRATEGY),
+            "base_usage_discharge_strategy": options.get("base_usage_discharge_strategy", DEFAULT_BASE_USAGE_DISCHARGE_STRATEGY),
+            "base_usage_aggressive_strategy": options.get("base_usage_aggressive_strategy", DEFAULT_BASE_USAGE_AGGRESSIVE_STRATEGY),
             "price_override_threshold": float(options.get("price_override_threshold", DEFAULT_PRICE_OVERRIDE_THRESHOLD)),
             "battery_min_soc_discharge": float(options.get("battery_min_soc_discharge", DEFAULT_BATTERY_MIN_SOC_DISCHARGE)),
             "battery_min_soc_aggressive_discharge": float(options.get("battery_min_soc_aggressive_discharge", DEFAULT_BATTERY_MIN_SOC_AGGRESSIVE_DISCHARGE)),
