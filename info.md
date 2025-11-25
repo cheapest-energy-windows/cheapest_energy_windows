@@ -34,8 +34,8 @@ Perfect for users with:
 
 ## Support
 
-- [Documentation](https://github.com/yourusername/cheapest_energy_windows)
-- [Report Issues](https://github.com/yourusername/cheapest_energy_windows/issues)
+- [Documentation](https://github.com/cheapest-energy-windows/cheapest_energy_windows)
+- [Report Issues](https://github.com/cheapest-energy-windows/cheapest_energy_windows/issues)
 - [Community Discussion](https://community.home-assistant.io/)
 
 {% if installed %}
