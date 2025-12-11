@@ -355,6 +355,7 @@ class CEWTodaySensor(CEWBaseSensor):
             ATTR_COMPLETED_BASE_USAGE_BATTERY: result.get("completed_base_usage_battery", 0.0),
             ATTR_TOTAL_COST: result.get("total_cost", 0.0),
             ATTR_PLANNED_TOTAL_COST: result.get("planned_total_cost", 0.0),
+            "planned_net_kwh": result.get("planned_net_kwh", 0.0),
             ATTR_NUM_WINDOWS: result.get("num_windows", 0),
             ATTR_MIN_SPREAD_REQUIRED: result.get("min_spread_required", 0.0),
             ATTR_SPREAD_PERCENTAGE: result.get("spread_percentage", 0.0),
@@ -511,6 +512,7 @@ class CEWTomorrowSensor(CEWBaseSensor):
             "expensive_sell_prices": result.get("expensive_sell_prices", []),
             "actual_discharge_sell_prices": result.get("actual_discharge_sell_prices", []),
             ATTR_PLANNED_TOTAL_COST: result.get("planned_total_cost", 0.0),
+            "planned_net_kwh": result.get("planned_net_kwh", 0.0),
             "last_config_update": last_config_update.isoformat() if last_config_update else None,
         }
 
