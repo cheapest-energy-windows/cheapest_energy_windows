@@ -22,6 +22,17 @@ from .const import (
     DEFAULT_BASE_USAGE_IDLE_STRATEGY,
     DEFAULT_BASE_USAGE_DISCHARGE_STRATEGY,
     DEFAULT_BASE_USAGE_AGGRESSIVE_STRATEGY,
+    DEFAULT_PRICE_COUNTRY,
+    DEFAULT_SELL_FORMULA_PARAM_A,
+    DEFAULT_SELL_FORMULA_PARAM_B,
+    DEFAULT_USE_MIN_SELL_PRICE,
+    DEFAULT_MIN_SELL_PRICE,
+    DEFAULT_MIN_SELL_PRICE_BYPASS_SPREAD,
+    DEFAULT_BUY_FORMULA_PARAM_A,
+    DEFAULT_BUY_FORMULA_PARAM_B,
+    DEFAULT_VAT_RATE,
+    DEFAULT_TAX,
+    DEFAULT_ADDITIONAL_COST,
     PREFIX,
 )
 
@@ -223,9 +234,6 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             DEFAULT_MIN_SPREAD_DISCHARGE,
             DEFAULT_AGGRESSIVE_DISCHARGE_SPREAD,
             DEFAULT_MIN_PRICE_DIFFERENCE,
-            DEFAULT_ADDITIONAL_COST,
-            DEFAULT_TAX,
-            DEFAULT_VAT_RATE,
             DEFAULT_BATTERY_RTE,
             DEFAULT_CHARGE_POWER,
             DEFAULT_DISCHARGE_POWER,
@@ -255,9 +263,6 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             "min_spread_discharge": float(options.get("min_spread_discharge", DEFAULT_MIN_SPREAD_DISCHARGE)),
             "aggressive_discharge_spread": float(options.get("aggressive_discharge_spread", DEFAULT_AGGRESSIVE_DISCHARGE_SPREAD)),
             "min_price_difference": float(options.get("min_price_difference", DEFAULT_MIN_PRICE_DIFFERENCE)),
-            "additional_cost": float(options.get("additional_cost", DEFAULT_ADDITIONAL_COST)),
-            "tax": float(options.get("tax", DEFAULT_TAX)),
-            "vat": float(options.get("vat", DEFAULT_VAT_RATE)),
             "battery_rte": float(options.get("battery_rte", DEFAULT_BATTERY_RTE)),
             "charge_power": float(options.get("charge_power", DEFAULT_CHARGE_POWER)),
             "discharge_power": float(options.get("discharge_power", DEFAULT_DISCHARGE_POWER)),
@@ -303,6 +308,25 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             "pricing_window_duration": options.get("pricing_window_duration", "15_minutes"),
             "time_override_mode": options.get("time_override_mode", "charge"),
             "time_override_mode_tomorrow": options.get("time_override_mode_tomorrow", "charge"),
+
+            # Unified price country
+            "price_country": options.get("price_country", DEFAULT_PRICE_COUNTRY),
+
+            # Buy formula parameters
+            "buy_formula_param_a": float(options.get("buy_formula_param_a", DEFAULT_BUY_FORMULA_PARAM_A)),
+            "buy_formula_param_b": float(options.get("buy_formula_param_b", DEFAULT_BUY_FORMULA_PARAM_B)),
+
+            # Netherlands-specific fields (apply to both buy and sell)
+            "vat": float(options.get("vat", DEFAULT_VAT_RATE)),  # Stored as percentage
+            "tax": float(options.get("tax", DEFAULT_TAX)),
+            "additional_cost": float(options.get("additional_cost", DEFAULT_ADDITIONAL_COST)),
+
+            # Sell formula parameters
+            "sell_formula_param_a": float(options.get("sell_formula_param_a", DEFAULT_SELL_FORMULA_PARAM_A)),
+            "sell_formula_param_b": float(options.get("sell_formula_param_b", DEFAULT_SELL_FORMULA_PARAM_B)),
+            "use_min_sell_price": bool(options.get("use_min_sell_price", DEFAULT_USE_MIN_SELL_PRICE)),
+            "min_sell_price": float(options.get("min_sell_price", DEFAULT_MIN_SELL_PRICE)),
+            "min_sell_price_bypass_spread": bool(options.get("min_sell_price_bypass_spread", DEFAULT_MIN_SELL_PRICE_BYPASS_SPREAD)),
 
             # Time values
             "time_override_start": options.get("time_override_start", DEFAULT_TIME_OVERRIDE_START),

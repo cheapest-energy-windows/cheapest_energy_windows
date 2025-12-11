@@ -78,8 +78,12 @@ class CEWTime(TimeEntity):
         self._attr_icon = icon
         self._attr_has_entity_name = False
 
-        # Load value from config entry options, fallback to default
-        time_str = config_entry.options.get(key, default)
+        # Load value from config entry options, with fallback to data for backwards compatibility
+        # (values may be in data for existing installations that haven't been migrated)
+        time_str = config_entry.options.get(
+            key,
+            config_entry.data.get(key, default)
+        )
         self._attr_native_value = self._parse_time(time_str)
 
     def _parse_time(self, time_str: str) -> time | None:

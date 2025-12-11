@@ -5,7 +5,7 @@ from typing import Final
 # Domain
 DOMAIN: Final = "cheapest_energy_windows"
 PREFIX: Final = "cew_"
-VERSION: Final = "1.0.7"
+VERSION: Final = "1.0.8"
 
 # Platforms
 PLATFORMS: Final = ["sensor", "number", "select", "switch", "time", "text"]
@@ -27,9 +27,23 @@ CONF_BASE_USAGE_IDLE_STRATEGY: Final = "base_usage_idle_strategy"
 CONF_BASE_USAGE_DISCHARGE_STRATEGY: Final = "base_usage_discharge_strategy"
 CONF_BASE_USAGE_AGGRESSIVE_STRATEGY: Final = "base_usage_aggressive_strategy"
 
+# Unified price country configuration key
+CONF_PRICE_COUNTRY: Final = "price_country"
+
+# Sell price configuration keys
+CONF_MIN_SELL_PRICE: Final = "min_sell_price"
+CONF_USE_MIN_SELL_PRICE: Final = "use_min_sell_price"
+CONF_MIN_SELL_PRICE_BYPASS_SPREAD: Final = "min_sell_price_bypass_spread"
+CONF_SELL_FORMULA_PARAM_A: Final = "sell_formula_param_a"
+CONF_SELL_FORMULA_PARAM_B: Final = "sell_formula_param_b"
+
+# Buy price configuration keys
+CONF_BUY_FORMULA_PARAM_A: Final = "buy_formula_param_a"
+CONF_BUY_FORMULA_PARAM_B: Final = "buy_formula_param_b"
+
 # Default values
 DEFAULT_PRICE_SENSOR: Final = ""
-DEFAULT_VAT_RATE: Final = 0.21
+DEFAULT_VAT_RATE: Final = 21
 DEFAULT_TAX: Final = 0.12286
 DEFAULT_ADDITIONAL_COST: Final = 0.02398
 DEFAULT_CHARGING_WINDOWS: Final = 6
@@ -58,6 +72,53 @@ DEFAULT_BASE_USAGE_CHARGE_STRATEGY: Final = "grid_covers_both"
 DEFAULT_BASE_USAGE_IDLE_STRATEGY: Final = "battery_covers"
 DEFAULT_BASE_USAGE_DISCHARGE_STRATEGY: Final = "subtract_base"
 DEFAULT_BASE_USAGE_AGGRESSIVE_STRATEGY: Final = "same_as_discharge"
+
+# Unified price country constants - internal values for backward compatibility
+PRICE_COUNTRY_NETHERLANDS: Final = "netherlands"
+PRICE_COUNTRY_BELGIUM_ENGIE: Final = "belgium_engie"
+PRICE_COUNTRY_OTHER: Final = "other"
+
+# Friendly display names - these are now the primary values
+PRICE_COUNTRY_NETHERLANDS_DISPLAY: Final = "Netherlands"
+PRICE_COUNTRY_BELGIUM_ENGIE_DISPLAY: Final = "Belgium (ENGIE)"
+PRICE_COUNTRY_OTHER_DISPLAY: Final = "Other / Custom"
+
+# Mapping from display names to internal values (for calculation engine)
+PRICE_COUNTRY_TO_INTERNAL: Final = {
+    PRICE_COUNTRY_NETHERLANDS_DISPLAY: PRICE_COUNTRY_NETHERLANDS,
+    PRICE_COUNTRY_BELGIUM_ENGIE_DISPLAY: PRICE_COUNTRY_BELGIUM_ENGIE,
+    PRICE_COUNTRY_OTHER_DISPLAY: PRICE_COUNTRY_OTHER,
+    # Also support old internal values for backward compatibility
+    PRICE_COUNTRY_NETHERLANDS: PRICE_COUNTRY_NETHERLANDS,
+    PRICE_COUNTRY_BELGIUM_ENGIE: PRICE_COUNTRY_BELGIUM_ENGIE,
+    PRICE_COUNTRY_OTHER: PRICE_COUNTRY_OTHER,
+}
+
+# Display names for select entity
+PRICE_COUNTRY_DISPLAY_NAMES: Final = {
+    PRICE_COUNTRY_NETHERLANDS: PRICE_COUNTRY_NETHERLANDS_DISPLAY,
+    PRICE_COUNTRY_BELGIUM_ENGIE: PRICE_COUNTRY_BELGIUM_ENGIE_DISPLAY,
+    PRICE_COUNTRY_OTHER: PRICE_COUNTRY_OTHER_DISPLAY,
+}
+
+PRICE_COUNTRY_OPTIONS: Final = [
+    PRICE_COUNTRY_NETHERLANDS,
+    PRICE_COUNTRY_BELGIUM_ENGIE,
+    PRICE_COUNTRY_OTHER,
+]
+
+DEFAULT_PRICE_COUNTRY: Final = PRICE_COUNTRY_NETHERLANDS
+
+# Sell price defaults
+DEFAULT_MIN_SELL_PRICE: Final = 0.0
+DEFAULT_USE_MIN_SELL_PRICE: Final = False
+DEFAULT_MIN_SELL_PRICE_BYPASS_SPREAD: Final = False
+DEFAULT_SELL_FORMULA_PARAM_A: Final = 0.1  # Multiplier (0.1 = 1:1 MWh to kWh conversion)
+DEFAULT_SELL_FORMULA_PARAM_B: Final = 0.0  # Offset in cents/kWh
+
+# Buy price defaults
+DEFAULT_BUY_FORMULA_PARAM_A: Final = 0.1  # Multiplier (0.1 = 1:1 MWh to kWh conversion)
+DEFAULT_BUY_FORMULA_PARAM_B: Final = 0.0  # Offset in cents/kWh
 
 # Base usage strategy options
 BASE_USAGE_CHARGE_OPTIONS: Final = ["grid_covers_both", "battery_covers_base"]
@@ -124,6 +185,8 @@ ATTR_AVG_EXPENSIVE_PRICE: Final = "avg_expensive_price"
 ATTR_CURRENT_PRICE: Final = "current_price"
 ATTR_PRICE_OVERRIDE_ACTIVE: Final = "price_override_active"
 ATTR_TIME_OVERRIDE_ACTIVE: Final = "time_override_active"
+ATTR_CURRENT_SELL_PRICE: Final = "current_sell_price"
+ATTR_SELL_PRICE_COUNTRY: Final = "sell_price_country"
 
 # Service names
 SERVICE_ROTATE_SETTINGS: Final = "rotate_tomorrow_settings"
@@ -148,7 +211,16 @@ CALCULATION_AFFECTING_KEYS: Final = {
     "aggressive_discharge_spread",
     "min_price_difference",
 
-    # Cost factors
+    # Unified price country
+    "price_country",
+
+    # Buy/Sell formula parameters
+    "buy_formula_param_a",
+    "buy_formula_param_b",
+    "sell_formula_param_a",
+    "sell_formula_param_b",
+
+    # Price adjustments (apply to both buy and sell)
     "vat",
     "tax",
     "additional_cost",
@@ -201,6 +273,11 @@ CALCULATION_AFFECTING_KEYS: Final = {
 
     # Window duration
     "pricing_window_duration",
+
+    # Sell price settings
+    "min_sell_price",
+    "use_min_sell_price",
+    "min_sell_price_bypass_spread",
 }
 
 # Configuration keys that DON'T affect calculation (UI/notification settings)

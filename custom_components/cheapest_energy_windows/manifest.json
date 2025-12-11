@@ -10,5 +10,5 @@
   "iot_class": "calculated",
   "issue_tracker": "https://github.com/cheapest-energy-windows/cheapest_energy_windows/issues",
   "requirements": ["numpy>=1.24.0"],
-  "version": "1.0.7"
+  "version": "1.0.8"
 }

@@ -24,9 +24,6 @@ from .const import (
     DEFAULT_MIN_SPREAD_DISCHARGE,
     DEFAULT_AGGRESSIVE_DISCHARGE_SPREAD,
     DEFAULT_MIN_PRICE_DIFFERENCE,
-    DEFAULT_ADDITIONAL_COST,
-    DEFAULT_TAX,
-    DEFAULT_VAT_RATE,
     DEFAULT_BASE_USAGE,
     DEFAULT_BATTERY_RTE,
     DEFAULT_CHARGE_POWER,
@@ -34,6 +31,14 @@ from .const import (
     DEFAULT_BATTERY_MIN_SOC_DISCHARGE,
     DEFAULT_BATTERY_MIN_SOC_AGGRESSIVE_DISCHARGE,
     DEFAULT_PRICE_OVERRIDE_THRESHOLD,
+    DEFAULT_MIN_SELL_PRICE,
+    DEFAULT_SELL_FORMULA_PARAM_A,
+    DEFAULT_SELL_FORMULA_PARAM_B,
+    DEFAULT_BUY_FORMULA_PARAM_A,
+    DEFAULT_BUY_FORMULA_PARAM_B,
+    DEFAULT_VAT_RATE,
+    DEFAULT_TAX,
+    DEFAULT_ADDITIONAL_COST,
 )
 
 _LOGGER = logging.getLogger(LOGGER_NAME)
@@ -90,20 +95,16 @@ async def async_setup_entry(
             0, 0.5, DEFAULT_MIN_PRICE_DIFFERENCE, 0.01, "EUR/kWh",
             "mdi:cash-minus", NumberMode.BOX
         ),
+        # Buy formula parameters (generic A, B for different formulas)
         CEWNumber(
-            hass, config_entry, "additional_cost", "Additional Cost",
-            0, 0.5, DEFAULT_ADDITIONAL_COST, 0.01, "EUR/kWh",
-            "mdi:cash-plus", NumberMode.BOX
+            hass, config_entry, "buy_formula_param_a", "Buy Formula Param A",
+            -10.0, 10.0, DEFAULT_BUY_FORMULA_PARAM_A, 0.001, "",
+            "mdi:alpha-a-circle", NumberMode.BOX
         ),
         CEWNumber(
-            hass, config_entry, "tax", "Tax",
-            0, 0.5, DEFAULT_TAX, 0.01, "EUR/kWh",
-            "mdi:cash-100", NumberMode.BOX
-        ),
-        CEWNumber(
-            hass, config_entry, "vat", "VAT",
-            0, 50, DEFAULT_VAT_RATE, 0.1, "%",
-            "mdi:percent", NumberMode.BOX
+            hass, config_entry, "buy_formula_param_b", "Buy Formula Param B",
+            -50.0, 50.0, DEFAULT_BUY_FORMULA_PARAM_B, 0.01, "¢/kWh",
+            "mdi:alpha-b-circle", NumberMode.BOX
         ),
         CEWNumber(
             hass, config_entry, "battery_rte", "Battery RTE",
@@ -141,6 +142,38 @@ async def async_setup_entry(
             "Battery Min SOC Aggressive Discharge",
             0, 100, DEFAULT_BATTERY_MIN_SOC_AGGRESSIVE_DISCHARGE, 1, "%",
             "mdi:battery-alert", NumberMode.BOX
+        ),
+        CEWNumber(
+            hass, config_entry, "min_sell_price", "Minimum Sell Price",
+            -0.5, 1.0, DEFAULT_MIN_SELL_PRICE, 0.01, "EUR/kWh",
+            "mdi:cash-lock", NumberMode.BOX
+        ),
+        # Sell formula parameters (generic A, B for different formulas)
+        CEWNumber(
+            hass, config_entry, "sell_formula_param_a", "Sell Formula Param A",
+            -10.0, 10.0, DEFAULT_SELL_FORMULA_PARAM_A, 0.001, "",
+            "mdi:alpha-a-circle", NumberMode.BOX
+        ),
+        CEWNumber(
+            hass, config_entry, "sell_formula_param_b", "Sell Formula Param B",
+            -50.0, 50.0, DEFAULT_SELL_FORMULA_PARAM_B, 0.01, "¢/kWh",
+            "mdi:alpha-b-circle", NumberMode.BOX
+        ),
+        # Netherlands formula parameters (VAT/tax/additional cost)
+        CEWNumber(
+            hass, config_entry, "vat", "VAT Rate",
+            0, 100, DEFAULT_VAT_RATE, 1, "%",
+            "mdi:percent", NumberMode.BOX
+        ),
+        CEWNumber(
+            hass, config_entry, "tax", "Energy Tax",
+            0, 1.0, DEFAULT_TAX, 0.001, "EUR/kWh",
+            "mdi:cash-plus", NumberMode.BOX
+        ),
+        CEWNumber(
+            hass, config_entry, "additional_cost", "Additional Cost",
+            0, 1.0, DEFAULT_ADDITIONAL_COST, 0.001, "EUR/kWh",
+            "mdi:cash-plus", NumberMode.BOX
         ),
     ])
 
@@ -202,8 +235,12 @@ class CEWNumber(NumberEntity):
         self._attr_mode = mode
         self._attr_has_entity_name = False
 
-        # Load value from config entry options, fallback to initial
-        self._attr_native_value = config_entry.options.get(key, initial_value)
+        # Load value from config entry options, with fallback to data for backwards compatibility
+        # (values may be in data for existing installations that haven't been migrated)
+        self._attr_native_value = config_entry.options.get(
+            key,
+            config_entry.data.get(key, initial_value)
+        )
 
     @property
     def entity_registry_enabled_default(self) -> bool:

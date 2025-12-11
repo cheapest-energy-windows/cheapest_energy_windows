@@ -205,10 +205,10 @@ class CEWText(TextEntity):
 
         self.async_write_ha_state()
 
-        # Only trigger coordinator update for price sensor entity changes
-        # Battery sensor entities are just for display/tracking
-        if self._key == "price_sensor_entity":
+        # Trigger coordinator update for calculation-affecting text entities
+        if self._key in CALCULATION_AFFECTING_KEYS or self._key == "price_sensor_entity":
             if DOMAIN in self.hass.data and self._config_entry.entry_id in self.hass.data[DOMAIN]:
                 coordinator = self.hass.data[DOMAIN][self._config_entry.entry_id].get("coordinator")
                 if coordinator:
+                    _LOGGER.debug(f"Text {self._key} affects calculations, triggering coordinator refresh")
                     await coordinator.async_request_refresh()

@@ -60,6 +60,8 @@ from .const import (
     ATTR_CURRENT_PRICE,
     ATTR_PRICE_OVERRIDE_ACTIVE,
     ATTR_TIME_OVERRIDE_ACTIVE,
+    ATTR_CURRENT_SELL_PRICE,
+    ATTR_SELL_PRICE_COUNTRY,
 )
 from .coordinator import CEWCoordinator
 
@@ -361,6 +363,12 @@ class CEWTodaySensor(CEWBaseSensor):
             ATTR_AVG_CHEAP_PRICE: result.get("avg_cheap_price", 0.0),
             ATTR_AVG_EXPENSIVE_PRICE: result.get("avg_expensive_price", 0.0),
             ATTR_CURRENT_PRICE: result.get("current_price", 0.0),
+            ATTR_CURRENT_SELL_PRICE: result.get("current_sell_price", 0.0),
+            ATTR_SELL_PRICE_COUNTRY: result.get("price_country", "none"),
+            "sell_formula_param_a": result.get("sell_formula_param_a", 0.1),
+            "sell_formula_param_b": result.get("sell_formula_param_b", 0.0),
+            "expensive_sell_prices": result.get("expensive_sell_prices", []),
+            "actual_discharge_sell_prices": result.get("actual_discharge_sell_prices", []),
             ATTR_PRICE_OVERRIDE_ACTIVE: result.get("price_override_active", False),
             ATTR_TIME_OVERRIDE_ACTIVE: result.get("time_override_active", False),
             "last_config_update": last_config_update.isoformat() if last_config_update else None,
@@ -493,6 +501,12 @@ class CEWTomorrowSensor(CEWBaseSensor):
             ATTR_SPREAD_MET: result.get("spread_met", False),
             ATTR_AVG_CHEAP_PRICE: result.get("avg_cheap_price", 0.0),
             ATTR_AVG_EXPENSIVE_PRICE: result.get("avg_expensive_price", 0.0),
+            ATTR_CURRENT_SELL_PRICE: result.get("current_sell_price", 0.0),
+            ATTR_SELL_PRICE_COUNTRY: result.get("price_country", "none"),
+            "sell_formula_param_a": result.get("sell_formula_param_a", 0.1),
+            "sell_formula_param_b": result.get("sell_formula_param_b", 0.0),
+            "expensive_sell_prices": result.get("expensive_sell_prices", []),
+            "actual_discharge_sell_prices": result.get("actual_discharge_sell_prices", []),
             ATTR_PLANNED_TOTAL_COST: result.get("planned_total_cost", 0.0),
             "last_config_update": last_config_update.isoformat() if last_config_update else None,
         }
@@ -521,6 +535,9 @@ class CEWPriceSensorProxy(SensorEntity):
         self._attr_has_entity_name = False
         self._attr_native_value = None
         self._attr_extra_state_attributes = {}
+
+        # Calculation engine for price calculations
+        self._calculation_engine = WindowCalculationEngine()
 
         _LOGGER.debug("Price sensor proxy initialized")
 
@@ -601,6 +618,86 @@ class CEWPriceSensorProxy(SensorEntity):
 
         return normalized
 
+    def _calculate_prices(self, raw_prices: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Calculate buy prices using the configured formula.
+
+        Args:
+            raw_prices: List of raw price data with 'start', 'end', 'value' keys
+
+        Returns:
+            List of calculated prices with same structure as input
+        """
+        if not raw_prices:
+            return []
+
+        # Get current config from coordinator
+        config = self.coordinator.data.get("config", {}) if self.coordinator.data else {}
+
+        # Extract parameters needed by _calculate_buy_price
+        country = config.get("price_country", "netherlands")
+        param_a = config.get("buy_formula_param_a", 0.1)
+        param_b = config.get("buy_formula_param_b", 0.0)
+        vat = config.get("vat", 21)
+        tax = config.get("tax", 0.12286)
+        additional_cost = config.get("additional_cost", 0.02398)
+
+        calculated = []
+        for item in raw_prices:
+            spot_price = item.get("value", 0)
+
+            # Use calculation engine's buy price method with all required parameters
+            calculated_price = self._calculation_engine._calculate_buy_price(
+                spot_price, country, param_a, param_b, vat, tax, additional_cost
+            )
+
+            calculated.append({
+                "start": item.get("start"),
+                "end": item.get("end"),
+                "value": calculated_price
+            })
+
+        return calculated
+
+    def _calculate_sell_prices(self, raw_prices: List[Dict[str, Any]], buy_prices: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Calculate sell prices using the configured formula.
+
+        Args:
+            raw_prices: List of raw spot price data
+            buy_prices: List of calculated buy prices (needed for sell calculation)
+
+        Returns:
+            List of calculated sell prices with same structure
+        """
+        if not raw_prices or not buy_prices:
+            return []
+
+        # Get current config from coordinator
+        config = self.coordinator.data.get("config", {}) if self.coordinator.data else {}
+
+        # Extract parameters needed by _calculate_sell_price
+        sell_country = config.get("price_country", "netherlands")
+        sell_param_a = config.get("sell_formula_param_a", 0.1)
+        sell_param_b = config.get("sell_formula_param_b", 0.0)
+
+        calculated = []
+        for idx, item in enumerate(raw_prices):
+            if idx < len(buy_prices):
+                spot_price = item.get("value", 0)
+                buy_price = buy_prices[idx].get("value", 0)
+
+                # Use calculation engine's sell price method
+                calculated_sell_price = self._calculation_engine._calculate_sell_price(
+                    spot_price, buy_price, sell_country, sell_param_a, sell_param_b
+                )
+
+                calculated.append({
+                    "start": item.get("start"),
+                    "end": item.get("end"),
+                    "value": calculated_sell_price
+                })
+
+        return calculated
+
     @callback
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
@@ -642,7 +739,28 @@ class CEWPriceSensorProxy(SensorEntity):
             _LOGGER.warning(f"Unknown price sensor format from {price_sensor_id}, passing through as-is")
             self._attr_extra_state_attributes = dict(price_sensor.attributes)
 
+        # Add calculated prices using the configured formula
+        raw_today = self._attr_extra_state_attributes.get("raw_today", [])
+        raw_tomorrow = self._attr_extra_state_attributes.get("raw_tomorrow", [])
+
+        calculated_buy_today = self._calculate_prices(raw_today)
+        calculated_buy_tomorrow = self._calculate_prices(raw_tomorrow)
+
+        self._attr_extra_state_attributes["calculated_today"] = calculated_buy_today
+        self._attr_extra_state_attributes["calculated_tomorrow"] = calculated_buy_tomorrow
+
+        # Calculate sell prices (uses buy prices as input)
+        calculated_sell_today = self._calculate_sell_prices(raw_today, calculated_buy_today)
+        calculated_sell_tomorrow = self._calculate_sell_prices(raw_tomorrow, calculated_buy_tomorrow)
+
+        self._attr_extra_state_attributes["calculated_sell_today"] = calculated_sell_today
+        self._attr_extra_state_attributes["calculated_sell_tomorrow"] = calculated_sell_tomorrow
+
         _LOGGER.debug(f"Proxy sensor updated from {price_sensor_id}, state: {self._attr_native_value}")
+        _LOGGER.debug(f"Calculated {len(calculated_buy_today)} buy prices today, "
+                     f"{len(calculated_buy_tomorrow)} buy prices tomorrow, "
+                     f"{len(calculated_sell_today)} sell prices today, "
+                     f"{len(calculated_sell_tomorrow)} sell prices tomorrow")
         self.async_write_ha_state()
 
     async def async_added_to_hass(self) -> None:

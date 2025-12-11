@@ -15,6 +15,9 @@ from .const import (
     LOGGER_NAME,
     PREFIX,
     VERSION,
+    PRICE_COUNTRY_OPTIONS,
+    DEFAULT_PRICE_COUNTRY,
+    PRICE_COUNTRY_DISPLAY_NAMES,
 )
 
 _LOGGER = logging.getLogger(LOGGER_NAME)
@@ -38,6 +41,7 @@ async def async_setup_entry(
         ("base_usage_idle_strategy", "Base Usage: During Idle", ["battery_covers", "grid_covers"], "battery_covers", "mdi:home-lightning-bolt"),
         ("base_usage_discharge_strategy", "Base Usage: During Discharge", ["already_included", "subtract_base"], "subtract_base", "mdi:battery-arrow-down"),
         ("base_usage_aggressive_strategy", "Base Usage: During Aggressive Discharge", ["same_as_discharge", "already_included", "subtract_base"], "same_as_discharge", "mdi:battery-alert"),
+        ("price_country", "Price Formula", PRICE_COUNTRY_OPTIONS, DEFAULT_PRICE_COUNTRY, "mdi:map-marker"),
     ]
 
     for key, name, options, default, icon in select_configs:
@@ -71,12 +75,16 @@ class CEWSelect(SelectEntity):
         self._attr_icon = icon
         self._attr_has_entity_name = False
 
-        # Set translation key for base_usage strategies to enable HA's native option translations
+        # Set translation key to enable HA's native option translations
         if key.startswith("base_usage_"):
             self._attr_translation_key = key
 
-        # Load value from config entry options, fallback to default
-        self._attr_current_option = config_entry.options.get(key, default)
+        # Load value from config entry options, with fallback to data for backwards compatibility
+        # (values may be in data for existing installations that haven't been migrated)
+        self._attr_current_option = config_entry.options.get(
+            key,
+            config_entry.data.get(key, default)
+        )
         if self._attr_current_option not in options:
             self._attr_current_option = default
 
@@ -91,13 +99,27 @@ class CEWSelect(SelectEntity):
             "sw_version": VERSION,
         }
 
+    @property
+    def state(self) -> str | None:
+        """Return the entity state (display value for price_country)."""
+        if self._key == "price_country":
+            return PRICE_COUNTRY_DISPLAY_NAMES.get(self._attr_current_option, self._attr_current_option)
+        return self._attr_current_option
+
     async def async_select_option(self, option: str) -> None:
         """Change the selected option."""
-        self._attr_current_option = option
+        # For price_country, check if option is a display name and convert to internal
+        internal_value = option
+        if self._key == "price_country":
+            # Reverse lookup: display name -> internal value
+            reverse_map = {v: k for k, v in PRICE_COUNTRY_DISPLAY_NAMES.items()}
+            internal_value = reverse_map.get(option, option)
 
-        # Save to config entry options
+        self._attr_current_option = internal_value
+
+        # Save internal value to config entry options
         new_options = dict(self._config_entry.options)
-        new_options[self._key] = option
+        new_options[self._key] = internal_value
         self.hass.config_entries.async_update_entry(
             self._config_entry,
             options=new_options

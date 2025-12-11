@@ -49,6 +49,8 @@ async def async_setup_entry(
         ("notify_idle", "Notify Idle", True, "mdi:battery"),
         ("notify_off", "Notify Off", True, "mdi:battery-off"),
         ("battery_use_soc_safety", "Battery Use SOC Safety", False, "mdi:shield-battery"),
+        ("use_min_sell_price", "Use Minimum Sell Price", False, "mdi:cash-check"),
+        ("min_sell_price_bypass_spread", "Min Sell Price Bypasses Spread", False, "mdi:skip-forward"),
     ]
 
     for key, name, default, icon in switch_configs:
@@ -80,8 +82,12 @@ class CEWSwitch(SwitchEntity):
         self._attr_icon = icon
         self._attr_has_entity_name = False
 
-        # Load value from config entry options, fallback to default
-        self._attr_is_on = config_entry.options.get(key, default)
+        # Load value from config entry options, with fallback to data for backwards compatibility
+        # (values may be in data for existing installations that haven't been migrated)
+        self._attr_is_on = config_entry.options.get(
+            key,
+            config_entry.data.get(key, default)
+        )
 
     @property
     def device_info(self):

@@ -18,21 +18,41 @@
           "price_sensor": "Price Sensor"
         },
         "data_description": {
-          "price_sensor": "The sensor must have 'raw_today' attribute with hourly/15-minute price data"
+          "price_sensor": "Select the Nordpool sensor that provides your electricity price data"
         }
       },
-      "costs": {
-        "title": "Configure Cost Parameters",
-        "description": "Set up your electricity cost parameters.",
+      "buy_price": {
+        "title": "Buy Price Configuration",
+        "description": "{info}",
         "data": {
-          "vat_rate": "VAT Rate",
-          "tax": "Tax per kWh (EUR)",
-          "additional_cost": "Additional Cost per kWh (EUR)"
+          "buy_price_country": "Buy Price Formula",
+          "buy_formula_param_a": "Formula Param A",
+          "buy_formula_param_b": "Formula Param B"
         },
         "data_description": {
-          "vat_rate": "VAT rate as decimal (e.g., 0.21 for 21%)",
-          "tax": "Fixed tax amount per kWh in EUR",
-          "additional_cost": "Additional costs per kWh in EUR (grid fees, etc.)"
+          "buy_price_country": "Select the formula to calculate your buy price",
+          "buy_formula_param_a": "Multiplier for spot price (0.1 = converts MWh to kWh)",
+          "buy_formula_param_b": "Offset in cents/kWh"
+        }
+      },
+      "sell_price": {
+        "title": "Sell Price Configuration",
+        "description": "{info}",
+        "data": {
+          "sell_price_country": "Sell Price Formula",
+          "sell_formula_param_a": "Formula Param A",
+          "sell_formula_param_b": "Formula Param B",
+          "use_min_sell_price": "Enable Minimum Sell Price",
+          "min_sell_price": "Minimum Sell Price",
+          "min_sell_price_bypass_spread": "Bypass Spread When Min Price Met"
+        },
+        "data_description": {
+          "sell_price_country": "Select the formula to calculate your sell price",
+          "sell_formula_param_a": "Multiplier for spot price (Belgium: 0.1 = converts MWh to kWh)",
+          "sell_formula_param_b": "Offset in cents/kWh (Belgium: -1.15)",
+          "use_min_sell_price": "Only discharge when sell price exceeds the minimum",
+          "min_sell_price": "Minimum price required to allow discharge (EUR/kWh)",
+          "min_sell_price_bypass_spread": "When enabled, discharge whenever price exceeds minimum (ignores spread)"
         }
       },
       "base_usage": {
@@ -141,7 +161,7 @@
         "data": {}
       },
       "confirm": {
-        "title": "Confirm Configuration",
+        "title": "Confirm Setup",
         "description": "{summary}",
         "data": {}
       },
@@ -169,9 +189,7 @@
         "description": "Adjust the configuration for Cheapest Energy Windows",
         "data": {
           "price_sensor": "Price Sensor",
-          "vat_rate": "VAT Rate",
-          "tax": "Tax per kWh (EUR)",
-          "additional_cost": "Additional Cost per kWh (EUR)"
+          "buy_price_country": "Buy Price Formula"
         }
       }
     }
@@ -225,6 +243,43 @@
           "subtract_base": "House first, export remainder",
           "already_included": "Export full discharge power"
         }
+      },
+      "buy_price_country": {
+        "name": "Buy Price Formula",
+        "state": {
+          "netherlands": "Netherlands",
+          "belgium_engie": "Belgium (Engie)",
+          "other": "Other / Not Listed"
+        }
+      },
+      "sell_price_country": {
+        "name": "Sell Price Formula",
+        "state": {
+          "netherlands": "Netherlands",
+          "belgium_engie": "Belgium (Engie)",
+          "other": "Other / Not Listed"
+        }
+      },
+      "vat": {
+        "name": "VAT Rate"
+      },
+      "tax": {
+        "name": "Energy Tax"
+      },
+      "additional_cost": {
+        "name": "Additional Cost"
+      },
+      "sell_formula_param_a": {
+        "name": "Sell Formula Param A"
+      },
+      "sell_formula_param_b": {
+        "name": "Sell Formula Param B"
+      },
+      "buy_formula_param_a": {
+        "name": "Buy Formula Param A"
+      },
+      "buy_formula_param_b": {
+        "name": "Buy Formula Param B"
       }
     }
   },
@@ -258,6 +313,20 @@
         "same_as_discharge": "Same as discharge strategy",
         "subtract_base": "House first, export remainder",
         "already_included": "Export full discharge power"
+      }
+    },
+    "buy_price_country": {
+      "options": {
+        "netherlands": "Netherlands",
+        "belgium_engie": "Belgium (Engie)",
+        "other": "Other / Not Listed"
+      }
+    },
+    "sell_price_country": {
+      "options": {
+        "netherlands": "Netherlands",
+        "belgium_engie": "Belgium (Engie)",
+        "other": "Other / Not Listed"
       }
     }
   }

@@ -15,29 +15,46 @@ import homeassistant.helpers.config_validation as cv
 from .const import (
     DOMAIN,
     CONF_PRICE_SENSOR,
-    CONF_VAT_RATE,
-    CONF_TAX,
-    CONF_ADDITIONAL_COST,
     CONF_BASE_USAGE,
     CONF_BASE_USAGE_CHARGE_STRATEGY,
     CONF_BASE_USAGE_IDLE_STRATEGY,
     CONF_BASE_USAGE_DISCHARGE_STRATEGY,
     CONF_BASE_USAGE_AGGRESSIVE_STRATEGY,
+    CONF_PRICE_COUNTRY,
+    CONF_BUY_FORMULA_PARAM_A,
+    CONF_BUY_FORMULA_PARAM_B,
+    CONF_MIN_SELL_PRICE,
+    CONF_USE_MIN_SELL_PRICE,
+    CONF_MIN_SELL_PRICE_BYPASS_SPREAD,
+    CONF_SELL_FORMULA_PARAM_A,
+    CONF_SELL_FORMULA_PARAM_B,
     CONF_BATTERY_SYSTEM_NAME,
     CONF_BATTERY_SOC_SENSOR,
     CONF_BATTERY_ENERGY_SENSOR,
     CONF_BATTERY_CHARGE_SENSOR,
     CONF_BATTERY_DISCHARGE_SENSOR,
     CONF_BATTERY_POWER_SENSOR,
+    CONF_VAT_RATE,
+    CONF_TAX,
+    CONF_ADDITIONAL_COST,
     DEFAULT_PRICE_SENSOR,
-    DEFAULT_VAT_RATE,
-    DEFAULT_TAX,
-    DEFAULT_ADDITIONAL_COST,
     DEFAULT_BASE_USAGE,
     DEFAULT_BASE_USAGE_CHARGE_STRATEGY,
     DEFAULT_BASE_USAGE_IDLE_STRATEGY,
     DEFAULT_BASE_USAGE_DISCHARGE_STRATEGY,
     DEFAULT_BASE_USAGE_AGGRESSIVE_STRATEGY,
+    DEFAULT_PRICE_COUNTRY,
+    DEFAULT_BUY_FORMULA_PARAM_A,
+    DEFAULT_BUY_FORMULA_PARAM_B,
+    DEFAULT_MIN_SELL_PRICE,
+    DEFAULT_USE_MIN_SELL_PRICE,
+    DEFAULT_MIN_SELL_PRICE_BYPASS_SPREAD,
+    DEFAULT_SELL_FORMULA_PARAM_A,
+    DEFAULT_SELL_FORMULA_PARAM_B,
+    DEFAULT_VAT_RATE,
+    DEFAULT_TAX,
+    DEFAULT_ADDITIONAL_COST,
+    PRICE_COUNTRY_OPTIONS,
     BASE_USAGE_CHARGE_OPTIONS,
     BASE_USAGE_IDLE_OPTIONS,
     BASE_USAGE_DISCHARGE_OPTIONS,
@@ -128,7 +145,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             try:
                 await validate_input(self.hass, user_input)
                 self.data.update(user_input)
-                return await self.async_step_costs()
+                return await self.async_step_price_formulas()
             except ValueError as e:
                 errors["base"] = "invalid_price_sensor"
                 _LOGGER.error(f"Price sensor validation failed: {e}")
@@ -195,31 +212,122 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             },
         )
 
-    async def async_step_costs(
+    async def async_step_price_formulas(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Configure cost parameters."""
+        """Configure pricing formulas for both buy and sell."""
         if user_input is not None:
             self.data.update(user_input)
             return await self.async_step_base_usage()
 
         return self.async_show_form(
-            step_id="costs",
+            step_id="price_formulas",
             data_schema=vol.Schema({
-                vol.Required(CONF_VAT_RATE, default=DEFAULT_VAT_RATE): vol.All(
-                    vol.Coerce(float), vol.Range(min=0, max=1)
+                # Unified country selector (applies to both buy and sell)
+                vol.Optional(CONF_PRICE_COUNTRY, default=DEFAULT_PRICE_COUNTRY): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[
+                            {"label": "Netherlands", "value": "netherlands"},
+                            {"label": "Belgium (ENGIE)", "value": "belgium_engie"},
+                            {"label": "Other / Custom", "value": "other"},
+                        ],
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                        translation_key="price_country",
+                    )
                 ),
-                vol.Required(CONF_TAX, default=DEFAULT_TAX): vol.All(
-                    vol.Coerce(float), vol.Range(min=0, max=1)
+                # Buy formula parameters
+                vol.Optional(CONF_BUY_FORMULA_PARAM_A, default=DEFAULT_BUY_FORMULA_PARAM_A): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=-10.0,
+                        max=10.0,
+                        step=0.001,
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
                 ),
-                vol.Required(CONF_ADDITIONAL_COST, default=DEFAULT_ADDITIONAL_COST): vol.All(
-                    vol.Coerce(float), vol.Range(min=0, max=1)
+                vol.Optional(CONF_BUY_FORMULA_PARAM_B, default=DEFAULT_BUY_FORMULA_PARAM_B): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=-50.0,
+                        max=50.0,
+                        step=0.01,
+                        unit_of_measurement="¢/kWh",
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
                 ),
+                # Sell formula parameters
+                vol.Optional(CONF_SELL_FORMULA_PARAM_A, default=DEFAULT_SELL_FORMULA_PARAM_A): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=-10.0,
+                        max=10.0,
+                        step=0.001,
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Optional(CONF_SELL_FORMULA_PARAM_B, default=DEFAULT_SELL_FORMULA_PARAM_B): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=-50.0,
+                        max=50.0,
+                        step=0.01,
+                        unit_of_measurement="¢/kWh",
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                ),
+                # Netherlands-specific fields (apply to both buy and sell)
+                vol.Optional(CONF_VAT_RATE, default=DEFAULT_VAT_RATE): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0,
+                        max=100,
+                        step=1,
+                        unit_of_measurement="%",
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Optional(CONF_TAX, default=DEFAULT_TAX): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0,
+                        max=1.0,
+                        step=0.001,
+                        unit_of_measurement="EUR/kWh",
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Optional(CONF_ADDITIONAL_COST, default=DEFAULT_ADDITIONAL_COST): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0,
+                        max=1.0,
+                        step=0.001,
+                        unit_of_measurement="EUR/kWh",
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                ),
+                # Sell-specific settings
+                vol.Optional(CONF_USE_MIN_SELL_PRICE, default=DEFAULT_USE_MIN_SELL_PRICE): selector.BooleanSelector(),
+                vol.Optional(CONF_MIN_SELL_PRICE, default=DEFAULT_MIN_SELL_PRICE): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=-0.5,
+                        max=1.0,
+                        step=0.01,
+                        unit_of_measurement="EUR/kWh",
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Optional(CONF_MIN_SELL_PRICE_BYPASS_SPREAD, default=DEFAULT_MIN_SELL_PRICE_BYPASS_SPREAD): selector.BooleanSelector(),
             }),
             description_placeholders={
-                "vat_help": "VAT rate as decimal (e.g., 0.21 for 21%)",
-                "tax_help": "Tax per kWh in EUR",
-                "cost_help": "Additional costs per kWh in EUR",
+                "info": "💰 **Price Formula Configuration**\n\n"
+                       "Configure pricing formulas for both buy and sell prices.\n\n"
+                       "**Country Selection:**\n"
+                       "Select your country once - it applies to both buy and sell calculations.\n\n"
+                       "**Netherlands**: Includes VAT, energy tax, and additional costs (applied to both buy and sell)\n"
+                       "**Belgium (ENGIE)**: Uses dynamic formula with separate buy/sell parameters\n"
+                       "**Other/Custom**: Configure custom formula parameters\n\n"
+                       "**Formula Parameters:**\n"
+                       "• **Buy Param A/B**: Controls buy price calculation\n"
+                       "• **Sell Param A/B**: Controls sell price calculation\n"
+                       "• **VAT Rate**: Value-added tax percentage (Netherlands)\n"
+                       "• **Energy Tax**: Fixed tax per kWh (Netherlands)\n"
+                       "• **Additional Cost**: Extra costs per kWh (Netherlands)\n\n"
+                       "**Minimum Sell Price:**\n"
+                       "Only discharge when sell price exceeds this threshold."
             },
         )
 
@@ -228,7 +336,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     ) -> FlowResult:
         """Configure base usage tracking."""
         if user_input is not None:
-            self.data.update(user_input)
+            self.options.update(user_input)
             return await self.async_step_power()
 
         return self.async_show_form(
@@ -617,12 +725,14 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         automation_created = self.options.get("_automation_created", False)
         automation_message = self.options.get("_automation_message", "")
 
+        buy_country = self.data.get(CONF_BUY_PRICE_COUNTRY, DEFAULT_BUY_PRICE_COUNTRY)
+        sell_country = self.data.get(CONF_SELL_PRICE_COUNTRY, DEFAULT_SELL_PRICE_COUNTRY)
+
         summary = f"""
 Configuration Summary:
 - Price Sensor: {self.data.get(CONF_PRICE_SENSOR, DEFAULT_PRICE_SENSOR)}
-- VAT Rate: {self.data.get(CONF_VAT_RATE, DEFAULT_VAT_RATE) * 100:.0f}%
-- Tax: €{self.data.get(CONF_TAX, DEFAULT_TAX):.5f}/kWh
-- Additional Cost: €{self.data.get(CONF_ADDITIONAL_COST, DEFAULT_ADDITIONAL_COST):.5f}/kWh
+- Buy Price Formula: {buy_country}
+- Sell Price Formula: {sell_country}
 - Charge Power: {charge_power}W
 - Discharge Power: {discharge_power}W
 - Pricing Duration: {pricing_duration.replace('_', ' ').title()}
@@ -632,13 +742,13 @@ Configuration Summary:
 
 This will create:
 - 2 sensors (CEW Today, CEW Tomorrow)
-- 27 number entities (pricing, power, battery config)
+- 26 number entities (pricing, power, battery config)
 - 26 switch entities (automation toggles, battery display)
-- 7 select entities (modes, duration)
+- 8 select entities (modes, duration, price formulas)
 - 6 time entities (schedules, overrides)
 - 6 text entities (sensor entity IDs, battery config)
 
-Total: 71 entities
+Total: 74 entities
 """
 
         if automation_created:
@@ -731,25 +841,21 @@ class CEWOptionsFlow(config_entries.OptionsFlow):
                     )
                 ),
                 vol.Optional(
-                    CONF_VAT_RATE,
+                    CONF_PRICE_COUNTRY,
                     default=options.get(
-                        CONF_VAT_RATE,
-                        self.config_entry.data.get(CONF_VAT_RATE, DEFAULT_VAT_RATE)
+                        CONF_PRICE_COUNTRY,
+                        self.config_entry.data.get(CONF_PRICE_COUNTRY, DEFAULT_PRICE_COUNTRY)
                     ),
-                ): vol.All(vol.Coerce(float), vol.Range(min=0, max=1)),
-                vol.Optional(
-                    CONF_TAX,
-                    default=options.get(
-                        CONF_TAX,
-                        self.config_entry.data.get(CONF_TAX, DEFAULT_TAX)
-                    ),
-                ): vol.All(vol.Coerce(float), vol.Range(min=0, max=1)),
-                vol.Optional(
-                    CONF_ADDITIONAL_COST,
-                    default=options.get(
-                        CONF_ADDITIONAL_COST,
-                        self.config_entry.data.get(CONF_ADDITIONAL_COST, DEFAULT_ADDITIONAL_COST)
-                    ),
-                ): vol.All(vol.Coerce(float), vol.Range(min=0, max=1)),
+                ): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[
+                            {"label": "Netherlands", "value": "netherlands"},
+                            {"label": "Belgium (ENGIE)", "value": "belgium_engie"},
+                            {"label": "Other / Custom", "value": "other"},
+                        ],
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                        translation_key="price_country",
+                    )
+                ),
             }),
         )
