@@ -1260,7 +1260,7 @@ class WindowCalculationEngine:
                 # Only net export goes to grid (discharge - base_usage)
                 planned_exported_kwh += duration_hours * max(0, discharge_power - base_usage)
 
-        planned_net_kwh = round(planned_usable_kwh - planned_exported_kwh, 3)
+        planned_net_kwh = round(planned_exported_kwh, 3)  # Net discharge = exported to grid
 
         # Calculate sell prices for discharge windows
         def get_sell_price_for_window(w):
