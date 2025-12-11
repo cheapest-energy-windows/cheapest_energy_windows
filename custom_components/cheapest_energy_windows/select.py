@@ -16,8 +16,9 @@ from .const import (
     PREFIX,
     VERSION,
     PRICE_COUNTRY_OPTIONS,
-    DEFAULT_PRICE_COUNTRY,
     PRICE_COUNTRY_DISPLAY_NAMES,
+    PRICE_COUNTRY_TO_INTERNAL,
+    PRICE_COUNTRY_NETHERLANDS_DISPLAY,
 )
 
 _LOGGER = logging.getLogger(LOGGER_NAME)
@@ -41,7 +42,7 @@ async def async_setup_entry(
         ("base_usage_idle_strategy", "Base Usage: During Idle", ["battery_covers", "grid_covers"], "battery_covers", "mdi:home-lightning-bolt"),
         ("base_usage_discharge_strategy", "Base Usage: During Discharge", ["already_included", "subtract_base"], "subtract_base", "mdi:battery-arrow-down"),
         ("base_usage_aggressive_strategy", "Base Usage: During Aggressive Discharge", ["same_as_discharge", "already_included", "subtract_base"], "same_as_discharge", "mdi:battery-alert"),
-        ("price_country", "Price Formula", PRICE_COUNTRY_OPTIONS, DEFAULT_PRICE_COUNTRY, "mdi:map-marker"),
+        ("price_country", "Price Formula", PRICE_COUNTRY_OPTIONS, PRICE_COUNTRY_NETHERLANDS_DISPLAY, "mdi:map-marker"),
     ]
 
     for key, name, options, default, icon in select_configs:
@@ -81,10 +82,18 @@ class CEWSelect(SelectEntity):
 
         # Load value from config entry options, with fallback to data for backwards compatibility
         # (values may be in data for existing installations that haven't been migrated)
-        self._attr_current_option = config_entry.options.get(
+        stored_value = config_entry.options.get(
             key,
             config_entry.data.get(key, default)
         )
+
+        # For price_country, convert stored internal value to display name
+        if key == "price_country":
+            # Convert internal value (e.g., "netherlands") to display name (e.g., "Netherlands")
+            self._attr_current_option = PRICE_COUNTRY_DISPLAY_NAMES.get(stored_value, stored_value)
+        else:
+            self._attr_current_option = stored_value
+
         if self._attr_current_option not in options:
             self._attr_current_option = default
 
@@ -101,25 +110,26 @@ class CEWSelect(SelectEntity):
 
     @property
     def state(self) -> str | None:
-        """Return the entity state (display value for price_country)."""
-        if self._key == "price_country":
-            return PRICE_COUNTRY_DISPLAY_NAMES.get(self._attr_current_option, self._attr_current_option)
+        """Return the entity state."""
+        # For price_country, current_option is already the display name
         return self._attr_current_option
 
     async def async_select_option(self, option: str) -> None:
         """Change the selected option."""
-        # For price_country, check if option is a display name and convert to internal
-        internal_value = option
+        # For price_country, the option is a display name - store display name in entity,
+        # but save internal value to config entry
+        self._attr_current_option = option
+
+        # Determine what value to save to config entry
         if self._key == "price_country":
-            # Reverse lookup: display name -> internal value
-            reverse_map = {v: k for k, v in PRICE_COUNTRY_DISPLAY_NAMES.items()}
-            internal_value = reverse_map.get(option, option)
+            # Convert display name to internal value for storage
+            save_value = PRICE_COUNTRY_TO_INTERNAL.get(option, option)
+        else:
+            save_value = option
 
-        self._attr_current_option = internal_value
-
-        # Save internal value to config entry options
+        # Save to config entry options
         new_options = dict(self._config_entry.options)
-        new_options[self._key] = internal_value
+        new_options[self._key] = save_value
         self.hass.config_entries.async_update_entry(
             self._config_entry,
             options=new_options
