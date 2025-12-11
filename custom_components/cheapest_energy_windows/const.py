@@ -109,6 +109,25 @@ PRICE_COUNTRY_OPTIONS: Final = [
 
 DEFAULT_PRICE_COUNTRY: Final = PRICE_COUNTRY_NETHERLANDS
 
+# Formula descriptions per country - used by dashboard to display formula info
+PRICE_FORMULA_INFO: Final = {
+    PRICE_COUNTRY_NETHERLANDS: {
+        "buy_formula": "(raw × (1+VAT)) + tax + cost",
+        "sell_formula": "= buy",
+        "fields": ["vat", "tax", "additional_cost"],
+    },
+    PRICE_COUNTRY_BELGIUM_ENGIE: {
+        "buy_formula": "(A × Index + B) / 100",
+        "sell_formula": "(A × Index + B) / 100",
+        "fields": ["buy_formula_param_a", "buy_formula_param_b", "sell_formula_param_a", "sell_formula_param_b"],
+    },
+    PRICE_COUNTRY_OTHER: {
+        "buy_formula": "(A × raw + B) / 100",
+        "sell_formula": "(A × raw + B) / 100",
+        "fields": ["buy_formula_param_a", "buy_formula_param_b", "sell_formula_param_a", "sell_formula_param_b"],
+    },
+}
+
 # Sell price defaults
 DEFAULT_MIN_SELL_PRICE: Final = 0.0
 DEFAULT_USE_MIN_SELL_PRICE: Final = False
