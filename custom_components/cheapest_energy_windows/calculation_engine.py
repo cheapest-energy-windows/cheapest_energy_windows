@@ -1232,19 +1232,22 @@ class WindowCalculationEngine:
 
         planned_total_cost = round(planned_charge_cost + planned_base_usage_cost - planned_discharge_revenue, 3)
 
-        # Calculate planned net kWh available for the house
-        # This is: charged_kwh * RTE - exported_to_grid_kwh
-        # exported_to_grid depends on discharge strategy (subtract_base exports less)
-        rte = config.get("battery_rte", 85) / 100
-
-        planned_charged_kwh = 0
+        # Calculate net planned charge (accounts for battery_covers_base strategy)
+        # When battery_covers_base: battery outputs base_usage while charging, so net charge = charge_power - base_usage
+        # When grid_covers_both: full charge_power goes to battery
+        net_planned_charge_kwh = 0
         for w in actual_charge:
             duration_hours = w["duration"] / 60
-            planned_charged_kwh += duration_hours * charge_power
+            if charge_strategy == "battery_covers_base":
+                net_planned_charge_kwh += duration_hours * max(0, charge_power - base_usage)
+            else:  # grid_covers_both
+                net_planned_charge_kwh += duration_hours * charge_power
+        net_planned_charge_kwh = round(net_planned_charge_kwh, 3)
 
-        planned_usable_kwh = planned_charged_kwh * rte
-
-        planned_exported_kwh = 0
+        # Calculate net planned discharge (accounts for subtract_base strategy)
+        # When subtract_base: only net export goes to grid (discharge - base_usage)
+        # When already_included: full discharge_power goes to grid
+        net_planned_discharge_kwh = 0
         for w in actual_discharge:
             duration_hours = w["duration"] / 60
             # Determine which strategy to use based on window state
@@ -1255,12 +1258,11 @@ class WindowCalculationEngine:
 
             if strategy == "already_included":
                 # Full discharge power goes to grid
-                planned_exported_kwh += duration_hours * discharge_power
+                net_planned_discharge_kwh += duration_hours * discharge_power
             else:  # subtract_base
                 # Only net export goes to grid (discharge - base_usage)
-                planned_exported_kwh += duration_hours * max(0, discharge_power - base_usage)
-
-        planned_net_kwh = round(planned_exported_kwh, 3)  # Net discharge = exported to grid
+                net_planned_discharge_kwh += duration_hours * max(0, discharge_power - base_usage)
+        net_planned_discharge_kwh = round(net_planned_discharge_kwh, 3)
 
         # Calculate sell prices for discharge windows
         def get_sell_price_for_window(w):
@@ -1292,7 +1294,8 @@ class WindowCalculationEngine:
             "completed_base_usage_battery": round(completed_base_usage_battery, 3),
             "total_cost": round(completed_charge_cost + completed_base_usage_cost - completed_discharge_revenue, 3),
             "planned_total_cost": planned_total_cost,
-            "planned_net_kwh": planned_net_kwh,
+            "net_planned_charge_kwh": net_planned_charge_kwh,
+            "net_planned_discharge_kwh": net_planned_discharge_kwh,
             "num_windows": len(charge_windows),
             "min_spread_required": config.get("min_spread", 10),
             "spread_percentage": round(spread_pct, 1),
@@ -1345,7 +1348,8 @@ class WindowCalculationEngine:
             "completed_base_usage_battery": 0,
             "total_cost": 0,
             "planned_total_cost": 0,
-            "planned_net_kwh": 0,
+            "net_planned_charge_kwh": 0,
+            "net_planned_discharge_kwh": 0,
             "num_windows": 0,
             "min_spread_required": 0,
             "spread_percentage": 0,
