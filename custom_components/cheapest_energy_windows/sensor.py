@@ -769,6 +769,7 @@ class CEWPriceSensorProxy(SensorEntity):
         self._attr_extra_state_attributes["buy_formula_description"] = f"Buy: {formula_info['buy_formula']}"
         self._attr_extra_state_attributes["sell_formula_description"] = f"Sell: {formula_info['sell_formula']}"
         self._attr_extra_state_attributes["formula_fields"] = formula_info["fields"]
+        self._attr_extra_state_attributes["buy_equals_sell"] = (formula_info.get("sell_formula") == "= buy")
 
         _LOGGER.debug(f"Proxy sensor updated from {price_sensor_id}, state: {self._attr_native_value}")
         _LOGGER.debug(f"Calculated {len(calculated_buy_today)} buy prices today, "
