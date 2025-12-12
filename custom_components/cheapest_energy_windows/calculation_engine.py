@@ -79,8 +79,7 @@ class WindowCalculationEngine:
 
         num_charge_windows = int(config.get(f"charging_windows{suffix}", 4))
         num_discharge_windows = int(config.get(f"expensive_windows{suffix}", 4))
-        cheap_percentile = config.get(f"cheap_percentile{suffix}", 25)
-        expensive_percentile = config.get(f"expensive_percentile{suffix}", 25)
+        percentile_threshold = config.get(f"percentile_threshold{suffix}", 25)
         min_spread = config.get(f"min_spread{suffix}", 10)
         min_spread_discharge = config.get(f"min_spread_discharge{suffix}", 20)
         aggressive_spread = config.get(f"aggressive_discharge_spread{suffix}", 40)
@@ -188,7 +187,7 @@ class WindowCalculationEngine:
         charge_windows = self._find_charge_windows(
             prices_for_charge_calc,  # Use filtered prices
             num_charge_windows,
-            cheap_percentile,
+            percentile_threshold,
             min_spread,
             min_price_diff
         )
@@ -205,7 +204,7 @@ class WindowCalculationEngine:
                 prices_for_discharge_calc,
                 charge_windows,
                 num_discharge_windows,
-                expensive_percentile,
+                percentile_threshold,
                 0,  # No spread requirement when bypassing
                 0   # No price diff requirement when bypassing
             )
@@ -214,7 +213,7 @@ class WindowCalculationEngine:
                 prices_for_discharge_calc,  # Use filtered prices
                 charge_windows,
                 num_discharge_windows,
-                expensive_percentile,
+                percentile_threshold,
                 min_spread_discharge,
                 min_price_diff
             )
@@ -231,7 +230,7 @@ class WindowCalculationEngine:
             charge_windows,
             discharge_windows,
             num_discharge_windows,
-            expensive_percentile,
+            percentile_threshold,
             aggressive_spread,
             min_price_diff
         )
@@ -494,19 +493,24 @@ class WindowCalculationEngine:
         self,
         prices: List[Dict[str, Any]],
         num_windows: int,
-        cheap_percentile: float,
+        percentile_threshold: float,
         min_spread: float,
         min_price_diff: float
     ) -> List[Dict[str, Any]]:
-        """Find cheapest windows for charging."""
+        """Find cheapest windows for charging.
+
+        Uses percentile_threshold symmetrically:
+        - Candidates: prices in the bottom percentile_threshold% (cheapest)
+        - Spread comparison: against average of top percentile_threshold% (most expensive)
+        """
         if not prices or num_windows <= 0:
             return []
 
         # Convert to numpy array for efficient operations
         price_array = np.array([p["price"] for p in prices])
 
-        # Calculate percentile threshold
-        cheap_threshold = np.percentile(price_array, cheap_percentile)
+        # Calculate percentile threshold for cheap prices (bottom X%)
+        cheap_threshold = np.percentile(price_array, percentile_threshold)
 
         # Get candidates below threshold
         candidates = []
@@ -523,21 +527,26 @@ class WindowCalculationEngine:
         candidates.sort(key=lambda x: x["price"])
 
         # Progressive selection with spread check
+        # Compare against top percentile_threshold% (most expensive)
         selected = []
-        expensive_avg = np.mean(price_array[price_array > np.percentile(price_array, 100 - cheap_percentile)])
+        expensive_threshold = np.percentile(price_array, 100 - percentile_threshold)
+        expensive_prices = price_array[price_array >= expensive_threshold]
+        expensive_avg = np.mean(expensive_prices) if len(expensive_prices) > 0 else np.max(price_array)
+        expensive_max = np.max(expensive_prices) if len(expensive_prices) > 0 else np.max(price_array)
 
         for candidate in candidates:
             if len(selected) >= num_windows:
                 break
 
-            # Test spread with this window
+            # Test spread with this window (using running average)
             test_prices = [s["price"] for s in selected] + [candidate["price"]]
             cheap_avg = np.mean(test_prices)
 
-            # Calculate spread percentage
+            # Calculate spread percentage (avg-based for spread check)
+            # Calculate price diff per-window: max_expensive - this_candidate
             if cheap_avg > 0:
                 spread_pct = ((expensive_avg - cheap_avg) / cheap_avg) * 100
-                price_diff = expensive_avg - cheap_avg
+                price_diff = expensive_max - candidate["price"]  # Per-window: max sell price minus this charge price
 
                 if spread_pct >= min_spread and price_diff >= min_price_diff:
                     selected.append(candidate)
@@ -549,11 +558,16 @@ class WindowCalculationEngine:
         prices: List[Dict[str, Any]],
         charge_windows: List[Dict[str, Any]],
         num_windows: int,
-        expensive_percentile: float,
+        percentile_threshold: float,
         min_spread: float,
         min_price_diff: float
     ) -> List[Dict[str, Any]]:
-        """Find expensive windows for discharging."""
+        """Find expensive windows for discharging.
+
+        Uses percentile_threshold symmetrically:
+        - Candidates: prices in the top percentile_threshold% (most expensive)
+        - Spread comparison: against average of bottom percentile_threshold% (cheapest)
+        """
         if not prices or num_windows <= 0:
             return []
 
@@ -577,8 +591,8 @@ class WindowCalculationEngine:
         # Convert to numpy array
         price_array = np.array([p["price"] for p in available_prices])
 
-        # Calculate percentile threshold
-        expensive_threshold = np.percentile(price_array, 100 - expensive_percentile)
+        # Calculate percentile threshold for expensive prices (top X%)
+        expensive_threshold = np.percentile(price_array, 100 - percentile_threshold)
 
         # Get candidates above threshold
         candidates = []
@@ -590,24 +604,31 @@ class WindowCalculationEngine:
         candidates.sort(key=lambda x: x["price"], reverse=True)
 
         # Progressive selection with spread check
+        # Compare against bottom percentile_threshold% (cheapest)
         selected = []
         if charge_windows:
             cheap_avg = np.mean([w["price"] for w in charge_windows])
+            cheap_min = min(w["price"] for w in charge_windows)
         else:
-            cheap_avg = np.mean(price_array[price_array < np.percentile(price_array, expensive_percentile)])
+            # No charge windows - use bottom percentile_threshold% as cheap reference
+            cheap_threshold = np.percentile(price_array, percentile_threshold)
+            cheap_prices = price_array[price_array <= cheap_threshold]
+            cheap_avg = np.mean(cheap_prices) if len(cheap_prices) > 0 else np.min(price_array)
+            cheap_min = np.min(cheap_prices) if len(cheap_prices) > 0 else np.min(price_array)
 
         for candidate in candidates:
             if len(selected) >= num_windows:
                 break
 
-            # Test spread with this window
+            # Test spread with this window (using running average)
             test_prices = [s["price"] for s in selected] + [candidate["price"]]
             expensive_avg = np.mean(test_prices)
 
-            # Calculate spread percentage
+            # Calculate spread percentage (avg-based for spread check)
+            # Calculate price diff per-window: this_candidate - min_cheap
             if cheap_avg > 0:
                 spread_pct = ((expensive_avg - cheap_avg) / cheap_avg) * 100
-                price_diff = expensive_avg - cheap_avg
+                price_diff = candidate["price"] - cheap_min  # Per-window: this sell price minus min charge price
 
                 if spread_pct >= min_spread and price_diff >= min_price_diff:
                     selected.append(candidate)
@@ -620,11 +641,15 @@ class WindowCalculationEngine:
         charge_windows: List[Dict[str, Any]],
         discharge_windows: List[Dict[str, Any]],
         num_windows: int,
-        expensive_percentile: float,
+        percentile_threshold: float,
         aggressive_spread: float,
         min_price_diff: float
     ) -> List[Dict[str, Any]]:
-        """Find windows for aggressive discharge (peak prices)."""
+        """Find windows for aggressive discharge (peak prices).
+
+        Uses percentile_threshold symmetrically for spread comparison.
+        Per-window price_diff check: window["price"] - cheap_min >= threshold
+        """
         if not prices or num_windows <= 0:
             return []
 
@@ -633,14 +658,19 @@ class WindowCalculationEngine:
 
         if charge_windows:
             cheap_avg = np.mean([w["price"] for w in charge_windows])
+            cheap_min = min(w["price"] for w in charge_windows)
         else:
+            # No charge windows - use bottom percentile_threshold% as cheap reference
             price_array = np.array([p["price"] for p in prices])
-            cheap_avg = np.mean(price_array[price_array < np.percentile(price_array, expensive_percentile)])
+            cheap_threshold = np.percentile(price_array, percentile_threshold)
+            cheap_prices = price_array[price_array <= cheap_threshold]
+            cheap_avg = np.mean(cheap_prices) if len(cheap_prices) > 0 else np.min(price_array)
+            cheap_min = np.min(cheap_prices) if len(cheap_prices) > 0 else np.min(price_array)
 
         for window in discharge_windows:
             if cheap_avg > 0:
                 spread_pct = ((window["price"] - cheap_avg) / cheap_avg) * 100
-                price_diff = window["price"] - cheap_avg
+                price_diff = window["price"] - cheap_min  # Per-window: this sell price minus min charge price
 
                 if spread_pct >= aggressive_spread and price_diff >= min_price_diff:
                     candidates.append(window)

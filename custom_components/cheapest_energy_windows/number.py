@@ -18,8 +18,7 @@ from .const import (
     VERSION,
     DEFAULT_CHARGING_WINDOWS,
     DEFAULT_EXPENSIVE_WINDOWS,
-    DEFAULT_CHEAP_PERCENTILE,
-    DEFAULT_EXPENSIVE_PERCENTILE,
+    DEFAULT_PERCENTILE_THRESHOLD,
     DEFAULT_MIN_SPREAD,
     DEFAULT_MIN_SPREAD_DISCHARGE,
     DEFAULT_AGGRESSIVE_DISCHARGE_SPREAD,
@@ -66,13 +65,8 @@ async def async_setup_entry(
             "mdi:window-closed", NumberMode.BOX
         ),
         CEWNumber(
-            hass, config_entry, "cheap_percentile", "Cheap Percentile",
-            1, 50, DEFAULT_CHEAP_PERCENTILE, 1, "%",
-            "mdi:percent", NumberMode.BOX
-        ),
-        CEWNumber(
-            hass, config_entry, "expensive_percentile", "Expensive Percentile",
-            1, 50, DEFAULT_EXPENSIVE_PERCENTILE, 1, "%",
+            hass, config_entry, "percentile_threshold", "Percentile Threshold",
+            1, 50, DEFAULT_PERCENTILE_THRESHOLD, 1, "%",
             "mdi:percent", NumberMode.BOX
         ),
         CEWNumber(
@@ -181,8 +175,7 @@ async def async_setup_entry(
     tomorrow_configs = [
         ("charging_windows_tomorrow", "Charging Windows Tomorrow", DEFAULT_CHARGING_WINDOWS, 96, "windows"),
         ("expensive_windows_tomorrow", "Expensive Windows Tomorrow", DEFAULT_EXPENSIVE_WINDOWS, 96, "windows"),
-        ("cheap_percentile_tomorrow", "Cheap Percentile Tomorrow", DEFAULT_CHEAP_PERCENTILE, 50, "%"),
-        ("expensive_percentile_tomorrow", "Expensive Percentile Tomorrow", DEFAULT_EXPENSIVE_PERCENTILE, 50, "%"),
+        ("percentile_threshold_tomorrow", "Percentile Threshold Tomorrow", DEFAULT_PERCENTILE_THRESHOLD, 50, "%"),
         ("min_spread_tomorrow", "Min Spread Tomorrow", DEFAULT_MIN_SPREAD, 200, "%"),
         ("min_spread_discharge_tomorrow", "Min Spread Discharge Tomorrow", DEFAULT_MIN_SPREAD_DISCHARGE, 200, "%"),
         ("aggressive_discharge_spread_tomorrow", "Aggressive Discharge Spread Tomorrow", DEFAULT_AGGRESSIVE_DISCHARGE_SPREAD, 300, "%"),

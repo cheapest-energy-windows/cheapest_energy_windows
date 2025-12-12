@@ -282,9 +282,8 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             # Window counts
             ("charging_windows_tomorrow", "charging_windows"),
             ("expensive_windows_tomorrow", "expensive_windows"),
-            # Percentiles
-            ("cheap_percentile_tomorrow", "cheap_percentile"),
-            ("expensive_percentile_tomorrow", "expensive_percentile"),
+            # Percentile threshold
+            ("percentile_threshold_tomorrow", "percentile_threshold"),
             # Spreads
             ("min_spread_tomorrow", "min_spread"),
             ("min_spread_discharge_tomorrow", "min_spread_discharge"),

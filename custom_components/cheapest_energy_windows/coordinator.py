@@ -228,8 +228,7 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         from .const import (
             DEFAULT_CHARGING_WINDOWS,
             DEFAULT_EXPENSIVE_WINDOWS,
-            DEFAULT_CHEAP_PERCENTILE,
-            DEFAULT_EXPENSIVE_PERCENTILE,
+            DEFAULT_PERCENTILE_THRESHOLD,
             DEFAULT_MIN_SPREAD,
             DEFAULT_MIN_SPREAD_DISCHARGE,
             DEFAULT_AGGRESSIVE_DISCHARGE_SPREAD,
@@ -257,8 +256,7 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             # Today's configuration
             "charging_windows": float(options.get("charging_windows", DEFAULT_CHARGING_WINDOWS)),
             "expensive_windows": float(options.get("expensive_windows", DEFAULT_EXPENSIVE_WINDOWS)),
-            "cheap_percentile": float(options.get("cheap_percentile", DEFAULT_CHEAP_PERCENTILE)),
-            "expensive_percentile": float(options.get("expensive_percentile", DEFAULT_EXPENSIVE_PERCENTILE)),
+            "percentile_threshold": float(options.get("percentile_threshold", DEFAULT_PERCENTILE_THRESHOLD)),
             "min_spread": float(options.get("min_spread", DEFAULT_MIN_SPREAD)),
             "min_spread_discharge": float(options.get("min_spread_discharge", DEFAULT_MIN_SPREAD_DISCHARGE)),
             "aggressive_discharge_spread": float(options.get("aggressive_discharge_spread", DEFAULT_AGGRESSIVE_DISCHARGE_SPREAD)),
@@ -278,8 +276,7 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             # Tomorrow's configuration
             "charging_windows_tomorrow": float(options.get("charging_windows_tomorrow", DEFAULT_CHARGING_WINDOWS)),
             "expensive_windows_tomorrow": float(options.get("expensive_windows_tomorrow", DEFAULT_EXPENSIVE_WINDOWS)),
-            "cheap_percentile_tomorrow": float(options.get("cheap_percentile_tomorrow", DEFAULT_CHEAP_PERCENTILE)),
-            "expensive_percentile_tomorrow": float(options.get("expensive_percentile_tomorrow", DEFAULT_EXPENSIVE_PERCENTILE)),
+            "percentile_threshold_tomorrow": float(options.get("percentile_threshold_tomorrow", DEFAULT_PERCENTILE_THRESHOLD)),
             "min_spread_tomorrow": float(options.get("min_spread_tomorrow", DEFAULT_MIN_SPREAD)),
             "min_spread_discharge_tomorrow": float(options.get("min_spread_discharge_tomorrow", DEFAULT_MIN_SPREAD_DISCHARGE)),
             "aggressive_discharge_spread_tomorrow": float(options.get("aggressive_discharge_spread_tomorrow", DEFAULT_AGGRESSIVE_DISCHARGE_SPREAD)),

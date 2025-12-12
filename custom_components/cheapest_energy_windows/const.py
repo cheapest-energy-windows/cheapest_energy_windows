@@ -48,8 +48,7 @@ DEFAULT_TAX: Final = 0.12286
 DEFAULT_ADDITIONAL_COST: Final = 0.02398
 DEFAULT_CHARGING_WINDOWS: Final = 6
 DEFAULT_EXPENSIVE_WINDOWS: Final = 3
-DEFAULT_CHEAP_PERCENTILE: Final = 25
-DEFAULT_EXPENSIVE_PERCENTILE: Final = 25
+DEFAULT_PERCENTILE_THRESHOLD: Final = 25
 DEFAULT_MIN_SPREAD: Final = 30
 DEFAULT_MIN_SPREAD_DISCHARGE: Final = 30
 DEFAULT_AGGRESSIVE_DISCHARGE_SPREAD: Final = 60
@@ -222,8 +221,7 @@ CALCULATION_AFFECTING_KEYS: Final = {
     "automation_enabled",
     "charging_windows",
     "expensive_windows",
-    "cheap_percentile",
-    "expensive_percentile",
+    "percentile_threshold",
     "min_spread",
     "min_spread_discharge",
     "aggressive_discharge_spread",
@@ -276,8 +274,7 @@ CALCULATION_AFFECTING_KEYS: Final = {
     "tomorrow_settings_enabled",
     "charging_windows_tomorrow",
     "expensive_windows_tomorrow",
-    "cheap_percentile_tomorrow",
-    "expensive_percentile_tomorrow",
+    "percentile_threshold_tomorrow",
     "min_spread_tomorrow",
     "min_spread_discharge_tomorrow",
     "aggressive_discharge_spread_tomorrow",

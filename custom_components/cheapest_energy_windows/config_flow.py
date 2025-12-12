@@ -64,8 +64,7 @@ from .const import (
     DEFAULT_BATTERY_RTE,
     DEFAULT_CHARGING_WINDOWS,
     DEFAULT_EXPENSIVE_WINDOWS,
-    DEFAULT_CHEAP_PERCENTILE,
-    DEFAULT_EXPENSIVE_PERCENTILE,
+    DEFAULT_PERCENTILE_THRESHOLD,
     DEFAULT_MIN_SPREAD,
     DEFAULT_MIN_SPREAD_DISCHARGE,
     DEFAULT_AGGRESSIVE_DISCHARGE_SPREAD,
@@ -480,14 +479,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         mode=selector.NumberSelectorMode.BOX,
                     )
                 ),
-                vol.Required("cheap_percentile", default=DEFAULT_CHEAP_PERCENTILE): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=1,
-                        max=50,
-                        mode=selector.NumberSelectorMode.BOX,
-                    )
-                ),
-                vol.Required("expensive_percentile", default=DEFAULT_EXPENSIVE_PERCENTILE): selector.NumberSelector(
+                vol.Required("percentile_threshold", default=DEFAULT_PERCENTILE_THRESHOLD): selector.NumberSelector(
                     selector.NumberSelectorConfig(
                         min=1,
                         max=50,
