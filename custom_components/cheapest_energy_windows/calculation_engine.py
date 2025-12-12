@@ -196,34 +196,28 @@ class WindowCalculationEngine:
         use_min_sell = config.get("use_min_sell_price", DEFAULT_USE_MIN_SELL_PRICE)
         bypass_spread = config.get("min_sell_price_bypass_spread", DEFAULT_MIN_SELL_PRICE_BYPASS_SPREAD)
 
-        # If bypass_spread is enabled, we need different logic:
-        # Find windows that meet min_sell_price regardless of spread
-        if use_min_sell and bypass_spread:
-            # Find discharge windows without spread requirements (set min_spread to 0)
-            discharge_windows = self._find_discharge_windows(
-                prices_for_discharge_calc,
-                charge_windows,
-                num_discharge_windows,
-                percentile_threshold,
-                0,  # No spread requirement when bypassing
-                0   # No price diff requirement when bypassing
-            )
-        else:
-            discharge_windows = self._find_discharge_windows(
-                prices_for_discharge_calc,  # Use filtered prices
-                charge_windows,
-                num_discharge_windows,
-                percentile_threshold,
-                min_spread_discharge,
-                min_price_diff
-            )
+        # If bypass_spread is enabled, set discharge spread to 0% (simple and reliable)
+        effective_min_spread_discharge = 0 if bypass_spread else min_spread_discharge
+        effective_min_price_diff_discharge = 0 if bypass_spread else min_price_diff
 
-        # Apply minimum sell price filter to discharge windows
+        discharge_windows = self._find_discharge_windows(
+            prices_for_discharge_calc,  # Use filtered prices
+            charge_windows,
+            num_discharge_windows,
+            percentile_threshold,
+            effective_min_spread_discharge,
+            effective_min_price_diff_discharge
+        )
+
+        # Apply minimum sell price filter to discharge windows (only if use_min_sell is enabled)
         discharge_windows = self._filter_discharge_by_min_sell_price(
             discharge_windows,
             processed_prices,
             config
         )
+
+        # Apply same bypass logic to aggressive spread
+        effective_aggressive_spread = 0 if bypass_spread else aggressive_spread
 
         aggressive_windows = self._find_aggressive_discharge_windows(
             prices_for_discharge_calc,  # Use filtered prices for consistency
@@ -231,8 +225,8 @@ class WindowCalculationEngine:
             discharge_windows,
             num_discharge_windows,
             percentile_threshold,
-            aggressive_spread,
-            min_price_diff
+            effective_aggressive_spread,
+            effective_min_price_diff_discharge
         )
 
         # Apply minimum sell price filter to aggressive windows too
