@@ -21,38 +21,58 @@
           "price_sensor": "Select the Nordpool sensor that provides your electricity price data"
         }
       },
-      "buy_price": {
-        "title": "Buy Price Configuration",
+      "price_formulas": {
+        "title": "Select Contract Type",
         "description": "{info}",
         "data": {
-          "buy_price_country": "Buy Price Formula",
-          "buy_formula_param_a": "Formula Param A",
-          "buy_formula_param_b": "Formula Param B"
+          "price_country": "Electricity Contract Type"
         },
         "data_description": {
-          "buy_price_country": "Select the formula to calculate your buy price",
-          "buy_formula_param_a": "Multiplier for spot price (0.1 = converts MWh to kWh)",
-          "buy_formula_param_b": "Offset in cents/kWh"
+          "price_country": "Select the pricing formula that matches your energy contract"
         }
       },
-      "sell_price": {
-        "title": "Sell Price Configuration",
+      "netherlands_formulas": {
+        "title": "Netherlands Pricing",
         "description": "{info}",
         "data": {
-          "sell_price_country": "Sell Price Formula",
-          "sell_formula_param_a": "Formula Param A",
-          "sell_formula_param_b": "Formula Param B",
-          "use_min_sell_price": "Enable Minimum Sell Price",
-          "min_sell_price": "Minimum Sell Price",
-          "min_sell_price_bypass_spread": "Bypass Spread When Min Price Met"
+          "vat": "VAT Rate (BTW)",
+          "tax": "Energy Tax (Energiebelasting)",
+          "additional_cost": "Additional Cost (Opslag)"
         },
         "data_description": {
-          "sell_price_country": "Select the formula to calculate your sell price",
-          "sell_formula_param_a": "Multiplier for spot price (Belgium: 0.1 = converts MWh to kWh)",
-          "sell_formula_param_b": "Offset in cents/kWh (Belgium: -1.15)",
+          "vat": "VAT percentage (standard 21%)",
+          "tax": "Energy tax per kWh from your invoice",
+          "additional_cost": "Supplier markup and transport costs per kWh"
+        }
+      },
+      "custom_formulas": {
+        "title": "Formula Parameters",
+        "description": "{info}",
+        "data": {
+          "buy_formula_param_a": "Buy Multiplier (A)",
+          "buy_formula_param_b": "Buy Offset (B)",
+          "sell_formula_param_a": "Sell Multiplier (A)",
+          "sell_formula_param_b": "Sell Offset (B)"
+        },
+        "data_description": {
+          "buy_formula_param_a": "Multiplier for spot price when buying",
+          "buy_formula_param_b": "Fixed offset in cents/kWh added to buy price",
+          "sell_formula_param_a": "Multiplier for spot price when selling",
+          "sell_formula_param_b": "Fixed offset in cents/kWh added to sell price"
+        }
+      },
+      "sell_settings": {
+        "title": "Minimum Sell Price",
+        "description": "{info}",
+        "data": {
+          "use_min_sell_price": "Enable Minimum Sell Price",
+          "min_sell_price": "Minimum Sell Price",
+          "min_sell_price_bypass_spread": "Bypass Spread Check"
+        },
+        "data_description": {
           "use_min_sell_price": "Only discharge when sell price exceeds the minimum",
-          "min_sell_price": "Minimum price required to allow discharge (EUR/kWh)",
-          "min_sell_price_bypass_spread": "When enabled, discharge whenever price exceeds minimum (ignores spread)"
+          "min_sell_price": "Price threshold in EUR/kWh",
+          "min_sell_price_bypass_spread": "Allow discharge when price exceeds minimum, ignoring spread requirements"
         }
       },
       "base_usage": {
@@ -74,17 +94,17 @@
         }
       },
       "power": {
-        "title": "Configure Battery Power",
-        "description": "Set your battery charging and discharging power.\n\n{charge_help}\n{discharge_help}\n{rte_help}\n\n{note}",
+        "title": "Battery Power & Efficiency",
+        "description": "{info}",
         "data": {
-          "charge_power": "Charge Power (W)",
-          "discharge_power": "Discharge Power (W)",
-          "battery_rte": "Battery RTE (%)"
+          "charge_power": "Charge Power",
+          "discharge_power": "Discharge Power",
+          "battery_rte": "Round-Trip Efficiency"
         },
         "data_description": {
-          "charge_power": "Battery charging power in Watts (800W is typical for single battery)",
-          "discharge_power": "Battery discharging power in Watts (used for calculating kWh)",
-          "battery_rte": "Round-trip efficiency 50-100% (85% typical, accounts for conversion losses)"
+          "charge_power": "Maximum battery charging power in Watts",
+          "discharge_power": "Maximum battery discharging power in Watts",
+          "battery_rte": "Energy retained after full charge/discharge cycle (typically 85%)"
         }
       },
       "pricing_windows": {
@@ -187,7 +207,7 @@
         "description": "Adjust the configuration for Cheapest Energy Windows",
         "data": {
           "price_sensor": "Price Sensor",
-          "buy_price_country": "Buy Price Formula"
+          "price_country": "Price Formula"
         }
       }
     }
@@ -242,20 +262,11 @@
           "already_included": "Export full discharge power"
         }
       },
-      "buy_price_country": {
-        "name": "Buy Price Formula",
+      "price_country": {
+        "name": "Price Formula",
         "state": {
           "netherlands": "Netherlands",
-          "belgium_engie": "Belgium (Engie)",
-          "other": "Other / Not Listed"
-        }
-      },
-      "sell_price_country": {
-        "name": "Sell Price Formula",
-        "state": {
-          "netherlands": "Netherlands",
-          "belgium_engie": "Belgium (Engie)",
-          "other": "Other / Not Listed"
+          "belgium_engie": "Belgium (Engie)"
         }
       },
       "vat": {
@@ -313,18 +324,10 @@
         "already_included": "Export full discharge power"
       }
     },
-    "buy_price_country": {
+    "price_country": {
       "options": {
         "netherlands": "Netherlands",
-        "belgium_engie": "Belgium (Engie)",
-        "other": "Other / Not Listed"
-      }
-    },
-    "sell_price_country": {
-      "options": {
-        "netherlands": "Netherlands",
-        "belgium_engie": "Belgium (Engie)",
-        "other": "Other / Not Listed"
+        "belgium_engie": "Belgium (Engie)"
       }
     }
   }

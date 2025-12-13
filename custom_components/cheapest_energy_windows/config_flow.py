@@ -214,64 +214,54 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_price_formulas(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Configure pricing formulas for both buy and sell."""
+        """Step 1: Select price country/formula type."""
         if user_input is not None:
             self.data.update(user_input)
-            return await self.async_step_base_usage()
+            # Route to appropriate formula step based on country selection
+            country = user_input.get(CONF_PRICE_COUNTRY, DEFAULT_PRICE_COUNTRY)
+            if country == "netherlands":
+                return await self.async_step_netherlands_formulas()
+            else:
+                return await self.async_step_custom_formulas()
 
         return self.async_show_form(
             step_id="price_formulas",
             data_schema=vol.Schema({
-                # Unified country selector (applies to both buy and sell)
-                vol.Optional(CONF_PRICE_COUNTRY, default=DEFAULT_PRICE_COUNTRY): selector.SelectSelector(
+                vol.Required(CONF_PRICE_COUNTRY, default=DEFAULT_PRICE_COUNTRY): selector.SelectSelector(
                     selector.SelectSelectorConfig(
                         options=[
-                            {"label": "Netherlands", "value": "netherlands"},
-                            {"label": "Belgium (ENGIE)", "value": "belgium_engie"},
-                            {"label": "Other / Custom", "value": "other"},
+                            {"label": "Netherlands (VAT + Tax + Cost)", "value": "netherlands"},
+                            {"label": "Belgium (ENGIE Dynamic)", "value": "belgium_engie"},
                         ],
                         mode=selector.SelectSelectorMode.DROPDOWN,
-                        translation_key="price_country",
                     )
                 ),
-                # Buy formula parameters
-                vol.Optional(CONF_BUY_FORMULA_PARAM_A, default=DEFAULT_BUY_FORMULA_PARAM_A): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=-10.0,
-                        max=10.0,
-                        step=0.001,
-                        mode=selector.NumberSelectorMode.BOX,
-                    )
-                ),
-                vol.Optional(CONF_BUY_FORMULA_PARAM_B, default=DEFAULT_BUY_FORMULA_PARAM_B): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=-50.0,
-                        max=50.0,
-                        step=0.01,
-                        unit_of_measurement="¢/kWh",
-                        mode=selector.NumberSelectorMode.BOX,
-                    )
-                ),
-                # Sell formula parameters
-                vol.Optional(CONF_SELL_FORMULA_PARAM_A, default=DEFAULT_SELL_FORMULA_PARAM_A): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=-10.0,
-                        max=10.0,
-                        step=0.001,
-                        mode=selector.NumberSelectorMode.BOX,
-                    )
-                ),
-                vol.Optional(CONF_SELL_FORMULA_PARAM_B, default=DEFAULT_SELL_FORMULA_PARAM_B): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=-50.0,
-                        max=50.0,
-                        step=0.01,
-                        unit_of_measurement="¢/kWh",
-                        mode=selector.NumberSelectorMode.BOX,
-                    )
-                ),
-                # Netherlands-specific fields (apply to both buy and sell)
-                vol.Optional(CONF_VAT_RATE, default=DEFAULT_VAT_RATE): selector.NumberSelector(
+            }),
+            description_placeholders={
+                "info": "🌍 **Select Your Electricity Contract Type**\n\n"
+                       "Choose the pricing formula that matches your energy contract:\n\n"
+                       "**🇳🇱 Netherlands**\n"
+                       "Formula: `(spot_price × (1 + VAT)) + energy_tax + additional_cost`\n"
+                       "Best for: Dutch contracts with standard VAT, energy tax, and supplier costs\n\n"
+                       "**🇧🇪 Belgium (ENGIE)**\n"
+                       "Formula: `(A × spot_price + B) / 100`\n"
+                       "Best for: ENGIE dynamic contracts with index-linked pricing\n\n"
+                       "💡 You can adjust all parameters after installation via the dashboard."
+            },
+        )
+
+    async def async_step_netherlands_formulas(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Configure Netherlands-specific pricing parameters."""
+        if user_input is not None:
+            self.data.update(user_input)
+            return await self.async_step_sell_settings()
+
+        return self.async_show_form(
+            step_id="netherlands_formulas",
+            data_schema=vol.Schema({
+                vol.Required(CONF_VAT_RATE, default=DEFAULT_VAT_RATE): selector.NumberSelector(
                     selector.NumberSelectorConfig(
                         min=0,
                         max=100,
@@ -280,7 +270,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         mode=selector.NumberSelectorMode.BOX,
                     )
                 ),
-                vol.Optional(CONF_TAX, default=DEFAULT_TAX): selector.NumberSelector(
+                vol.Required(CONF_TAX, default=DEFAULT_TAX): selector.NumberSelector(
                     selector.NumberSelectorConfig(
                         min=0,
                         max=1.0,
@@ -289,7 +279,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         mode=selector.NumberSelectorMode.BOX,
                     )
                 ),
-                vol.Optional(CONF_ADDITIONAL_COST, default=DEFAULT_ADDITIONAL_COST): selector.NumberSelector(
+                vol.Required(CONF_ADDITIONAL_COST, default=DEFAULT_ADDITIONAL_COST): selector.NumberSelector(
                     selector.NumberSelectorConfig(
                         min=0,
                         max=1.0,
@@ -298,8 +288,106 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         mode=selector.NumberSelectorMode.BOX,
                     )
                 ),
-                # Sell-specific settings
-                vol.Optional(CONF_USE_MIN_SELL_PRICE, default=DEFAULT_USE_MIN_SELL_PRICE): selector.BooleanSelector(),
+            }),
+            description_placeholders={
+                "info": "🇳🇱 **Netherlands Pricing Configuration**\n\n"
+                       "Formula: `(spot_price × (1 + VAT/100)) + energy_tax + additional_cost`\n\n"
+                       "**VAT Rate (BTW)**\n"
+                       "Current standard rate is 21%. Reduced rate 9% for some energy.\n\n"
+                       "**Energy Tax (Energiebelasting)**\n"
+                       "Government tax per kWh. Check your invoice for exact amount.\n"
+                       "2024 typical: €0.12286/kWh\n\n"
+                       "**Additional Cost (Opslag)**\n"
+                       "Supplier markup, transport costs, etc.\n"
+                       "Typical: €0.02-0.05/kWh\n\n"
+                       "💡 Check your energy invoice for exact values."
+            },
+        )
+
+    async def async_step_custom_formulas(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Configure custom/Belgium pricing parameters."""
+        if user_input is not None:
+            self.data.update(user_input)
+            return await self.async_step_sell_settings()
+
+        country = self.data.get(CONF_PRICE_COUNTRY, DEFAULT_PRICE_COUNTRY)
+        is_belgium = country == "belgium_engie"
+
+        title = "🇧🇪 **Belgium (ENGIE) Pricing**" if is_belgium else "🔧 **Custom Formula Configuration**"
+        formula_info = (
+            "ENGIE uses: `(A × EPEX_index + B) / 100`\n\n"
+            "Where EPEX_index is in EUR/MWh and result is EUR/kWh.\n\n"
+            "**Typical ENGIE values:**\n"
+            "• Buy Param A: 1.0 (multiplier)\n"
+            "• Buy Param B: 0.0-5.0 (markup in ¢/kWh)\n"
+            "• Sell Param A: 0.9-1.0 (usually slightly less)\n"
+            "• Sell Param B: -2.0 to 0.0 (injection discount)\n"
+        ) if is_belgium else (
+            "Formula: `(A × spot_price + B) / 100`\n\n"
+            "• Param A: Multiplier for spot price\n"
+            "• Param B: Fixed offset in ¢/kWh\n\n"
+            "Example: A=1.0, B=2.5 means spot price + 2.5 ¢/kWh markup\n"
+        )
+
+        return self.async_show_form(
+            step_id="custom_formulas",
+            data_schema=vol.Schema({
+                vol.Required(CONF_BUY_FORMULA_PARAM_A, default=DEFAULT_BUY_FORMULA_PARAM_A): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=-10.0,
+                        max=10.0,
+                        step=0.001,
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Required(CONF_BUY_FORMULA_PARAM_B, default=DEFAULT_BUY_FORMULA_PARAM_B): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=-50.0,
+                        max=50.0,
+                        step=0.01,
+                        unit_of_measurement="¢/kWh",
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Required(CONF_SELL_FORMULA_PARAM_A, default=DEFAULT_SELL_FORMULA_PARAM_A): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=-10.0,
+                        max=10.0,
+                        step=0.001,
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Required(CONF_SELL_FORMULA_PARAM_B, default=DEFAULT_SELL_FORMULA_PARAM_B): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=-50.0,
+                        max=50.0,
+                        step=0.01,
+                        unit_of_measurement="¢/kWh",
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                ),
+            }),
+            description_placeholders={
+                "info": f"{title}\n\n{formula_info}\n"
+                       "💡 Buy parameters control your purchase price.\n"
+                       "💡 Sell parameters control your injection/export price."
+            },
+        )
+
+    async def async_step_sell_settings(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Configure minimum sell price settings."""
+        if user_input is not None:
+            self.data.update(user_input)
+            return await self.async_step_base_usage()
+
+        return self.async_show_form(
+            step_id="sell_settings",
+            data_schema=vol.Schema({
+                vol.Required(CONF_USE_MIN_SELL_PRICE, default=DEFAULT_USE_MIN_SELL_PRICE): selector.BooleanSelector(),
                 vol.Optional(CONF_MIN_SELL_PRICE, default=DEFAULT_MIN_SELL_PRICE): selector.NumberSelector(
                     selector.NumberSelectorConfig(
                         min=-0.5,
@@ -312,21 +400,16 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Optional(CONF_MIN_SELL_PRICE_BYPASS_SPREAD, default=DEFAULT_MIN_SELL_PRICE_BYPASS_SPREAD): selector.BooleanSelector(),
             }),
             description_placeholders={
-                "info": "💰 **Price Formula Configuration**\n\n"
-                       "Configure pricing formulas for both buy and sell prices.\n\n"
-                       "**Country Selection:**\n"
-                       "Select your country once - it applies to both buy and sell calculations.\n\n"
-                       "**Netherlands**: Includes VAT, energy tax, and additional costs (applied to both buy and sell)\n"
-                       "**Belgium (ENGIE)**: Uses dynamic formula with separate buy/sell parameters\n"
-                       "**Other/Custom**: Configure custom formula parameters\n\n"
-                       "**Formula Parameters:**\n"
-                       "• **Buy Param A/B**: Controls buy price calculation\n"
-                       "• **Sell Param A/B**: Controls sell price calculation\n"
-                       "• **VAT Rate**: Value-added tax percentage (Netherlands)\n"
-                       "• **Energy Tax**: Fixed tax per kWh (Netherlands)\n"
-                       "• **Additional Cost**: Extra costs per kWh (Netherlands)\n\n"
-                       "**Minimum Sell Price:**\n"
-                       "Only discharge when sell price exceeds this threshold."
+                "info": "💰 **Minimum Sell Price Settings**\n\n"
+                       "**Use Minimum Sell Price**\n"
+                       "Only discharge/export when the sell price exceeds a threshold.\n"
+                       "Useful to avoid selling at very low or negative prices.\n\n"
+                       "**Minimum Sell Price**\n"
+                       "The threshold in EUR/kWh. Set to 0 to only block negative prices.\n\n"
+                       "**Bypass Spread Check**\n"
+                       "When enabled, the minimum sell price check bypasses the spread requirement.\n"
+                       "This means: if price > min_sell_price, allow discharge even if spread isn't met.\n\n"
+                       "💡 Leave disabled if you're not sure what to configure."
             },
         )
 
@@ -417,30 +500,56 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     ) -> FlowResult:
         """Configure battery power parameters."""
         if user_input is not None:
-            # Store power values in options
-            self.options["charge_power"] = user_input.get("charge_power", DEFAULT_CHARGE_POWER)
-            self.options["discharge_power"] = user_input.get("discharge_power", DEFAULT_DISCHARGE_POWER)
-            self.options["battery_rte"] = user_input.get("battery_rte", DEFAULT_BATTERY_RTE)
+            # Store power values in options (convert to int for consistency)
+            self.options["charge_power"] = int(user_input.get("charge_power", DEFAULT_CHARGE_POWER))
+            self.options["discharge_power"] = int(user_input.get("discharge_power", DEFAULT_DISCHARGE_POWER))
+            self.options["battery_rte"] = int(user_input.get("battery_rte", DEFAULT_BATTERY_RTE))
             return await self.async_step_pricing_windows()
 
         return self.async_show_form(
             step_id="power",
             data_schema=vol.Schema({
-                vol.Required("charge_power", default=DEFAULT_CHARGE_POWER): vol.All(
-                    vol.Coerce(int), vol.Range(min=100, max=10000)
+                vol.Required("charge_power", default=DEFAULT_CHARGE_POWER): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=100,
+                        max=10000,
+                        step=100,
+                        unit_of_measurement="W",
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
                 ),
-                vol.Required("discharge_power", default=DEFAULT_DISCHARGE_POWER): vol.All(
-                    vol.Coerce(int), vol.Range(min=100, max=10000)
+                vol.Required("discharge_power", default=DEFAULT_DISCHARGE_POWER): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=100,
+                        max=10000,
+                        step=100,
+                        unit_of_measurement="W",
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
                 ),
-                vol.Required("battery_rte", default=DEFAULT_BATTERY_RTE): vol.All(
-                    vol.Coerce(int), vol.Range(min=50, max=100)
+                vol.Required("battery_rte", default=DEFAULT_BATTERY_RTE): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=50,
+                        max=100,
+                        step=1,
+                        unit_of_measurement="%",
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
                 ),
             }),
             description_placeholders={
-                "charge_help": "Battery charging power in Watts (800W is typical for single battery)",
-                "discharge_help": "Battery discharging power in Watts",
-                "rte_help": "Round-trip efficiency 50-100% (85% typical, accounts for conversion losses)",
-                "note": "These values are used to calculate energy capacity (kWh) for charging/discharging windows",
+                "info": "🔋 **Battery Power & Efficiency**\n\n"
+                       "**Charge Power**\n"
+                       "Maximum power when charging your battery.\n"
+                       "Typical: 800W for single home battery, 1600W+ for dual\n\n"
+                       "**Discharge Power**\n"
+                       "Maximum power when discharging/exporting.\n"
+                       "Often same as charge power.\n\n"
+                       "**Round-Trip Efficiency (RTE)**\n"
+                       "Energy retained after charge+discharge cycle.\n"
+                       "Typical: 85% (100 kWh in → 85 kWh out)\n"
+                       "This affects profitability calculations.\n\n"
+                       "💡 Check your battery specs for exact values."
             },
         )
 
@@ -526,7 +635,20 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 ),
             }),
             description_placeholders={
-                "info": f"Configure pricing window duration and optimization settings.\n\n📊 **Window Duration Selection:**\n• **15 Minutes**: For contracts with 15-minute pricing intervals\n• **1 Hour**: For contracts with hourly pricing intervals\n\n⚠️ **Note**: You must have a 15-minute interval price sensor even if selecting 1-hour windows. The system will automatically aggregate the 15-minute data into hourly windows.\n\nSpread settings control when to charge/discharge based on price differences.\n\nPrice Override: Always charge when price is below threshold, regardless of spread/windows.\n\nDefaults:\n- Charging Windows: {DEFAULT_CHARGING_WINDOWS}\n- Discharge Windows: {DEFAULT_EXPENSIVE_WINDOWS}\n- Percentiles: {DEFAULT_CHEAP_PERCENTILE}% cheap, {DEFAULT_EXPENSIVE_PERCENTILE}% expensive\n- Min Spreads: {DEFAULT_MIN_SPREAD}% charge, {DEFAULT_MIN_SPREAD_DISCHARGE}% discharge, {DEFAULT_AGGRESSIVE_DISCHARGE_SPREAD}% aggressive\n- Price Override: Disabled, €{DEFAULT_PRICE_OVERRIDE_THRESHOLD}/kWh"
+                "info": "⚡ **Pricing Windows Configuration**\n\n"
+                       "**Window Duration**\n"
+                       "Match this to your energy contract pricing intervals.\n\n"
+                       "**Charging Windows**\n"
+                       "Number of cheapest time slots to use for charging.\n\n"
+                       "**Discharge Windows**\n"
+                       "Number of most expensive slots for discharging.\n\n"
+                       "**Percentile Threshold**\n"
+                       "Only use windows in the cheapest/most expensive X%.\n\n"
+                       "**Spread Settings**\n"
+                       "Minimum price difference (%) required between charge and discharge prices.\n\n"
+                       "**Price Override**\n"
+                       "Always charge when price drops below threshold, ignoring other rules.\n\n"
+                       "💡 These can be adjusted later via the dashboard."
             },
         )
 
@@ -717,14 +839,12 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         automation_created = self.options.get("_automation_created", False)
         automation_message = self.options.get("_automation_message", "")
 
-        buy_country = self.data.get(CONF_BUY_PRICE_COUNTRY, DEFAULT_BUY_PRICE_COUNTRY)
-        sell_country = self.data.get(CONF_SELL_PRICE_COUNTRY, DEFAULT_SELL_PRICE_COUNTRY)
+        price_country = self.data.get(CONF_PRICE_COUNTRY, DEFAULT_PRICE_COUNTRY)
 
         summary = f"""
 Configuration Summary:
 - Price Sensor: {self.data.get(CONF_PRICE_SENSOR, DEFAULT_PRICE_SENSOR)}
-- Buy Price Formula: {buy_country}
-- Sell Price Formula: {sell_country}
+- Price Country: {price_country}
 - Charge Power: {charge_power}W
 - Discharge Power: {discharge_power}W
 - Pricing Duration: {pricing_duration.replace('_', ' ').title()}
