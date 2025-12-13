@@ -86,7 +86,7 @@ async def async_setup_entry(
         ),
         CEWNumber(
             hass, config_entry, "min_price_difference", "Min Price Difference",
-            0, 0.5, DEFAULT_MIN_PRICE_DIFFERENCE, 0.01, "EUR/kWh",
+            0, 0.5, DEFAULT_MIN_PRICE_DIFFERENCE, 0.001, "EUR/kWh",
             "mdi:cash-minus", NumberMode.BOX
         ),
         # Buy formula parameters (generic A, B for different formulas)
@@ -185,7 +185,7 @@ async def async_setup_entry(
 
     for key, name, default, max_val, unit in tomorrow_configs:
         min_val = 1 if "percentile" in key else 0 if "windows" in key else 0
-        step = 1 if "%" in unit or "windows" in unit else 0.01
+        step = 1 if "%" in unit or "windows" in unit else 0.001
         numbers.append(
             CEWNumber(
                 hass, config_entry, key, name,
