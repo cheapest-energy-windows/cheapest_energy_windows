@@ -54,6 +54,7 @@ from .const import (
     DEFAULT_VAT_RATE,
     DEFAULT_TAX,
     DEFAULT_ADDITIONAL_COST,
+    DEFAULT_BELGIUM_VAT,
     PRICE_COUNTRY_OPTIONS,
     BASE_USAGE_CHARGE_OPTIONS,
     BASE_USAGE_IDLE_OPTIONS,
@@ -317,62 +318,58 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         title = "🇧🇪 **Belgium (ENGIE) Pricing**" if is_belgium else "🔧 **Custom Formula Configuration**"
         formula_info = (
-            "ENGIE uses: `(A × EPEX_index + B) / 100`\n\n"
-            "Where EPEX_index is in EUR/MWh and result is EUR/kWh.\n\n"
-            "**Typical ENGIE values:**\n"
-            "• Buy Param A: 1.0 (multiplier)\n"
-            "• Buy Param B: 0.0-5.0 (markup in ¢/kWh)\n"
-            "• Sell Param A: 0.9-1.0 (usually slightly less)\n"
-            "• Sell Param B: -2.0 to 0.0 (injection discount)\n"
+            "**ENGIE Dynamic Formula:**\n"
+            "• BUY: `(B × spot + A) × (1 + VAT)`\n"
+            "• SELL: `(B × spot − A)` (no VAT on injection)\n\n"
+            "**Parameters:**\n"
+            "• **Multiplier (B)**: Default 1.0 (spot price multiplier)\n"
+            "• **Cost (A)**: ENGIE operational cost (~0.009 EUR/kWh = 0.9 c€/kWh)\n"
+            "• **VAT**: Belgian rate is 6% since April 2023\n\n"
+            "💡 These values are from your ENGIE contract/tariff card."
         ) if is_belgium else (
-            "Formula: `(A × spot_price + B) / 100`\n\n"
-            "• Param A: Multiplier for spot price\n"
-            "• Param B: Fixed offset in ¢/kWh\n\n"
-            "Example: A=1.0, B=2.5 means spot price + 2.5 ¢/kWh markup\n"
+            "**Custom Formula:**\n"
+            "• BUY: `(B × spot + A) × (1 + VAT)`\n"
+            "• SELL: `(B × spot − A)`\n\n"
+            "**Parameters:**\n"
+            "• **Multiplier (B)**: Spot price multiplier (usually 1.0)\n"
+            "• **Cost (A)**: Supplier cost in EUR/kWh\n"
+            "• **VAT**: Your country's VAT rate %\n"
         )
 
         return self.async_show_form(
             step_id="custom_formulas",
             data_schema=vol.Schema({
-                vol.Required(CONF_BUY_FORMULA_PARAM_A, default=DEFAULT_BUY_FORMULA_PARAM_A): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=-10.0,
-                        max=10.0,
-                        step=0.001,
-                        mode=selector.NumberSelectorMode.BOX,
-                    )
-                ),
                 vol.Required(CONF_BUY_FORMULA_PARAM_B, default=DEFAULT_BUY_FORMULA_PARAM_B): selector.NumberSelector(
                     selector.NumberSelectorConfig(
-                        min=-50.0,
-                        max=50.0,
+                        min=0.0,
+                        max=2.0,
                         step=0.01,
-                        unit_of_measurement="¢/kWh",
                         mode=selector.NumberSelectorMode.BOX,
                     )
                 ),
-                vol.Required(CONF_SELL_FORMULA_PARAM_A, default=DEFAULT_SELL_FORMULA_PARAM_A): selector.NumberSelector(
+                vol.Required(CONF_BUY_FORMULA_PARAM_A, default=DEFAULT_BUY_FORMULA_PARAM_A): selector.NumberSelector(
                     selector.NumberSelectorConfig(
-                        min=-10.0,
-                        max=10.0,
+                        min=-0.1,
+                        max=0.5,
                         step=0.001,
+                        unit_of_measurement="EUR/kWh",
                         mode=selector.NumberSelectorMode.BOX,
                     )
                 ),
-                vol.Required(CONF_SELL_FORMULA_PARAM_B, default=DEFAULT_SELL_FORMULA_PARAM_B): selector.NumberSelector(
+                vol.Required(CONF_VAT_RATE, default=DEFAULT_BELGIUM_VAT if is_belgium else DEFAULT_VAT_RATE): selector.NumberSelector(
                     selector.NumberSelectorConfig(
-                        min=-50.0,
-                        max=50.0,
-                        step=0.01,
-                        unit_of_measurement="¢/kWh",
+                        min=0,
+                        max=30,
+                        step=1,
+                        unit_of_measurement="%",
                         mode=selector.NumberSelectorMode.BOX,
                     )
                 ),
             }),
             description_placeholders={
                 "info": f"{title}\n\n{formula_info}\n"
-                       "💡 Buy parameters control your purchase price.\n"
-                       "💡 Sell parameters control your injection/export price."
+                       "💡 Buy/Sell use same Multiplier (B) and Cost (A).\n"
+                       "💡 VAT only applies to BUY price, not SELL."
             },
         )
 

@@ -49,16 +49,14 @@
         "title": "Formula Parameters",
         "description": "{info}",
         "data": {
-          "buy_formula_param_a": "Buy Multiplier (A)",
-          "buy_formula_param_b": "Buy Offset (B)",
-          "sell_formula_param_a": "Sell Multiplier (A)",
-          "sell_formula_param_b": "Sell Offset (B)"
+          "buy_formula_param_b": "Multiplier (B)",
+          "buy_formula_param_a": "Cost (A)",
+          "vat": "VAT Rate"
         },
         "data_description": {
-          "buy_formula_param_a": "Multiplier for spot price when buying",
-          "buy_formula_param_b": "Fixed offset in cents/kWh added to buy price",
-          "sell_formula_param_a": "Multiplier for spot price when selling",
-          "sell_formula_param_b": "Fixed offset in cents/kWh added to sell price"
+          "buy_formula_param_b": "Spot price multiplier (usually 1.0)",
+          "buy_formula_param_a": "Supplier operational cost in EUR/kWh",
+          "vat": "VAT percentage applied to buy price only"
         }
       },
       "sell_settings": {
@@ -280,16 +278,16 @@
         "name": "Additional Cost"
       },
       "sell_formula_param_a": {
-        "name": "Sell Formula Param A"
+        "name": "Cost (A)"
       },
       "sell_formula_param_b": {
-        "name": "Sell Formula Param B"
+        "name": "Multiplier (B)"
       },
       "buy_formula_param_a": {
-        "name": "Buy Formula Param A"
+        "name": "Cost (A)"
       },
       "buy_formula_param_b": {
-        "name": "Buy Formula Param B"
+        "name": "Multiplier (B)"
       }
     }
   },

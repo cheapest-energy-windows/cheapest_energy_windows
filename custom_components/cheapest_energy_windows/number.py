@@ -89,15 +89,17 @@ async def async_setup_entry(
             0, 0.5, DEFAULT_MIN_PRICE_DIFFERENCE, 0.001, "EUR/kWh",
             "mdi:cash-minus", NumberMode.BOX
         ),
-        # Buy formula parameters (generic A, B for different formulas)
+        # Belgium/Other formula parameters
+        # Formula: BUY = (B × spot + A) × (1+VAT), SELL = (B × spot − A)
+        # A = Cost component in EUR/kWh, B = Multiplier
         CEWNumber(
-            hass, config_entry, "buy_formula_param_a", "Buy Formula Param A",
-            -10.0, 10.0, DEFAULT_BUY_FORMULA_PARAM_A, 0.001, "",
+            hass, config_entry, "buy_formula_param_a", "Cost (A)",
+            -0.1, 0.5, DEFAULT_BUY_FORMULA_PARAM_A, 0.001, "EUR/kWh",
             "mdi:alpha-a-circle", NumberMode.BOX
         ),
         CEWNumber(
-            hass, config_entry, "buy_formula_param_b", "Buy Formula Param B",
-            -50.0, 50.0, DEFAULT_BUY_FORMULA_PARAM_B, 0.01, "¢/kWh",
+            hass, config_entry, "buy_formula_param_b", "Multiplier (B)",
+            0.0, 2.0, DEFAULT_BUY_FORMULA_PARAM_B, 0.01, "",
             "mdi:alpha-b-circle", NumberMode.BOX
         ),
         CEWNumber(
@@ -142,15 +144,16 @@ async def async_setup_entry(
             -0.5, 1.0, DEFAULT_MIN_SELL_PRICE, 0.01, "EUR/kWh",
             "mdi:cash-lock", NumberMode.BOX
         ),
-        # Sell formula parameters (generic A, B for different formulas)
+        # Sell formula parameters (same structure as buy for Belgium/Other)
+        # Formula: SELL = (B × spot − A)
         CEWNumber(
-            hass, config_entry, "sell_formula_param_a", "Sell Formula Param A",
-            -10.0, 10.0, DEFAULT_SELL_FORMULA_PARAM_A, 0.001, "",
+            hass, config_entry, "sell_formula_param_a", "Sell Cost (A)",
+            -0.1, 0.5, DEFAULT_SELL_FORMULA_PARAM_A, 0.001, "EUR/kWh",
             "mdi:alpha-a-circle", NumberMode.BOX
         ),
         CEWNumber(
-            hass, config_entry, "sell_formula_param_b", "Sell Formula Param B",
-            -50.0, 50.0, DEFAULT_SELL_FORMULA_PARAM_B, 0.01, "¢/kWh",
+            hass, config_entry, "sell_formula_param_b", "Sell Multiplier (B)",
+            0.0, 2.0, DEFAULT_SELL_FORMULA_PARAM_B, 0.01, "",
             "mdi:alpha-b-circle", NumberMode.BOX
         ),
         # Netherlands formula parameters (VAT/tax/additional cost)

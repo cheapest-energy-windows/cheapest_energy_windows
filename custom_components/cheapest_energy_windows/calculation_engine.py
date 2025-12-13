@@ -206,7 +206,8 @@ class WindowCalculationEngine:
             num_discharge_windows,
             percentile_threshold,
             effective_min_spread_discharge,
-            effective_min_price_diff_discharge
+            effective_min_price_diff_discharge,
+            config  # Pass config for sell price calculation
         )
 
         # Apply minimum sell price filter to discharge windows (only if use_min_sell is enabled)
@@ -554,75 +555,91 @@ class WindowCalculationEngine:
         num_windows: int,
         percentile_threshold: float,
         min_spread: float,
-        min_price_diff: float
+        min_price_diff: float,
+        config: Dict[str, Any]
     ) -> List[Dict[str, Any]]:
-        """Find expensive windows for discharging.
+        """Find expensive windows for discharging based on SELL prices.
+
+        Discharge = selling to grid, so we select windows with highest SELL prices.
+        This applies to all countries - future-proofs for sell cost additions.
 
         Uses percentile_threshold symmetrically:
-        - Candidates: prices in the top percentile_threshold% (most expensive)
-        - Spread comparison: against average of bottom percentile_threshold% (cheapest)
+        - Candidates: SELL prices in the top percentile_threshold% (most expensive)
+        - Spread comparison: sell price avg vs buy price avg (charge windows)
         """
         if not prices or num_windows <= 0:
             return []
 
+        # Get sell formula config
+        sell_country = config.get("price_country", DEFAULT_PRICE_COUNTRY)
+        sell_param_a = config.get("sell_formula_param_a", DEFAULT_SELL_FORMULA_PARAM_A)
+        sell_param_b = config.get("sell_formula_param_b", DEFAULT_SELL_FORMULA_PARAM_B)
+
         # Exclude charging times
         charge_indices = {w["index"] for w in charge_windows}
 
-        # Filter out charging windows
+        # Filter out charging windows and calculate sell prices
         available_prices = []
         for i, price_data in enumerate(prices):
             if i not in charge_indices:
+                raw_price = price_data.get("raw_price", price_data["price"])
+                sell_price = self._calculate_sell_price(
+                    raw_price, price_data["price"], sell_country, sell_param_a, sell_param_b
+                )
                 available_prices.append({
                     "index": i,
                     "timestamp": price_data["timestamp"],
-                    "price": price_data["price"],
+                    "price": price_data["price"],  # Buy price (for reference)
+                    "raw_price": raw_price,
+                    "sell_price": sell_price,  # Sell price (for selection)
                     "duration": price_data["duration"]
                 })
 
         if not available_prices:
             return []
 
-        # Convert to numpy array
-        price_array = np.array([p["price"] for p in available_prices])
+        # Use SELL prices for percentile threshold (discharge = selling)
+        sell_price_array = np.array([p["sell_price"] for p in available_prices])
 
-        # Calculate percentile threshold for expensive prices (top X%)
-        expensive_threshold = np.percentile(price_array, 100 - percentile_threshold)
+        # Calculate percentile threshold for expensive SELL prices (top X%)
+        expensive_threshold = np.percentile(sell_price_array, 100 - percentile_threshold)
 
-        # Get candidates above threshold
+        # Get candidates above threshold (by SELL price)
         candidates = []
         for price_data in available_prices:
-            if price_data["price"] >= expensive_threshold:
+            if price_data["sell_price"] >= expensive_threshold:
                 candidates.append(price_data)
 
-        # Sort by price (descending for discharge)
-        candidates.sort(key=lambda x: x["price"], reverse=True)
+        # Sort by SELL price (descending for discharge)
+        candidates.sort(key=lambda x: x["sell_price"], reverse=True)
 
         # Progressive selection with spread check
-        # Compare against bottom percentile_threshold% (cheapest)
+        # Compare SELL price avg against BUY price avg (charge windows)
         selected = []
         if charge_windows:
-            cheap_avg = np.mean([w["price"] for w in charge_windows])
+            cheap_avg = np.mean([w["price"] for w in charge_windows])  # Buy prices
             cheap_min = min(w["price"] for w in charge_windows)
         else:
-            # No charge windows - use bottom percentile_threshold% as cheap reference
-            cheap_threshold = np.percentile(price_array, percentile_threshold)
-            cheap_prices = price_array[price_array <= cheap_threshold]
-            cheap_avg = np.mean(cheap_prices) if len(cheap_prices) > 0 else np.min(price_array)
-            cheap_min = np.min(cheap_prices) if len(cheap_prices) > 0 else np.min(price_array)
+            # No charge windows - use bottom percentile_threshold% buy prices as reference
+            buy_price_array = np.array([p["price"] for p in available_prices])
+            cheap_threshold = np.percentile(buy_price_array, percentile_threshold)
+            cheap_prices = buy_price_array[buy_price_array <= cheap_threshold]
+            cheap_avg = np.mean(cheap_prices) if len(cheap_prices) > 0 else np.min(buy_price_array)
+            cheap_min = np.min(cheap_prices) if len(cheap_prices) > 0 else np.min(buy_price_array)
 
         for candidate in candidates:
             if len(selected) >= num_windows:
                 break
 
-            # Test spread with this window (using running average)
-            test_prices = [s["price"] for s in selected] + [candidate["price"]]
-            expensive_avg = np.mean(test_prices)
+            # Test spread with this window (using running average of SELL prices)
+            test_sell_prices = [s["sell_price"] for s in selected] + [candidate["sell_price"]]
+            expensive_avg = np.mean(test_sell_prices)
 
-            # Calculate spread percentage (avg-based for spread check)
-            # Calculate price diff per-window: this_candidate - min_cheap
+            # Calculate spread: (avg_sell - avg_buy) / avg_buy * 100
+            # Can be negative when sell < buy (unprofitable arbitrage)
             if cheap_avg > 0:
                 spread_pct = ((expensive_avg - cheap_avg) / cheap_avg) * 100
-                price_diff = candidate["price"] - cheap_min  # Per-window: this sell price minus min charge price
+                price_diff = candidate["sell_price"] - cheap_min  # Sell price minus min charge price
 
                 if spread_pct >= min_spread and price_diff >= min_price_diff:
                     selected.append(candidate)
@@ -639,10 +656,11 @@ class WindowCalculationEngine:
         aggressive_spread: float,
         min_price_diff: float
     ) -> List[Dict[str, Any]]:
-        """Find windows for aggressive discharge (peak prices).
+        """Find windows for aggressive discharge (peak SELL prices).
 
-        Uses percentile_threshold symmetrically for spread comparison.
-        Per-window price_diff check: window["price"] - cheap_min >= threshold
+        Filters discharge windows by aggressive spread requirement.
+        Uses SELL prices for spread comparison (discharge = selling to grid).
+        Per-window price_diff check: window["sell_price"] - cheap_min >= threshold
         """
         if not prices or num_windows <= 0:
             return []
@@ -651,10 +669,10 @@ class WindowCalculationEngine:
         candidates = []
 
         if charge_windows:
-            cheap_avg = np.mean([w["price"] for w in charge_windows])
+            cheap_avg = np.mean([w["price"] for w in charge_windows])  # Buy prices
             cheap_min = min(w["price"] for w in charge_windows)
         else:
-            # No charge windows - use bottom percentile_threshold% as cheap reference
+            # No charge windows - use bottom percentile_threshold% buy prices as reference
             price_array = np.array([p["price"] for p in prices])
             cheap_threshold = np.percentile(price_array, percentile_threshold)
             cheap_prices = price_array[price_array <= cheap_threshold]
@@ -663,8 +681,10 @@ class WindowCalculationEngine:
 
         for window in discharge_windows:
             if cheap_avg > 0:
-                spread_pct = ((window["price"] - cheap_avg) / cheap_avg) * 100
-                price_diff = window["price"] - cheap_min  # Per-window: this sell price minus min charge price
+                # Use SELL price for spread calculation (discharge = selling)
+                sell_price = window.get("sell_price", window["price"])
+                spread_pct = ((sell_price - cheap_avg) / cheap_avg) * 100
+                price_diff = sell_price - cheap_min  # Sell price minus min charge price
 
                 if spread_pct >= aggressive_spread and price_diff >= min_price_diff:
                     candidates.append(window)
@@ -778,16 +798,21 @@ class WindowCalculationEngine:
         """Calculate buy price based on country formula with configurable params.
 
         Args:
-            spot_price_mwh: Raw spot price in EUR/MWh (from price sensor)
+            spot_price_mwh: Raw spot price in EUR/kWh (from price sensor)
+                Note: Variable named 'mwh' for historical reasons but sensor provides EUR/kWh
             country: Country/formula selection
-            param_a: Formula parameter A (meaning varies by formula)
-            param_b: Formula parameter B (meaning varies by formula)
+            param_a: Cost component A in EUR/kWh (Belgium/Other) or unused (Netherlands)
+            param_b: Multiplier B (Belgium/Other) or unused (Netherlands)
             vat: VAT rate as percentage (0-100)
-            tax: Energy tax in EUR/kWh
-            additional_cost: Additional cost in EUR/kWh
+            tax: Energy tax in EUR/kWh (Netherlands only)
+            additional_cost: Additional cost in EUR/kWh (Netherlands only)
 
         Returns:
             Calculated buy price (EUR/kWh)
+
+        Formulas:
+            Netherlands: (spot × (1+VAT)) + tax + additional_cost
+            Belgium/Other: (B × spot + A) × (1+VAT)
         """
         if country == PRICE_COUNTRY_NETHERLANDS:
             # Netherlands: Apply VAT/tax/additional cost
@@ -798,23 +823,22 @@ class WindowCalculationEngine:
             return max(0, buy_price)
 
         elif country == PRICE_COUNTRY_BELGIUM_ENGIE:
-            # Belgium ENGIE formula: buy = (A × index + B) / 100
-            # Where: A = multiplier (default 0.1 for MWh->kWh), B = offset in cents
-            # Example: (0.1 × 200 + 10) / 100 = 0.30 EUR/kWh
-            # Note: Formula expects index in EUR/MWh, so convert if sensor provides EUR/kWh
-            index_mwh = spot_price_mwh * 1000  # Convert EUR/kWh to EUR/MWh
-            buy_price = (param_a * index_mwh + param_b) / 100
+            # Belgium ENGIE formula: buy = (B × spot + A) × (1 + VAT)
+            # Where: B = multiplier (default 1.0), A = ENGIE cost in EUR/kWh
+            # VAT = Belgian VAT rate (6% since April 2023)
+            # Note: spot_price is already in EUR/kWh from sensor
+            # param_a = Cost (A), param_b = Multiplier (B)
+            vat_decimal = vat / 100  # Convert percentage to decimal
+            buy_price = (param_b * spot_price_mwh + param_a) * (1 + vat_decimal)
             return max(0, buy_price)
 
         elif country == PRICE_COUNTRY_OTHER:
-            # Other/Not Listed: Use raw conversion as fallback
-            # User should request their country formula via GitHub issue
-            _LOGGER.warning(
-                "Buy price formula set to 'Other/Not Listed'. "
-                "Using raw price conversion. Please open a GitHub issue "
-                "to request support for your country's formula."
-            )
-            return max(0, spot_price_mwh / 1000)
+            # Other/Custom formula: buy = (B × spot + A) × (1 + VAT)
+            # Same structure as Belgium but user can customize all parameters
+            # param_a = Cost (A), param_b = Multiplier (B)
+            vat_decimal = vat / 100  # Convert percentage to decimal
+            buy_price = (param_b * spot_price_mwh + param_a) * (1 + vat_decimal)
+            return max(0, buy_price)
 
         # Fallback to raw price converted to EUR/kWh
         _LOGGER.warning(f"Unknown buy price country '{country}', using raw conversion")
@@ -831,35 +855,39 @@ class WindowCalculationEngine:
         """Calculate sell price based on country formula with configurable params.
 
         Args:
-            spot_price_mwh: Raw spot price in EUR/MWh (from price sensor)
+            spot_price_mwh: Raw spot price in EUR/kWh (from price sensor)
+                Note: Variable named 'mwh' for historical reasons but sensor provides EUR/kWh
             buy_price: Calculated buy price with VAT/tax/additional (EUR/kWh)
             country: Country/formula selection
-            param_a: Formula parameter A (meaning varies by formula)
-            param_b: Formula parameter B (meaning varies by formula)
+            param_a: Cost component A in EUR/kWh (Belgium/Other) or unused (Netherlands)
+            param_b: Multiplier B (Belgium/Other) or unused (Netherlands)
 
         Returns:
             Calculated sell price (EUR/kWh)
+
+        Formulas:
+            Netherlands: = buy_price (same as buy)
+            Belgium/Other: (B × spot − A) (no VAT on injection)
         """
         if country == PRICE_COUNTRY_NETHERLANDS:
             # Netherlands: sell price equals buy price (no adjustment)
             return buy_price
 
         elif country == PRICE_COUNTRY_BELGIUM_ENGIE:
-            # Belgium ENGIE formula: sell = (A × index + B) / 100
-            # Where: A = multiplier (default 0.1 for MWh->kWh), B = offset in cents
-            # Example: (0.1 × 200 + (-1.15)) / 100 = 0.1885 EUR/kWh
-            sell_price = (param_a * spot_price_mwh + param_b) / 100
+            # Belgium ENGIE formula: sell = (B × spot − A)
+            # Where: B = multiplier (default 1.0), A = ENGIE cost in EUR/kWh
+            # No VAT on injection/selling electricity
+            # Note: spot_price is already in EUR/kWh from sensor
+            # param_a = Cost (A), param_b = Multiplier (B)
+            sell_price = (param_b * spot_price_mwh) - param_a
             return max(0, sell_price)
 
         elif country == PRICE_COUNTRY_OTHER:
-            # Other/Not Listed: Match buy price as fallback
-            # User should request their country formula via GitHub issue
-            _LOGGER.warning(
-                "Sell price formula set to 'Other/Not Listed'. "
-                "Using buy price. Please open a GitHub issue "
-                "to request support for your country's formula."
-            )
-            return buy_price
+            # Other/Custom formula: sell = (B × spot − A)
+            # Same structure as Belgium but user can customize all parameters
+            # param_a = Cost (A), param_b = Multiplier (B)
+            sell_price = (param_b * spot_price_mwh) - param_a
+            return max(0, sell_price)
 
         # Fallback to buy price
         _LOGGER.warning(f"Unknown sell price country '{country}', using buy price")
@@ -1085,17 +1113,64 @@ class WindowCalculationEngine:
         current_price = self._get_current_price(prices, current_time)
         current_sell_price = self._get_current_sell_price(prices, current_time, config)
 
-        # Calculate averages
+        # Get sell formula config
+        sell_country = config.get("price_country", DEFAULT_PRICE_COUNTRY)
+        sell_param_a = config.get("sell_formula_param_a", DEFAULT_SELL_FORMULA_PARAM_A)
+        sell_param_b = config.get("sell_formula_param_b", DEFAULT_SELL_FORMULA_PARAM_B)
+
+        # Calculate avg buy price from charge windows (for operational spread)
         cheap_prices = [w["price"] for w in charge_windows]
-        expensive_prices = [w["price"] for w in discharge_windows]
-
         avg_cheap = float(np.mean(cheap_prices)) if cheap_prices else 0.0
-        avg_expensive = float(np.mean(expensive_prices)) if expensive_prices else 0.0
 
-        # Calculate spreads
-        spread_pct = 0.0
-        if avg_cheap > 0 and avg_expensive > 0:
-            spread_pct = float(((avg_expensive - avg_cheap) / avg_cheap) * 100)
+        # Calculate avg sell price from discharge windows (for operational spread)
+        avg_expensive = 0.0
+        if discharge_windows:
+            sell_prices = [w.get("sell_price", w["price"]) for w in discharge_windows]
+            avg_expensive = float(np.mean(sell_prices))
+
+        # Calculate spread_avg and arbitrage_avg for display (INDEPENDENT of window selection)
+        # Uses percentile threshold to find cheapest/most expensive prices
+        # These metrics show potential even when no windows are selected
+        suffix = "_tomorrow" if is_tomorrow and config.get("tomorrow_settings_enabled", False) else ""
+        percentile_threshold = config.get(f"percentile_threshold{suffix}", 25)
+
+        # Get all buy prices
+        all_buy_prices = np.array([p["price"] for p in prices])
+
+        # Get cheapest buy prices (bottom percentile)
+        cheap_threshold = np.percentile(all_buy_prices, percentile_threshold)
+        cheap_buy_prices = all_buy_prices[all_buy_prices <= cheap_threshold]
+        avg_cheap_buy = float(np.mean(cheap_buy_prices)) if len(cheap_buy_prices) > 0 else 0.0
+
+        # Get most expensive buy prices (top percentile) - for spread_avg (buy vs buy)
+        expensive_buy_threshold = np.percentile(all_buy_prices, 100 - percentile_threshold)
+        expensive_buy_prices = all_buy_prices[all_buy_prices >= expensive_buy_threshold]
+        avg_expensive_buy = float(np.mean(expensive_buy_prices)) if len(expensive_buy_prices) > 0 else 0.0
+
+        # Calculate spread_avg (buy vs buy) - price volatility
+        # Shows how much prices vary throughout the day
+        spread_avg = 0.0
+        if avg_cheap_buy > 0:
+            spread_avg = float(((avg_expensive_buy - avg_cheap_buy) / avg_cheap_buy) * 100)
+
+        # Calculate sell prices for all time slots
+        all_sell_prices = []
+        for p in prices:
+            raw = p.get("raw_price", p["price"])
+            sell = self._calculate_sell_price(raw, p["price"], sell_country, sell_param_a, sell_param_b)
+            all_sell_prices.append(sell)
+        all_sell_prices = np.array(all_sell_prices)
+
+        # Get most expensive sell prices (top percentile) - for arbitrage_avg (sell vs buy)
+        expensive_sell_threshold = np.percentile(all_sell_prices, 100 - percentile_threshold)
+        expensive_sell_prices = all_sell_prices[all_sell_prices >= expensive_sell_threshold]
+        avg_expensive_sell = float(np.mean(expensive_sell_prices)) if len(expensive_sell_prices) > 0 else 0.0
+
+        # Calculate arbitrage_avg (sell vs buy) - arbitrage margin
+        # Shows profitability of battery arbitrage (can be negative when sell < buy)
+        arbitrage_avg = 0.0
+        if avg_cheap_buy > 0:
+            arbitrage_avg = float(((avg_expensive_sell - avg_cheap_buy) / avg_cheap_buy) * 100)
 
         # Calculate actual windows considering time and price overrides
         actual_charge, actual_discharge = self._calculate_actual_windows(
@@ -1322,12 +1397,13 @@ class WindowCalculationEngine:
             "net_planned_discharge_kwh": net_planned_discharge_kwh,
             "num_windows": len(charge_windows),
             "min_spread_required": config.get("min_spread", 10),
-            "spread_percentage": round(spread_pct, 1),
-            "spread_met": bool(spread_pct >= config.get("min_spread", 10)),
-            "spread_avg": round(spread_pct, 1),
-            "actual_spread_avg": round(spread_pct, 1),
-            "discharge_spread_met": bool(spread_pct >= config.get("min_spread_discharge", 20)),
-            "aggressive_discharge_spread_met": bool(spread_pct >= config.get("aggressive_discharge_spread", 40)),
+            "spread_percentage": round(arbitrage_avg, 1),  # For operational spread check (sell vs buy)
+            "spread_met": bool(arbitrage_avg >= config.get("min_spread", 10)),
+            "spread_avg": round(spread_avg, 1),  # Buy vs buy (price volatility)
+            "arbitrage_avg": round(arbitrage_avg, 1),  # Sell vs buy (arbitrage margin)
+            "actual_spread_avg": round(spread_avg, 1),  # For backwards compatibility
+            "discharge_spread_met": bool(arbitrage_avg >= config.get("min_spread_discharge", 20)),
+            "aggressive_discharge_spread_met": bool(arbitrage_avg >= config.get("aggressive_discharge_spread", 40)),
             "avg_cheap_price": round(avg_cheap, 5),
             "avg_expensive_price": round(avg_expensive, 5),
             "current_price": round(current_price, 5) if current_price else 0,
@@ -1379,6 +1455,7 @@ class WindowCalculationEngine:
             "spread_percentage": 0,
             "spread_met": False,
             "spread_avg": 0,
+            "arbitrage_avg": 0,
             "actual_spread_avg": 0,
             "discharge_spread_met": False,
             "aggressive_discharge_spread_met": False,

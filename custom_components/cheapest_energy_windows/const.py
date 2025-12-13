@@ -115,14 +115,14 @@ PRICE_FORMULA_INFO: Final = {
         "fields": ["vat", "tax", "additional_cost"],
     },
     PRICE_COUNTRY_BELGIUM_ENGIE: {
-        "buy_formula": "(A × Index + B) / 100",
-        "sell_formula": "(A × Index + B) / 100",
-        "fields": ["buy_formula_param_a", "buy_formula_param_b", "sell_formula_param_a", "sell_formula_param_b"],
+        "buy_formula": "(B × spot + A) × (1+VAT)",
+        "sell_formula": "(B × spot − A)",
+        "fields": ["buy_formula_param_a", "buy_formula_param_b", "vat"],
     },
     PRICE_COUNTRY_OTHER: {
-        "buy_formula": "(A × raw + B) / 100",
-        "sell_formula": "(A × raw + B) / 100",
-        "fields": ["buy_formula_param_a", "buy_formula_param_b", "sell_formula_param_a", "sell_formula_param_b"],
+        "buy_formula": "(B × raw + A) × (1+VAT)",
+        "sell_formula": "(B × raw − A)",
+        "fields": ["buy_formula_param_a", "buy_formula_param_b", "vat"],
     },
 }
 
@@ -130,12 +130,18 @@ PRICE_FORMULA_INFO: Final = {
 DEFAULT_MIN_SELL_PRICE: Final = 0.0
 DEFAULT_USE_MIN_SELL_PRICE: Final = False
 DEFAULT_MIN_SELL_PRICE_BYPASS_SPREAD: Final = False
-DEFAULT_SELL_FORMULA_PARAM_A: Final = 0.1  # Multiplier (0.1 = 1:1 MWh to kWh conversion)
-DEFAULT_SELL_FORMULA_PARAM_B: Final = 0.0  # Offset in cents/kWh
 
-# Buy price defaults
-DEFAULT_BUY_FORMULA_PARAM_A: Final = 0.1  # Multiplier (0.1 = 1:1 MWh to kWh conversion)
-DEFAULT_BUY_FORMULA_PARAM_B: Final = 0.0  # Offset in cents/kWh
+# Belgium/Other formula defaults
+# Formula: BUY = (B × spot + A) × (1+VAT), SELL = (B × spot − A)
+# A = ENGIE cost component in EUR/kWh (0.009 = 0.9 c€/kWh)
+# B = Multiplier (1.0 since sensor already provides EUR/kWh)
+DEFAULT_BUY_FORMULA_PARAM_A: Final = 0.009  # Cost (A) in EUR/kWh
+DEFAULT_BUY_FORMULA_PARAM_B: Final = 1.0    # Multiplier (B)
+DEFAULT_SELL_FORMULA_PARAM_A: Final = 0.009  # Cost (A) in EUR/kWh (same as buy for ENGIE)
+DEFAULT_SELL_FORMULA_PARAM_B: Final = 1.0    # Multiplier (B)
+
+# Belgium VAT rate (6% since April 2023)
+DEFAULT_BELGIUM_VAT: Final = 6
 
 # Base usage strategy options
 BASE_USAGE_CHARGE_OPTIONS: Final = ["grid_covers_both", "battery_covers_base"]
@@ -194,6 +200,7 @@ ATTR_MIN_SPREAD_REQUIRED: Final = "min_spread_required"
 ATTR_SPREAD_PERCENTAGE: Final = "spread_percentage"
 ATTR_SPREAD_MET: Final = "spread_met"
 ATTR_SPREAD_AVG: Final = "spread_avg"
+ATTR_ARBITRAGE_AVG: Final = "arbitrage_avg"
 ATTR_ACTUAL_SPREAD_AVG: Final = "actual_spread_avg"
 ATTR_DISCHARGE_SPREAD_MET: Final = "discharge_spread_met"
 ATTR_AGGRESSIVE_DISCHARGE_SPREAD_MET: Final = "aggressive_discharge_spread_met"
