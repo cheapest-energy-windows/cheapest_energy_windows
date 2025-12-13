@@ -196,9 +196,10 @@ class WindowCalculationEngine:
         use_min_sell = config.get("use_min_sell_price", DEFAULT_USE_MIN_SELL_PRICE)
         bypass_spread = config.get("min_sell_price_bypass_spread", DEFAULT_MIN_SELL_PRICE_BYPASS_SPREAD)
 
-        # If bypass_spread is enabled, set discharge spread to 0% (simple and reliable)
-        effective_min_spread_discharge = 0 if bypass_spread else min_spread_discharge
-        effective_min_price_diff_discharge = 0 if bypass_spread else min_price_diff
+        # If bypass_spread is enabled, set thresholds to allow any spread (including negative)
+        # Use -inf to truly bypass the spread check for negative arbitrage scenarios
+        effective_min_spread_discharge = float('-inf') if bypass_spread else min_spread_discharge
+        effective_min_price_diff_discharge = float('-inf') if bypass_spread else min_price_diff
 
         discharge_windows = self._find_discharge_windows(
             prices_for_discharge_calc,  # Use filtered prices
@@ -218,7 +219,7 @@ class WindowCalculationEngine:
         )
 
         # Apply same bypass logic to aggressive spread
-        effective_aggressive_spread = 0 if bypass_spread else aggressive_spread
+        effective_aggressive_spread = float('-inf') if bypass_spread else aggressive_spread
 
         aggressive_windows = self._find_aggressive_discharge_windows(
             prices_for_discharge_calc,  # Use filtered prices for consistency
