@@ -110,6 +110,30 @@ class WindowCalculationEngine:
         else:
             _LOGGER.debug("Calculation window disabled")
 
+        # Calculate arbitrage_avg early for protection check
+        arbitrage_avg = self._calculate_arbitrage_avg(processed_prices, config, is_tomorrow)
+
+        # Check if Arbitrage Protection should clear all windows
+        arb_prot_enabled = config.get(f"arbitrage_protection_enabled{suffix}", False)
+        if arb_prot_enabled:
+            threshold = config.get(f"arbitrage_protection_threshold{suffix}", 0)
+
+            if arbitrage_avg < threshold:
+                # Protection triggered - return result with empty windows
+                mode = config.get(f"arbitrage_protection_mode{suffix}", MODE_IDLE)
+                current_state = self._mode_to_state(mode)
+                _LOGGER.debug(f"Arbitrage Protection clearing windows: arbitrage={arbitrage_avg:.1f}% < threshold={threshold}%")
+
+                return self._build_result(
+                    processed_prices,
+                    [],  # Empty charge windows
+                    [],  # Empty discharge windows
+                    [],  # Empty aggressive windows
+                    current_state,
+                    config,
+                    is_tomorrow
+                )
+
         # Pre-filter prices based on time override to prevent idle/off periods from being selected
         # This ensures that windows calculations respect time overrides from the start
         time_override_enabled = config.get(f"time_override_enabled{suffix}", False)
@@ -244,10 +268,8 @@ class WindowCalculationEngine:
             discharge_times = [w["timestamp"].strftime("%H:%M") for w in discharge_windows]
             _LOGGER.debug(f"After calculation window filter - Charge windows: {charge_times}, Discharge windows: {discharge_times}")
 
-        # Calculate arbitrage_avg early for RTE protection check
-        arbitrage_avg = self._calculate_arbitrage_avg(processed_prices, config, is_tomorrow)
-
         # Calculate current state (pass arbitrage_avg and is_tomorrow for RTE protection)
+        # Note: arbitrage_avg was already calculated earlier for the protection check
         current_state = self._determine_current_state(
             processed_prices,
             charge_windows,
@@ -763,17 +785,11 @@ class WindowCalculationEngine:
         # Check Arbitrage protection
         suffix = "_tomorrow" if is_tomorrow and config.get("tomorrow_settings_enabled", False) else ""
         if config.get(f"arbitrage_protection_enabled{suffix}", False):
-            rte = config.get("battery_rte", 85)
-            rte_loss = 100 - rte
             threshold = config.get(f"arbitrage_protection_threshold{suffix}", 0)
 
-            # Calculate margin: Arbitrage% - RTE loss%
-            margin = arbitrage_avg - rte_loss
-
-            # Trigger protection if no data OR margin < threshold
-            if arbitrage_avg <= 0 or margin < threshold:
+            if arbitrage_avg < threshold:
                 mode = config.get(f"arbitrage_protection_mode{suffix}", MODE_IDLE)
-                _LOGGER.debug(f"Arbitrage Protection triggered: arbitrage={arbitrage_avg:.1f}%, rte_loss={rte_loss}%, margin={margin:.1f}%, threshold={threshold}%, mode={mode}")
+                _LOGGER.debug(f"Arbitrage Protection triggered: arbitrage={arbitrage_avg:.1f}% < threshold={threshold}%, mode={mode}")
                 return self._mode_to_state(mode)
 
         now = dt_util.now()

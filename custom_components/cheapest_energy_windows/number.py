@@ -176,12 +176,12 @@ async def async_setup_entry(
         # Arbitrage Protection threshold
         CEWNumber(
             hass, config_entry, "arbitrage_protection_threshold", "Arbitrage Protection Threshold",
-            0, 50, DEFAULT_ARBITRAGE_PROTECTION_THRESHOLD, 1, "%",
+            -100, 100, DEFAULT_ARBITRAGE_PROTECTION_THRESHOLD, 1, "%",
             "mdi:shield-alert", NumberMode.BOX
         ),
         CEWNumber(
             hass, config_entry, "arbitrage_protection_threshold_tomorrow", "Arbitrage Protection Threshold Tomorrow",
-            0, 50, DEFAULT_ARBITRAGE_PROTECTION_THRESHOLD, 1, "%",
+            -100, 100, DEFAULT_ARBITRAGE_PROTECTION_THRESHOLD, 1, "%",
             "mdi:shield-alert", NumberMode.BOX
         ),
     ])
