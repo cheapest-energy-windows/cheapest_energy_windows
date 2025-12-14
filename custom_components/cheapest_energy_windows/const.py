@@ -5,7 +5,7 @@ from typing import Final
 # Domain
 DOMAIN: Final = "cheapest_energy_windows"
 PREFIX: Final = "cew_"
-VERSION: Final = "1.0.9"
+VERSION: Final = "1.1.0"
 
 # Platforms
 PLATFORMS: Final = ["sensor", "number", "select", "switch", "time", "text"]
@@ -82,76 +82,23 @@ DEFAULT_ARBITRAGE_PROTECTION_ENABLED: Final = False
 DEFAULT_ARBITRAGE_PROTECTION_THRESHOLD: Final = 10  # Minimum margin % required
 DEFAULT_ARBITRAGE_PROTECTION_MODE: Final = "idle"
 
-# Unified price country constants - internal values for backward compatibility
-PRICE_COUNTRY_NETHERLANDS: Final = "netherlands"
-PRICE_COUNTRY_BELGIUM_ENGIE: Final = "belgium_engie"
-PRICE_COUNTRY_OTHER: Final = "other"
-
-# Friendly display names - these are now the primary values
-PRICE_COUNTRY_NETHERLANDS_DISPLAY: Final = "Netherlands"
-PRICE_COUNTRY_BELGIUM_ENGIE_DISPLAY: Final = "Belgium (ENGIE)"
-PRICE_COUNTRY_OTHER_DISPLAY: Final = "Other / Custom"
-
-# Mapping from display names to internal values (for calculation engine)
-PRICE_COUNTRY_TO_INTERNAL: Final = {
-    PRICE_COUNTRY_NETHERLANDS_DISPLAY: PRICE_COUNTRY_NETHERLANDS,
-    PRICE_COUNTRY_BELGIUM_ENGIE_DISPLAY: PRICE_COUNTRY_BELGIUM_ENGIE,
-    PRICE_COUNTRY_OTHER_DISPLAY: PRICE_COUNTRY_OTHER,
-    # Also support old internal values for backward compatibility
-    PRICE_COUNTRY_NETHERLANDS: PRICE_COUNTRY_NETHERLANDS,
-    PRICE_COUNTRY_BELGIUM_ENGIE: PRICE_COUNTRY_BELGIUM_ENGIE,
-    PRICE_COUNTRY_OTHER: PRICE_COUNTRY_OTHER,
-}
-
-# Display names for select entity
-PRICE_COUNTRY_DISPLAY_NAMES: Final = {
-    PRICE_COUNTRY_NETHERLANDS: PRICE_COUNTRY_NETHERLANDS_DISPLAY,
-    PRICE_COUNTRY_BELGIUM_ENGIE: PRICE_COUNTRY_BELGIUM_ENGIE_DISPLAY,
-    PRICE_COUNTRY_OTHER: PRICE_COUNTRY_OTHER_DISPLAY,
-}
-
-PRICE_COUNTRY_OPTIONS: Final = [
-    PRICE_COUNTRY_NETHERLANDS_DISPLAY,
-    PRICE_COUNTRY_BELGIUM_ENGIE_DISPLAY,
-]
-
-DEFAULT_PRICE_COUNTRY: Final = PRICE_COUNTRY_NETHERLANDS
-
-# Formula descriptions per country - used by dashboard to display formula info
-PRICE_FORMULA_INFO: Final = {
-    PRICE_COUNTRY_NETHERLANDS: {
-        "buy_formula": "(raw × (1+VAT)) + tax + cost",
-        "sell_formula": "= buy",
-        "fields": ["vat", "tax", "additional_cost"],
-    },
-    PRICE_COUNTRY_BELGIUM_ENGIE: {
-        "buy_formula": "(B × spot + A) × (1+VAT)",
-        "sell_formula": "(B × spot − A)",
-        "fields": ["buy_formula_param_a", "buy_formula_param_b", "vat"],
-    },
-    PRICE_COUNTRY_OTHER: {
-        "buy_formula": "(B × raw + A) × (1+VAT)",
-        "sell_formula": "(B × raw − A)",
-        "fields": ["buy_formula_param_a", "buy_formula_param_b", "vat"],
-    },
-}
+# Default price country (used as fallback)
+# Country formulas are now defined in the formulas/ subpackage
+# See formulas/__init__.py for the registry and auto-discovery
+DEFAULT_PRICE_COUNTRY: Final = "netherlands"
 
 # Sell price defaults
 DEFAULT_MIN_SELL_PRICE: Final = 0.0
 DEFAULT_USE_MIN_SELL_PRICE: Final = False
 DEFAULT_MIN_SELL_PRICE_BYPASS_SPREAD: Final = False
 
-# Belgium/Other formula defaults
-# Formula: BUY = (B × spot + A) × (1+VAT), SELL = (B × spot − A)
-# A = ENGIE cost component in EUR/kWh (0.009 = 0.9 c€/kWh)
-# B = Multiplier (1.0 since sensor already provides EUR/kWh)
+# Formula parameter defaults (for backward compatibility)
+# These are now defined per-country in formulas/*.py
+# Kept here for migration and fallback purposes
 DEFAULT_BUY_FORMULA_PARAM_A: Final = 0.009  # Cost (A) in EUR/kWh
 DEFAULT_BUY_FORMULA_PARAM_B: Final = 1.0    # Multiplier (B)
-DEFAULT_SELL_FORMULA_PARAM_A: Final = 0.009  # Cost (A) in EUR/kWh (same as buy for ENGIE)
+DEFAULT_SELL_FORMULA_PARAM_A: Final = 0.009  # Cost (A) in EUR/kWh
 DEFAULT_SELL_FORMULA_PARAM_B: Final = 1.0    # Multiplier (B)
-
-# Belgium VAT rate (6% since April 2023)
-DEFAULT_BELGIUM_VAT: Final = 6
 
 # Base usage strategy options
 BASE_USAGE_CHARGE_OPTIONS: Final = ["grid_covers_both", "battery_covers_base"]

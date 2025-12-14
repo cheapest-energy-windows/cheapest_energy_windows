@@ -15,11 +15,9 @@ from .const import (
     LOGGER_NAME,
     PREFIX,
     VERSION,
-    PRICE_COUNTRY_OPTIONS,
-    PRICE_COUNTRY_DISPLAY_NAMES,
-    PRICE_COUNTRY_TO_INTERNAL,
-    PRICE_COUNTRY_NETHERLANDS_DISPLAY,
+    DEFAULT_PRICE_COUNTRY,
 )
+from .formulas import get_country_options, get_formula
 
 _LOGGER = logging.getLogger(LOGGER_NAME)
 
@@ -33,6 +31,15 @@ async def async_setup_entry(
 
     selects = []
 
+    # Get country options dynamically from formula registry
+    # Returns list of (id, display_name) tuples
+    country_options = get_country_options()
+    country_display_names = [name for _, name in country_options]
+
+    # Get default country display name
+    default_formula = get_formula(DEFAULT_PRICE_COUNTRY)
+    default_country_display = default_formula.name if default_formula else "Netherlands"
+
     # Define all select entities
     select_configs = [
         ("pricing_window_duration", "Pricing Window Duration", ["15_minutes", "1_hour"], "15_minutes", "mdi:timer"),
@@ -42,7 +49,7 @@ async def async_setup_entry(
         ("base_usage_idle_strategy", "Base Usage: During Idle", ["battery_covers", "grid_covers"], "battery_covers", "mdi:home-lightning-bolt"),
         ("base_usage_discharge_strategy", "Base Usage: During Discharge", ["already_included", "subtract_base"], "subtract_base", "mdi:battery-arrow-down"),
         ("base_usage_aggressive_strategy", "Base Usage: During Aggressive Discharge", ["same_as_discharge", "already_included", "subtract_base"], "same_as_discharge", "mdi:battery-alert"),
-        ("price_country", "Price Formula", PRICE_COUNTRY_OPTIONS, PRICE_COUNTRY_NETHERLANDS_DISPLAY, "mdi:map-marker"),
+        ("price_country", "Price Formula", country_display_names, default_country_display, "mdi:map-marker"),
         ("arbitrage_protection_mode", "Arbitrage Protection Mode", ["idle", "charge", "discharge", "discharge_aggressive", "off"], "idle", "mdi:shield-lock"),
         ("arbitrage_protection_mode_tomorrow", "Arbitrage Protection Mode Tomorrow", ["idle", "charge", "discharge", "discharge_aggressive", "off"], "idle", "mdi:shield-lock"),
     ]
@@ -92,7 +99,8 @@ class CEWSelect(SelectEntity):
         # For price_country, convert stored internal value to display name
         if key == "price_country":
             # Convert internal value (e.g., "netherlands") to display name (e.g., "Netherlands")
-            self._attr_current_option = PRICE_COUNTRY_DISPLAY_NAMES.get(stored_value, stored_value)
+            formula = get_formula(stored_value)
+            self._attr_current_option = formula.name if formula else stored_value
         else:
             self._attr_current_option = stored_value
 
@@ -125,7 +133,13 @@ class CEWSelect(SelectEntity):
         # Determine what value to save to config entry
         if self._key == "price_country":
             # Convert display name to internal value for storage
-            save_value = PRICE_COUNTRY_TO_INTERNAL.get(option, option)
+            # Look up internal ID from formula registry
+            country_options = get_country_options()
+            save_value = option  # Default to option if not found
+            for country_id, display_name in country_options:
+                if display_name == option:
+                    save_value = country_id
+                    break
         else:
             save_value = option
 

@@ -264,8 +264,7 @@
         "name": "Price Formula",
         "state": {
           "netherlands": "Netherlands",
-          "belgium_engie": "Belgium (Engie)",
-          "other": "Other / Not Listed"
+          "belgium_engie": "Belgium (ENGIE)"
         }
       },
       "vat": {
@@ -326,8 +325,7 @@
     "price_country": {
       "options": {
         "netherlands": "Netherlands",
-        "belgium_engie": "Belgium (Engie)",
-        "other": "Other / Not Listed"
+        "belgium_engie": "Belgium (ENGIE)"
       }
     }
   }

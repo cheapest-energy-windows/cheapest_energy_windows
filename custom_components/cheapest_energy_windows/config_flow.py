@@ -54,8 +54,6 @@ from .const import (
     DEFAULT_VAT_RATE,
     DEFAULT_TAX,
     DEFAULT_ADDITIONAL_COST,
-    DEFAULT_BELGIUM_VAT,
-    PRICE_COUNTRY_OPTIONS,
     BASE_USAGE_CHARGE_OPTIONS,
     BASE_USAGE_IDLE_OPTIONS,
     BASE_USAGE_DISCHARGE_OPTIONS,
@@ -76,6 +74,7 @@ from .const import (
     LOGGER_NAME,
     PREFIX,
 )
+from .formulas import get_country_options, get_formula
 
 _LOGGER = logging.getLogger(LOGGER_NAME)
 
@@ -225,14 +224,28 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             else:
                 return await self.async_step_custom_formulas()
 
+        # Get available countries from the formula registry
+        country_options = get_country_options()
+
+        # Build description with formula info for each country
+        formula_descriptions = []
+        for country_id, display_name in country_options:
+            formula = get_formula(country_id)
+            if formula:
+                formula_descriptions.append(
+                    f"**{display_name}**\n"
+                    f"Buy: `{formula.buy_formula_description}`\n"
+                    f"Sell: `{formula.sell_formula_description}`"
+                )
+
         return self.async_show_form(
             step_id="price_formulas",
             data_schema=vol.Schema({
                 vol.Required(CONF_PRICE_COUNTRY, default=DEFAULT_PRICE_COUNTRY): selector.SelectSelector(
                     selector.SelectSelectorConfig(
                         options=[
-                            {"label": "Netherlands (VAT + Tax + Cost)", "value": "netherlands"},
-                            {"label": "Belgium (ENGIE Dynamic)", "value": "belgium_engie"},
+                            {"label": name, "value": country_id}
+                            for country_id, name in country_options
                         ],
                         mode=selector.SelectSelectorMode.DROPDOWN,
                     )
@@ -241,13 +254,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             description_placeholders={
                 "info": "🌍 **Select Your Electricity Contract Type**\n\n"
                        "Choose the pricing formula that matches your energy contract:\n\n"
-                       "**🇳🇱 Netherlands**\n"
-                       "Formula: `(spot_price × (1 + VAT)) + energy_tax + additional_cost`\n"
-                       "Best for: Dutch contracts with standard VAT, energy tax, and supplier costs\n\n"
-                       "**🇧🇪 Belgium (ENGIE)**\n"
-                       "Formula: `(A × spot_price + B) / 100`\n"
-                       "Best for: ENGIE dynamic contracts with index-linked pricing\n\n"
-                       "💡 You can adjust all parameters after installation via the dashboard."
+                       + "\n\n".join(formula_descriptions) +
+                       "\n\n💡 You can adjust all parameters after installation via the dashboard."
             },
         )
 
@@ -314,32 +322,48 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return await self.async_step_sell_settings()
 
         country = self.data.get(CONF_PRICE_COUNTRY, DEFAULT_PRICE_COUNTRY)
-        is_belgium = country == "belgium_engie"
+        formula = get_formula(country)
 
-        title = "🇧🇪 **Belgium (ENGIE) Pricing**" if is_belgium else "🔧 **Custom Formula Configuration**"
-        formula_info = (
-            "**ENGIE Dynamic Formula:**\n"
-            "• BUY: `(B × spot + A) × (1 + VAT)`\n"
-            "• SELL: `(B × spot − A)` (no VAT on injection)\n\n"
-            "**Parameters:**\n"
-            "• **Multiplier (B)**: Default 1.0 (spot price multiplier)\n"
-            "• **Cost (A)**: ENGIE operational cost (~0.009 EUR/kWh = 0.9 c€/kWh)\n"
-            "• **VAT**: Belgian rate is 6% since April 2023\n\n"
-            "💡 These values are from your ENGIE contract/tariff card."
-        ) if is_belgium else (
-            "**Custom Formula:**\n"
-            "• BUY: `(B × spot + A) × (1 + VAT)`\n"
-            "• SELL: `(B × spot − A)`\n\n"
-            "**Parameters:**\n"
-            "• **Multiplier (B)**: Spot price multiplier (usually 1.0)\n"
-            "• **Cost (A)**: Supplier cost in EUR/kWh\n"
-            "• **VAT**: Your country's VAT rate %\n"
-        )
+        # Get default VAT from the formula registry
+        default_vat = DEFAULT_VAT_RATE
+        default_param_a = DEFAULT_BUY_FORMULA_PARAM_A
+        default_param_b = DEFAULT_BUY_FORMULA_PARAM_B
+        if formula:
+            for param in formula.params:
+                if param.key == "vat":
+                    default_vat = param.default
+                elif param.key == "buy_formula_param_a":
+                    default_param_a = param.default
+                elif param.key == "buy_formula_param_b":
+                    default_param_b = param.default
+
+        title = f"**{formula.name} Pricing**" if formula else "🔧 **Custom Formula Configuration**"
+        if formula:
+            formula_info = (
+                f"**Formula:**\n"
+                f"• BUY: `{formula.buy_formula_description}`\n"
+                f"• SELL: `{formula.sell_formula_description}`\n\n"
+                "**Parameters:**\n"
+                "• **Multiplier (B)**: Spot price multiplier\n"
+                "• **Cost (A)**: Supplier cost in EUR/kWh\n"
+                f"• **VAT**: Default {default_vat}%\n\n"
+                "💡 These values are from your energy contract/tariff card."
+            )
+        else:
+            formula_info = (
+                "**Custom Formula:**\n"
+                "• BUY: `(B × spot + A) × (1 + VAT)`\n"
+                "• SELL: `(B × spot − A)`\n\n"
+                "**Parameters:**\n"
+                "• **Multiplier (B)**: Spot price multiplier (usually 1.0)\n"
+                "• **Cost (A)**: Supplier cost in EUR/kWh\n"
+                "• **VAT**: Your country's VAT rate %\n"
+            )
 
         return self.async_show_form(
             step_id="custom_formulas",
             data_schema=vol.Schema({
-                vol.Required(CONF_BUY_FORMULA_PARAM_B, default=DEFAULT_BUY_FORMULA_PARAM_B): selector.NumberSelector(
+                vol.Required(CONF_BUY_FORMULA_PARAM_B, default=default_param_b): selector.NumberSelector(
                     selector.NumberSelectorConfig(
                         min=0.0,
                         max=2.0,
@@ -347,7 +371,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         mode=selector.NumberSelectorMode.BOX,
                     )
                 ),
-                vol.Required(CONF_BUY_FORMULA_PARAM_A, default=DEFAULT_BUY_FORMULA_PARAM_A): selector.NumberSelector(
+                vol.Required(CONF_BUY_FORMULA_PARAM_A, default=default_param_a): selector.NumberSelector(
                     selector.NumberSelectorConfig(
                         min=-0.1,
                         max=0.5,
@@ -356,10 +380,10 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         mode=selector.NumberSelectorMode.BOX,
                     )
                 ),
-                vol.Required(CONF_VAT_RATE, default=DEFAULT_BELGIUM_VAT if is_belgium else DEFAULT_VAT_RATE): selector.NumberSelector(
+                vol.Required(CONF_VAT_RATE, default=default_vat): selector.NumberSelector(
                     selector.NumberSelectorConfig(
                         min=0,
-                        max=30,
+                        max=50,
                         step=1,
                         unit_of_measurement="%",
                         mode=selector.NumberSelectorMode.BOX,
@@ -934,6 +958,9 @@ class CEWOptionsFlow(config_entries.OptionsFlow):
 
         options = self.config_entry.options
 
+        # Get available countries from the formula registry
+        country_options = get_country_options()
+
         return self.async_show_form(
             step_id="init",
             data_schema=vol.Schema({
@@ -958,9 +985,8 @@ class CEWOptionsFlow(config_entries.OptionsFlow):
                 ): selector.SelectSelector(
                     selector.SelectSelectorConfig(
                         options=[
-                            {"label": "Netherlands", "value": "netherlands"},
-                            {"label": "Belgium (ENGIE)", "value": "belgium_engie"},
-                            {"label": "Other / Custom", "value": "other"},
+                            {"label": name, "value": country_id}
+                            for country_id, name in country_options
                         ],
                         mode=selector.SelectSelectorMode.DROPDOWN,
                         translation_key="price_country",

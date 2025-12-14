@@ -39,7 +39,9 @@ from .const import (
     DEFAULT_TAX,
     DEFAULT_ADDITIONAL_COST,
     DEFAULT_ARBITRAGE_PROTECTION_THRESHOLD,
+    DEFAULT_PRICE_COUNTRY,
 )
+from .formulas import get_formula, is_param_active
 
 _LOGGER = logging.getLogger(LOGGER_NAME)
 
@@ -90,15 +92,15 @@ async def async_setup_entry(
             0, 0.5, DEFAULT_MIN_PRICE_DIFFERENCE, 0.001, "EUR/kWh",
             "mdi:cash-minus", NumberMode.BOX
         ),
-        # Belgium/Other formula parameters
-        # Formula: BUY = (B × spot + A) × (1+VAT), SELL = (B × spot − A)
-        # A = Cost component in EUR/kWh, B = Multiplier
-        CEWNumber(
+        # Formula parameters - availability depends on selected country
+        # Belgium/Other: Uses param_a, param_b
+        # Netherlands: Uses vat, tax, additional_cost
+        CEWFormulaParamNumber(
             hass, config_entry, "buy_formula_param_a", "Cost (A)",
             -0.1, 0.5, DEFAULT_BUY_FORMULA_PARAM_A, 0.001, "EUR/kWh",
             "mdi:alpha-a-circle", NumberMode.BOX
         ),
-        CEWNumber(
+        CEWFormulaParamNumber(
             hass, config_entry, "buy_formula_param_b", "Multiplier (B)",
             0.0, 2.0, DEFAULT_BUY_FORMULA_PARAM_B, 0.01, "",
             "mdi:alpha-b-circle", NumberMode.BOX
@@ -147,28 +149,29 @@ async def async_setup_entry(
         ),
         # Sell formula parameters (same structure as buy for Belgium/Other)
         # Formula: SELL = (B × spot − A)
-        CEWNumber(
+        CEWFormulaParamNumber(
             hass, config_entry, "sell_formula_param_a", "Sell Cost (A)",
             -0.1, 0.5, DEFAULT_SELL_FORMULA_PARAM_A, 0.001, "EUR/kWh",
             "mdi:alpha-a-circle", NumberMode.BOX
         ),
-        CEWNumber(
+        CEWFormulaParamNumber(
             hass, config_entry, "sell_formula_param_b", "Sell Multiplier (B)",
             0.0, 2.0, DEFAULT_SELL_FORMULA_PARAM_B, 0.01, "",
             "mdi:alpha-b-circle", NumberMode.BOX
         ),
         # Netherlands formula parameters (VAT/tax/additional cost)
-        CEWNumber(
+        # VAT is used by all countries, but tax/additional_cost are Netherlands-specific
+        CEWFormulaParamNumber(
             hass, config_entry, "vat", "VAT Rate",
             0, 100, DEFAULT_VAT_RATE, 1, "%",
             "mdi:percent", NumberMode.BOX
         ),
-        CEWNumber(
+        CEWFormulaParamNumber(
             hass, config_entry, "tax", "Energy Tax",
             0, 1.0, DEFAULT_TAX, 0.001, "EUR/kWh",
             "mdi:cash-plus", NumberMode.BOX
         ),
-        CEWNumber(
+        CEWFormulaParamNumber(
             hass, config_entry, "additional_cost", "Additional Cost",
             0, 1.0, DEFAULT_ADDITIONAL_COST, 0.001, "EUR/kWh",
             "mdi:cash-plus", NumberMode.BOX
@@ -290,3 +293,20 @@ class CEWNumber(NumberEntity):
                     await coordinator.async_request_refresh()
         else:
             _LOGGER.debug(f"Number {self._key} doesn't affect calculations, skipping coordinator refresh")
+
+
+class CEWFormulaParamNumber(CEWNumber):
+    """Number entity for formula parameters that checks availability based on country.
+
+    This entity will show as unavailable when the current country's formula
+    doesn't use this parameter.
+    """
+
+    @property
+    def available(self) -> bool:
+        """Return True if the parameter is used by the current country's formula."""
+        country = self._config_entry.options.get(
+            "price_country",
+            self._config_entry.data.get("price_country", DEFAULT_PRICE_COUNTRY)
+        )
+        return is_param_active(country, self._key)

@@ -64,11 +64,10 @@ from .const import (
     ATTR_TIME_OVERRIDE_ACTIVE,
     ATTR_CURRENT_SELL_PRICE,
     ATTR_SELL_PRICE_COUNTRY,
-    PRICE_FORMULA_INFO,
-    PRICE_COUNTRY_NETHERLANDS,
-    PRICE_COUNTRY_DISPLAY_NAMES,
+    DEFAULT_PRICE_COUNTRY,
 )
 from .coordinator import CEWCoordinator
+from .formulas import get_formula
 
 _LOGGER = logging.getLogger(LOGGER_NAME)
 
@@ -548,7 +547,16 @@ class CEWPriceSensorProxy(SensorEntity):
         self._attr_name = "CEW Price Sensor Proxy"
         self._attr_has_entity_name = False
         self._attr_native_value = None
-        self._attr_extra_state_attributes = {}
+        # Initialize with empty lists to prevent template errors during initial load
+        self._attr_extra_state_attributes = {
+            "raw_today": [],
+            "raw_tomorrow": [],
+            "calculated_today": [],
+            "calculated_tomorrow": [],
+            "calculated_sell_today": [],
+            "calculated_sell_tomorrow": [],
+            "tomorrow_valid": False,
+        }
 
         # Calculation engine for price calculations
         self._calculation_engine = WindowCalculationEngine()
@@ -754,8 +762,9 @@ class CEWPriceSensorProxy(SensorEntity):
             self._attr_extra_state_attributes = dict(price_sensor.attributes)
 
         # Add calculated prices using the configured formula
-        raw_today = self._attr_extra_state_attributes.get("raw_today", [])
-        raw_tomorrow = self._attr_extra_state_attributes.get("raw_tomorrow", [])
+        # Use `or []` to handle both missing keys AND None values
+        raw_today = self._attr_extra_state_attributes.get("raw_today") or []
+        raw_tomorrow = self._attr_extra_state_attributes.get("raw_tomorrow") or []
 
         calculated_buy_today = self._calculate_prices(raw_today)
         calculated_buy_tomorrow = self._calculate_prices(raw_tomorrow)
@@ -770,17 +779,25 @@ class CEWPriceSensorProxy(SensorEntity):
         self._attr_extra_state_attributes["calculated_sell_today"] = calculated_sell_today
         self._attr_extra_state_attributes["calculated_sell_tomorrow"] = calculated_sell_tomorrow
 
-        # Add formula info for dashboard display
+        # Add formula info for dashboard display using the formula registry
         config = self.coordinator.data.get("config", {}) if self.coordinator.data else {}
-        country = config.get("price_country", PRICE_COUNTRY_NETHERLANDS)
-        formula_info = PRICE_FORMULA_INFO.get(country, PRICE_FORMULA_INFO[PRICE_COUNTRY_NETHERLANDS])
+        country = config.get("price_country", DEFAULT_PRICE_COUNTRY)
+        formula = get_formula(country)
 
         self._attr_extra_state_attributes["price_country"] = country
-        self._attr_extra_state_attributes["price_country_display"] = PRICE_COUNTRY_DISPLAY_NAMES.get(country, country)
-        self._attr_extra_state_attributes["buy_formula_description"] = f"Buy: {formula_info['buy_formula']}"
-        self._attr_extra_state_attributes["sell_formula_description"] = f"Sell: {formula_info['sell_formula']}"
-        self._attr_extra_state_attributes["formula_fields"] = formula_info["fields"]
-        self._attr_extra_state_attributes["buy_equals_sell"] = (formula_info.get("sell_formula") == "= buy")
+        if formula:
+            self._attr_extra_state_attributes["price_country_display"] = formula.name
+            self._attr_extra_state_attributes["buy_formula_description"] = f"Buy: {formula.buy_formula_description}"
+            self._attr_extra_state_attributes["sell_formula_description"] = f"Sell: {formula.sell_formula_description}"
+            self._attr_extra_state_attributes["active_params"] = [p.key for p in formula.params]
+            self._attr_extra_state_attributes["buy_equals_sell"] = (formula.sell_formula_description.lower() == "same as buy price")
+        else:
+            # Fallback for unknown country
+            self._attr_extra_state_attributes["price_country_display"] = country
+            self._attr_extra_state_attributes["buy_formula_description"] = "Buy: spot price"
+            self._attr_extra_state_attributes["sell_formula_description"] = "Sell: spot price"
+            self._attr_extra_state_attributes["active_params"] = []
+            self._attr_extra_state_attributes["buy_equals_sell"] = True
 
         _LOGGER.debug(f"Proxy sensor updated from {price_sensor_id}, state: {self._attr_native_value}")
         _LOGGER.debug(f"Calculated {len(calculated_buy_today)} buy prices today, "

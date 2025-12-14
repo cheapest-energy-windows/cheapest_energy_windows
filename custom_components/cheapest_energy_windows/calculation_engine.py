@@ -22,9 +22,6 @@ from .const import (
     STATE_DISCHARGE_AGGRESSIVE,
     STATE_IDLE,
     STATE_OFF,
-    PRICE_COUNTRY_NETHERLANDS,
-    PRICE_COUNTRY_BELGIUM_ENGIE,
-    PRICE_COUNTRY_OTHER,
     DEFAULT_PRICE_COUNTRY,
     DEFAULT_MIN_SELL_PRICE,
     DEFAULT_USE_MIN_SELL_PRICE,
@@ -37,6 +34,7 @@ from .const import (
     DEFAULT_TAX,
     DEFAULT_ADDITIONAL_COST,
 )
+from .formulas import get_formula
 
 _LOGGER = logging.getLogger(LOGGER_NAME)
 
@@ -892,52 +890,37 @@ class WindowCalculationEngine:
     ) -> float:
         """Calculate buy price based on country formula with configurable params.
 
+        Uses the formula registry to look up the country-specific formula.
+        Falls back to raw price if country not found.
+
         Args:
             spot_price_mwh: Raw spot price in EUR/kWh (from price sensor)
                 Note: Variable named 'mwh' for historical reasons but sensor provides EUR/kWh
-            country: Country/formula selection
-            param_a: Cost component A in EUR/kWh (Belgium/Other) or unused (Netherlands)
-            param_b: Multiplier B (Belgium/Other) or unused (Netherlands)
+            country: Country/formula selection (e.g., "netherlands", "belgium_engie")
+            param_a: Cost component A in EUR/kWh
+            param_b: Multiplier B
             vat: VAT rate as percentage (0-100)
-            tax: Energy tax in EUR/kWh (Netherlands only)
-            additional_cost: Additional cost in EUR/kWh (Netherlands only)
+            tax: Energy tax in EUR/kWh
+            additional_cost: Additional cost in EUR/kWh
 
         Returns:
             Calculated buy price (EUR/kWh)
-
-        Formulas:
-            Netherlands: (spot × (1+VAT)) + tax + additional_cost
-            Belgium/Other: (B × spot + A) × (1+VAT)
         """
-        if country == PRICE_COUNTRY_NETHERLANDS:
-            # Netherlands: Apply VAT/tax/additional cost
-            # Formula: (spot_price × (1 + VAT)) + tax + additional_cost
-            # Note: spot_price is already in EUR/kWh from sensor
-            vat_decimal = vat / 100  # Convert percentage to decimal
-            buy_price = (spot_price_mwh * (1 + vat_decimal)) + tax + additional_cost
-            return max(0, buy_price)
+        formula = get_formula(country)
+        if formula:
+            # Build params dict from all available parameters
+            params = {
+                "vat": vat,
+                "tax": tax,
+                "additional_cost": additional_cost,
+                "param_a": param_a,
+                "param_b": param_b,
+            }
+            return formula.buy_formula(spot_price_mwh, params)
 
-        elif country == PRICE_COUNTRY_BELGIUM_ENGIE:
-            # Belgium ENGIE formula: buy = (B × spot + A) × (1 + VAT)
-            # Where: B = multiplier (default 1.0), A = ENGIE cost in EUR/kWh
-            # VAT = Belgian VAT rate (6% since April 2023)
-            # Note: spot_price is already in EUR/kWh from sensor
-            # param_a = Cost (A), param_b = Multiplier (B)
-            vat_decimal = vat / 100  # Convert percentage to decimal
-            buy_price = (param_b * spot_price_mwh + param_a) * (1 + vat_decimal)
-            return max(0, buy_price)
-
-        elif country == PRICE_COUNTRY_OTHER:
-            # Other/Custom formula: buy = (B × spot + A) × (1 + VAT)
-            # Same structure as Belgium but user can customize all parameters
-            # param_a = Cost (A), param_b = Multiplier (B)
-            vat_decimal = vat / 100  # Convert percentage to decimal
-            buy_price = (param_b * spot_price_mwh + param_a) * (1 + vat_decimal)
-            return max(0, buy_price)
-
-        # Fallback to raw price converted to EUR/kWh
-        _LOGGER.warning(f"Unknown buy price country '{country}', using raw conversion")
-        return max(0, spot_price_mwh / 1000)
+        # Fallback to raw price if formula not found
+        _LOGGER.warning(f"Unknown buy price country '{country}', using raw price")
+        return max(0, spot_price_mwh)
 
     def _calculate_sell_price(
         self,
@@ -949,42 +932,30 @@ class WindowCalculationEngine:
     ) -> float:
         """Calculate sell price based on country formula with configurable params.
 
+        Uses the formula registry to look up the country-specific formula.
+        Falls back to buy price if country not found.
+
         Args:
             spot_price_mwh: Raw spot price in EUR/kWh (from price sensor)
                 Note: Variable named 'mwh' for historical reasons but sensor provides EUR/kWh
             buy_price: Calculated buy price with VAT/tax/additional (EUR/kWh)
-            country: Country/formula selection
-            param_a: Cost component A in EUR/kWh (Belgium/Other) or unused (Netherlands)
-            param_b: Multiplier B (Belgium/Other) or unused (Netherlands)
+            country: Country/formula selection (e.g., "netherlands", "belgium_engie")
+            param_a: Cost component A in EUR/kWh
+            param_b: Multiplier B
 
         Returns:
             Calculated sell price (EUR/kWh)
-
-        Formulas:
-            Netherlands: = buy_price (same as buy)
-            Belgium/Other: (B × spot − A) (no VAT on injection)
         """
-        if country == PRICE_COUNTRY_NETHERLANDS:
-            # Netherlands: sell price equals buy price (no adjustment)
-            return buy_price
+        formula = get_formula(country)
+        if formula:
+            # Build params dict from available parameters
+            params = {
+                "param_a": param_a,
+                "param_b": param_b,
+            }
+            return formula.sell_formula(spot_price_mwh, buy_price, params)
 
-        elif country == PRICE_COUNTRY_BELGIUM_ENGIE:
-            # Belgium ENGIE formula: sell = (B × spot − A)
-            # Where: B = multiplier (default 1.0), A = ENGIE cost in EUR/kWh
-            # No VAT on injection/selling electricity
-            # Note: spot_price is already in EUR/kWh from sensor
-            # param_a = Cost (A), param_b = Multiplier (B)
-            sell_price = (param_b * spot_price_mwh) - param_a
-            return max(0, sell_price)
-
-        elif country == PRICE_COUNTRY_OTHER:
-            # Other/Custom formula: sell = (B × spot − A)
-            # Same structure as Belgium but user can customize all parameters
-            # param_a = Cost (A), param_b = Multiplier (B)
-            sell_price = (param_b * spot_price_mwh) - param_a
-            return max(0, sell_price)
-
-        # Fallback to buy price
+        # Fallback to buy price if formula not found
         _LOGGER.warning(f"Unknown sell price country '{country}', using buy price")
         return buy_price
 
