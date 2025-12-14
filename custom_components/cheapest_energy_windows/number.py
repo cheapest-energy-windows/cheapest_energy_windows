@@ -76,13 +76,13 @@ async def async_setup_entry(
             "mdi:arrow-expand-horizontal", NumberMode.BOX
         ),
         CEWNumber(
-            hass, config_entry, "min_spread_discharge", "Min Spread Discharge",
-            0, 200, DEFAULT_MIN_SPREAD_DISCHARGE, 1, "%",
+            hass, config_entry, "min_spread_discharge", "Min Arbitrage (Discharge)",
+            -100, 200, DEFAULT_MIN_SPREAD_DISCHARGE, 1, "%",
             "mdi:arrow-expand-horizontal", NumberMode.BOX
         ),
         CEWNumber(
-            hass, config_entry, "aggressive_discharge_spread", "Aggressive Discharge Spread",
-            0, 300, DEFAULT_AGGRESSIVE_DISCHARGE_SPREAD, 1, "%",
+            hass, config_entry, "aggressive_discharge_spread", "Min Arbitrage (Aggressive)",
+            -100, 300, DEFAULT_AGGRESSIVE_DISCHARGE_SPREAD, 1, "%",
             "mdi:arrow-expand-horizontal", NumberMode.BOX
         ),
         CEWNumber(
@@ -192,14 +192,14 @@ async def async_setup_entry(
         ("expensive_windows_tomorrow", "Expensive Windows Tomorrow", DEFAULT_EXPENSIVE_WINDOWS, 96, "windows"),
         ("percentile_threshold_tomorrow", "Percentile Threshold Tomorrow", DEFAULT_PERCENTILE_THRESHOLD, 50, "%"),
         ("min_spread_tomorrow", "Min Spread Tomorrow", DEFAULT_MIN_SPREAD, 200, "%"),
-        ("min_spread_discharge_tomorrow", "Min Spread Discharge Tomorrow", DEFAULT_MIN_SPREAD_DISCHARGE, 200, "%"),
-        ("aggressive_discharge_spread_tomorrow", "Aggressive Discharge Spread Tomorrow", DEFAULT_AGGRESSIVE_DISCHARGE_SPREAD, 300, "%"),
+        ("min_spread_discharge_tomorrow", "Min Arbitrage (Discharge) Tomorrow", DEFAULT_MIN_SPREAD_DISCHARGE, 200, "%"),
+        ("aggressive_discharge_spread_tomorrow", "Min Arbitrage (Aggressive) Tomorrow", DEFAULT_AGGRESSIVE_DISCHARGE_SPREAD, 300, "%"),
         ("min_price_difference_tomorrow", "Min Price Difference Tomorrow", DEFAULT_MIN_PRICE_DIFFERENCE, 0.5, "EUR/kWh"),
         ("price_override_threshold_tomorrow", "Price Override Threshold Tomorrow", DEFAULT_PRICE_OVERRIDE_THRESHOLD, 0.5, "EUR/kWh"),
     ]
 
     for key, name, default, max_val, unit in tomorrow_configs:
-        min_val = 1 if "percentile" in key else 0 if "windows" in key else 0
+        min_val = 1 if "percentile" in key else -100 if "min_spread_discharge" in key or "aggressive_discharge" in key else 0 if "windows" in key else 0
         step = 1 if "%" in unit or "windows" in unit else 0.001
         numbers.append(
             CEWNumber(

@@ -114,15 +114,19 @@ class WindowCalculationEngine:
         arbitrage_avg = self._calculate_arbitrage_avg(processed_prices, config, is_tomorrow)
 
         # Check if Arbitrage Protection should clear all windows
+        # Uses RTE-linked margin calculation: margin = arbitrage - RTE_loss
         arb_prot_enabled = config.get(f"arbitrage_protection_enabled{suffix}", False)
         if arb_prot_enabled:
             threshold = config.get(f"arbitrage_protection_threshold{suffix}", 0)
+            rte = config.get("battery_rte", 85)
+            rte_loss = 100 - rte
+            margin = arbitrage_avg - rte_loss
 
-            if arbitrage_avg < threshold:
+            if arbitrage_avg <= 0 or margin < threshold:
                 # Protection triggered - return result with empty windows
                 mode = config.get(f"arbitrage_protection_mode{suffix}", MODE_IDLE)
                 current_state = self._mode_to_state(mode)
-                _LOGGER.debug(f"Arbitrage Protection clearing windows: arbitrage={arbitrage_avg:.1f}% < threshold={threshold}%")
+                _LOGGER.debug(f"Arbitrage Protection clearing windows: arbitrage={arbitrage_avg:.1f}%, RTE={rte}%, margin={margin:.1f}% < threshold={threshold}%")
 
                 return self._build_result(
                     processed_prices,
@@ -782,14 +786,17 @@ class WindowCalculationEngine:
         if not config.get("automation_enabled", True):
             return STATE_OFF
 
-        # Check Arbitrage protection
+        # Check Arbitrage protection (RTE-linked margin calculation)
         suffix = "_tomorrow" if is_tomorrow and config.get("tomorrow_settings_enabled", False) else ""
         if config.get(f"arbitrage_protection_enabled{suffix}", False):
             threshold = config.get(f"arbitrage_protection_threshold{suffix}", 0)
+            rte = config.get("battery_rte", 85)
+            rte_loss = 100 - rte
+            margin = arbitrage_avg - rte_loss
 
-            if arbitrage_avg < threshold:
+            if arbitrage_avg <= 0 or margin < threshold:
                 mode = config.get(f"arbitrage_protection_mode{suffix}", MODE_IDLE)
-                _LOGGER.debug(f"Arbitrage Protection triggered: arbitrage={arbitrage_avg:.1f}% < threshold={threshold}%, mode={mode}")
+                _LOGGER.debug(f"Arbitrage Protection triggered: arbitrage={arbitrage_avg:.1f}%, RTE={rte}%, margin={margin:.1f}% < threshold={threshold}%, mode={mode}")
                 return self._mode_to_state(mode)
 
         now = dt_util.now()
