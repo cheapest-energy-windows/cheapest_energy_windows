@@ -245,6 +245,9 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             DEFAULT_CALCULATION_WINDOW_END,
             DEFAULT_BATTERY_MIN_SOC_DISCHARGE,
             DEFAULT_BATTERY_MIN_SOC_AGGRESSIVE_DISCHARGE,
+            DEFAULT_ARBITRAGE_PROTECTION_ENABLED,
+            DEFAULT_ARBITRAGE_PROTECTION_THRESHOLD,
+            DEFAULT_ARBITRAGE_PROTECTION_MODE,
         )
 
         options = self.config_entry.options
@@ -282,6 +285,8 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             "aggressive_discharge_spread_tomorrow": float(options.get("aggressive_discharge_spread_tomorrow", DEFAULT_AGGRESSIVE_DISCHARGE_SPREAD)),
             "min_price_difference_tomorrow": float(options.get("min_price_difference_tomorrow", DEFAULT_MIN_PRICE_DIFFERENCE)),
             "price_override_threshold_tomorrow": float(options.get("price_override_threshold_tomorrow", DEFAULT_PRICE_OVERRIDE_THRESHOLD)),
+            "arbitrage_protection_threshold": float(options.get("arbitrage_protection_threshold", DEFAULT_ARBITRAGE_PROTECTION_THRESHOLD)),
+            "arbitrage_protection_threshold_tomorrow": float(options.get("arbitrage_protection_threshold_tomorrow", DEFAULT_ARBITRAGE_PROTECTION_THRESHOLD)),
 
             # Boolean values (switches)
             "automation_enabled": bool(options.get("automation_enabled", True)),
@@ -295,6 +300,8 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             "time_override_enabled_tomorrow": bool(options.get("time_override_enabled_tomorrow", False)),
             "calculation_window_enabled": bool(options.get("calculation_window_enabled", False)),
             "calculation_window_enabled_tomorrow": bool(options.get("calculation_window_enabled_tomorrow", False)),
+            "arbitrage_protection_enabled": bool(options.get("arbitrage_protection_enabled", DEFAULT_ARBITRAGE_PROTECTION_ENABLED)),
+            "arbitrage_protection_enabled_tomorrow": bool(options.get("arbitrage_protection_enabled_tomorrow", DEFAULT_ARBITRAGE_PROTECTION_ENABLED)),
             "notify_automation_disabled": bool(options.get("notify_automation_disabled", False)),
             "notify_charging": bool(options.get("notify_charging", True)),
             "notify_discharge": bool(options.get("notify_discharge", True)),
@@ -305,6 +312,8 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             "pricing_window_duration": options.get("pricing_window_duration", "15_minutes"),
             "time_override_mode": options.get("time_override_mode", "charge"),
             "time_override_mode_tomorrow": options.get("time_override_mode_tomorrow", "charge"),
+            "arbitrage_protection_mode": options.get("arbitrage_protection_mode", DEFAULT_ARBITRAGE_PROTECTION_MODE),
+            "arbitrage_protection_mode_tomorrow": options.get("arbitrage_protection_mode_tomorrow", DEFAULT_ARBITRAGE_PROTECTION_MODE),
 
             # Unified price country
             "price_country": options.get("price_country", DEFAULT_PRICE_COUNTRY),

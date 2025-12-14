@@ -244,13 +244,18 @@ class WindowCalculationEngine:
             discharge_times = [w["timestamp"].strftime("%H:%M") for w in discharge_windows]
             _LOGGER.debug(f"After calculation window filter - Charge windows: {charge_times}, Discharge windows: {discharge_times}")
 
-        # Calculate current state
+        # Calculate arbitrage_avg early for RTE protection check
+        arbitrage_avg = self._calculate_arbitrage_avg(processed_prices, config, is_tomorrow)
+
+        # Calculate current state (pass arbitrage_avg and is_tomorrow for RTE protection)
         current_state = self._determine_current_state(
             processed_prices,
             charge_windows,
             discharge_windows,
             aggressive_windows,
-            config
+            config,
+            arbitrage_avg,
+            is_tomorrow
         )
 
         # Build result
@@ -692,18 +697,84 @@ class WindowCalculationEngine:
 
         return candidates
 
+    def _calculate_arbitrage_avg(
+        self,
+        prices: List[Dict[str, Any]],
+        config: Dict[str, Any],
+        is_tomorrow: bool
+    ) -> float:
+        """Calculate arbitrage_avg (sell vs buy spread percentage) for RTE protection check.
+
+        This calculates the potential arbitrage margin based on percentile thresholds,
+        independent of whether windows are actually selected.
+        """
+        if not prices:
+            return 0.0
+
+        suffix = "_tomorrow" if is_tomorrow and config.get("tomorrow_settings_enabled", False) else ""
+        percentile_threshold = config.get(f"percentile_threshold{suffix}", 25)
+
+        # Get sell price formula settings
+        sell_country = config.get("price_country", DEFAULT_PRICE_COUNTRY)
+        sell_param_a = config.get("sell_formula_param_a", DEFAULT_SELL_FORMULA_PARAM_A)
+        sell_param_b = config.get("sell_formula_param_b", DEFAULT_SELL_FORMULA_PARAM_B)
+
+        all_buy_prices = np.array([p["price"] for p in prices])
+
+        # Get cheapest buy prices (bottom percentile)
+        cheap_threshold = np.percentile(all_buy_prices, percentile_threshold)
+        cheap_buy_prices = all_buy_prices[all_buy_prices <= cheap_threshold]
+        avg_cheap_buy = float(np.mean(cheap_buy_prices)) if len(cheap_buy_prices) > 0 else 0.0
+
+        if avg_cheap_buy <= 0:
+            return 0.0
+
+        # Calculate sell prices for all time slots
+        all_sell_prices = []
+        for p in prices:
+            raw = p.get("raw_price", p["price"])
+            sell = self._calculate_sell_price(raw, p["price"], sell_country, sell_param_a, sell_param_b)
+            all_sell_prices.append(sell)
+        all_sell_prices = np.array(all_sell_prices)
+
+        # Get most expensive sell prices (top percentile)
+        expensive_sell_threshold = np.percentile(all_sell_prices, 100 - percentile_threshold)
+        expensive_sell_prices = all_sell_prices[all_sell_prices >= expensive_sell_threshold]
+        avg_expensive_sell = float(np.mean(expensive_sell_prices)) if len(expensive_sell_prices) > 0 else 0.0
+
+        # Calculate arbitrage: (sell - buy) / buy * 100
+        return float(((avg_expensive_sell - avg_cheap_buy) / avg_cheap_buy) * 100)
+
     def _determine_current_state(
         self,
         prices: List[Dict[str, Any]],
         charge_windows: List[Dict[str, Any]],
         discharge_windows: List[Dict[str, Any]],
         aggressive_windows: List[Dict[str, Any]],
-        config: Dict[str, Any]
+        config: Dict[str, Any],
+        arbitrage_avg: float = 0.0,
+        is_tomorrow: bool = False
     ) -> str:
         """Determine current state based on time and configuration."""
         # Check if automation is enabled
         if not config.get("automation_enabled", True):
             return STATE_OFF
+
+        # Check Arbitrage protection
+        suffix = "_tomorrow" if is_tomorrow and config.get("tomorrow_settings_enabled", False) else ""
+        if config.get(f"arbitrage_protection_enabled{suffix}", False):
+            rte = config.get("battery_rte", 85)
+            rte_loss = 100 - rte
+            threshold = config.get(f"arbitrage_protection_threshold{suffix}", 0)
+
+            # Calculate margin: Arbitrage% - RTE loss%
+            margin = arbitrage_avg - rte_loss
+
+            # Trigger protection if no data OR margin < threshold
+            if arbitrage_avg <= 0 or margin < threshold:
+                mode = config.get(f"arbitrage_protection_mode{suffix}", MODE_IDLE)
+                _LOGGER.debug(f"Arbitrage Protection triggered: arbitrage={arbitrage_avg:.1f}%, rte_loss={rte_loss}%, margin={margin:.1f}%, threshold={threshold}%, mode={mode}")
+                return self._mode_to_state(mode)
 
         now = dt_util.now()
         current_time = now.replace(second=0, microsecond=0)

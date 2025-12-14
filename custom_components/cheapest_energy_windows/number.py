@@ -38,6 +38,7 @@ from .const import (
     DEFAULT_VAT_RATE,
     DEFAULT_TAX,
     DEFAULT_ADDITIONAL_COST,
+    DEFAULT_ARBITRAGE_PROTECTION_THRESHOLD,
 )
 
 _LOGGER = logging.getLogger(LOGGER_NAME)
@@ -171,6 +172,17 @@ async def async_setup_entry(
             hass, config_entry, "additional_cost", "Additional Cost",
             0, 1.0, DEFAULT_ADDITIONAL_COST, 0.001, "EUR/kWh",
             "mdi:cash-plus", NumberMode.BOX
+        ),
+        # Arbitrage Protection threshold
+        CEWNumber(
+            hass, config_entry, "arbitrage_protection_threshold", "Arbitrage Protection Threshold",
+            0, 50, DEFAULT_ARBITRAGE_PROTECTION_THRESHOLD, 1, "%",
+            "mdi:shield-alert", NumberMode.BOX
+        ),
+        CEWNumber(
+            hass, config_entry, "arbitrage_protection_threshold_tomorrow", "Arbitrage Protection Threshold Tomorrow",
+            0, 50, DEFAULT_ARBITRAGE_PROTECTION_THRESHOLD, 1, "%",
+            "mdi:shield-alert", NumberMode.BOX
         ),
     ])
 

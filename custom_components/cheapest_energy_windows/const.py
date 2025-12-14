@@ -41,6 +41,11 @@ CONF_SELL_FORMULA_PARAM_B: Final = "sell_formula_param_b"
 CONF_BUY_FORMULA_PARAM_A: Final = "buy_formula_param_a"
 CONF_BUY_FORMULA_PARAM_B: Final = "buy_formula_param_b"
 
+# Arbitrage Protection settings
+CONF_ARBITRAGE_PROTECTION_ENABLED: Final = "arbitrage_protection_enabled"
+CONF_ARBITRAGE_PROTECTION_THRESHOLD: Final = "arbitrage_protection_threshold"
+CONF_ARBITRAGE_PROTECTION_MODE: Final = "arbitrage_protection_mode"
+
 # Default values
 DEFAULT_PRICE_SENSOR: Final = ""
 DEFAULT_VAT_RATE: Final = 21
@@ -71,6 +76,11 @@ DEFAULT_BASE_USAGE_CHARGE_STRATEGY: Final = "grid_covers_both"
 DEFAULT_BASE_USAGE_IDLE_STRATEGY: Final = "battery_covers"
 DEFAULT_BASE_USAGE_DISCHARGE_STRATEGY: Final = "subtract_base"
 DEFAULT_BASE_USAGE_AGGRESSIVE_STRATEGY: Final = "same_as_discharge"
+
+# Arbitrage Protection defaults
+DEFAULT_ARBITRAGE_PROTECTION_ENABLED: Final = False
+DEFAULT_ARBITRAGE_PROTECTION_THRESHOLD: Final = 10  # Minimum margin % required
+DEFAULT_ARBITRAGE_PROTECTION_MODE: Final = "idle"
 
 # Unified price country constants - internal values for backward compatibility
 PRICE_COUNTRY_NETHERLANDS: Final = "netherlands"
@@ -301,6 +311,14 @@ CALCULATION_AFFECTING_KEYS: Final = {
     "min_sell_price",
     "use_min_sell_price",
     "min_sell_price_bypass_spread",
+
+    # Arbitrage Protection
+    "arbitrage_protection_enabled",
+    "arbitrage_protection_threshold",
+    "arbitrage_protection_mode",
+    "arbitrage_protection_enabled_tomorrow",
+    "arbitrage_protection_threshold_tomorrow",
+    "arbitrage_protection_mode_tomorrow",
 }
 
 # Configuration keys that DON'T affect calculation (UI/notification settings)
