@@ -75,6 +75,8 @@ class CEWTime(TimeEntity):
         self._key = key
         self._attr_name = f"CEW {name}"
         self._attr_unique_id = f"{PREFIX}{key}"
+        # Force consistent entity_id based on key, not display name
+        self.entity_id = f"time.{PREFIX}{key}"
         self._attr_icon = icon
         self._attr_has_entity_name = False
 

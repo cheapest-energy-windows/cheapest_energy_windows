@@ -231,6 +231,9 @@ class CEWNumber(NumberEntity):
         self._key = key
         self._attr_name = f"CEW {name}"
         self._attr_unique_id = f"{PREFIX}{key}"
+        # Force consistent entity_id based on key, not name
+        # This prevents entity_id changes when entity names are updated
+        self.entity_id = f"number.{PREFIX}{key}"
         self._attr_native_min_value = min_value
         self._attr_native_max_value = max_value
         self._attr_native_step = step

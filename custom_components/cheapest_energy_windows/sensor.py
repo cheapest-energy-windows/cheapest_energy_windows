@@ -112,6 +112,8 @@ class CEWBaseSensor(CoordinatorEntity, SensorEntity):
 
         # Set unique ID and name
         self._attr_unique_id = f"{PREFIX}{sensor_type}"
+        # Force consistent entity_id based on sensor_type, not display name
+        self.entity_id = f"sensor.{PREFIX}{sensor_type}"
         self._attr_name = f"CEW {sensor_type.replace('_', ' ').title()}"
         self._attr_has_entity_name = False
 
@@ -564,6 +566,8 @@ class CEWPriceSensorProxy(SensorEntity):
         self.config_entry = config_entry
 
         self._attr_unique_id = f"{PREFIX}price_sensor_proxy"
+        # Force consistent entity_id based on key, not display name
+        self.entity_id = f"sensor.{PREFIX}price_sensor_proxy"
         self._attr_name = "CEW Price Sensor Proxy"
         self._attr_has_entity_name = False
         self._attr_native_value = None
@@ -855,6 +859,8 @@ class CEWLastCalculationSensor(CoordinatorEntity, SensorEntity):
         super().__init__(coordinator)
         self.config_entry = config_entry
         self._attr_unique_id = f"{PREFIX}last_calculation"
+        # Force consistent entity_id based on key, not display name
+        self.entity_id = f"sensor.{PREFIX}last_calculation"
         self._attr_name = "CEW Last Calculation"
         self._attr_has_entity_name = False
         self._attr_icon = "mdi:refresh"
