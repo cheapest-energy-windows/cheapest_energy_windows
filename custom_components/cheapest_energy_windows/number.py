@@ -19,9 +19,10 @@ from .const import (
     DEFAULT_CHARGING_WINDOWS,
     DEFAULT_EXPENSIVE_WINDOWS,
     DEFAULT_PERCENTILE_THRESHOLD,
-    DEFAULT_MIN_SPREAD,
-    DEFAULT_MIN_SPREAD_DISCHARGE,
-    DEFAULT_AGGRESSIVE_DISCHARGE_SPREAD,
+    # Profit thresholds (v1.2.0+)
+    DEFAULT_MIN_PROFIT_CHARGE,
+    DEFAULT_MIN_PROFIT_DISCHARGE,
+    DEFAULT_MIN_PROFIT_DISCHARGE_AGGRESSIVE,
     DEFAULT_MIN_PRICE_DIFFERENCE,
     DEFAULT_BASE_USAGE,
     DEFAULT_BATTERY_RTE,
@@ -38,7 +39,6 @@ from .const import (
     DEFAULT_VAT_RATE,
     DEFAULT_TAX,
     DEFAULT_ADDITIONAL_COST,
-    DEFAULT_ARBITRAGE_PROTECTION_THRESHOLD,
     DEFAULT_PRICE_COUNTRY,
 )
 from .formulas import get_formula, is_param_active
@@ -72,20 +72,21 @@ async def async_setup_entry(
             1, 50, DEFAULT_PERCENTILE_THRESHOLD, 1, "%",
             "mdi:percent", NumberMode.BOX
         ),
+        # Profit thresholds (v1.2.0+): profit = spread - RTE_loss
         CEWNumber(
-            hass, config_entry, "min_spread", "Min Spread",
-            0, 200, DEFAULT_MIN_SPREAD, 1, "%",
-            "mdi:arrow-expand-horizontal", NumberMode.BOX
+            hass, config_entry, "min_profit_charge", "Min Profit Charge",
+            -100, 200, DEFAULT_MIN_PROFIT_CHARGE, 1, "%",
+            "mdi:percent-circle", NumberMode.BOX
         ),
         CEWNumber(
-            hass, config_entry, "min_spread_discharge", "Min Arbitrage (Discharge)",
-            -100, 200, DEFAULT_MIN_SPREAD_DISCHARGE, 1, "%",
-            "mdi:arrow-expand-horizontal", NumberMode.BOX
+            hass, config_entry, "min_profit_discharge", "Min Profit Discharge",
+            -100, 200, DEFAULT_MIN_PROFIT_DISCHARGE, 1, "%",
+            "mdi:percent-circle", NumberMode.BOX
         ),
         CEWNumber(
-            hass, config_entry, "aggressive_discharge_spread", "Min Arbitrage (Aggressive)",
-            -100, 300, DEFAULT_AGGRESSIVE_DISCHARGE_SPREAD, 1, "%",
-            "mdi:arrow-expand-horizontal", NumberMode.BOX
+            hass, config_entry, "min_profit_discharge_aggressive", "Min Profit Discharge Aggressive",
+            -100, 300, DEFAULT_MIN_PROFIT_DISCHARGE_AGGRESSIVE, 1, "%",
+            "mdi:percent-circle", NumberMode.BOX
         ),
         CEWNumber(
             hass, config_entry, "min_price_difference", "Min Price Difference",
@@ -176,17 +177,8 @@ async def async_setup_entry(
             0, 1.0, DEFAULT_ADDITIONAL_COST, 0.001, "EUR/kWh",
             "mdi:cash-plus", NumberMode.BOX
         ),
-        # Arbitrage Protection threshold
-        CEWNumber(
-            hass, config_entry, "arbitrage_protection_threshold", "Arbitrage Protection Threshold",
-            -100, 100, DEFAULT_ARBITRAGE_PROTECTION_THRESHOLD, 1, "%",
-            "mdi:shield-alert", NumberMode.BOX
-        ),
-        CEWNumber(
-            hass, config_entry, "arbitrage_protection_threshold_tomorrow", "Arbitrage Protection Threshold Tomorrow",
-            -100, 100, DEFAULT_ARBITRAGE_PROTECTION_THRESHOLD, 1, "%",
-            "mdi:shield-alert", NumberMode.BOX
-        ),
+        # Note: Arbitrage Protection removed in v1.2.0
+        # Profit thresholds now naturally control window qualification
     ])
 
     # Tomorrow's configuration
@@ -194,15 +186,16 @@ async def async_setup_entry(
         ("charging_windows_tomorrow", "Charging Windows Tomorrow", DEFAULT_CHARGING_WINDOWS, 96, "windows"),
         ("expensive_windows_tomorrow", "Expensive Windows Tomorrow", DEFAULT_EXPENSIVE_WINDOWS, 96, "windows"),
         ("percentile_threshold_tomorrow", "Percentile Threshold Tomorrow", DEFAULT_PERCENTILE_THRESHOLD, 50, "%"),
-        ("min_spread_tomorrow", "Min Spread Tomorrow", DEFAULT_MIN_SPREAD, 200, "%"),
-        ("min_spread_discharge_tomorrow", "Min Arbitrage (Discharge) Tomorrow", DEFAULT_MIN_SPREAD_DISCHARGE, 200, "%"),
-        ("aggressive_discharge_spread_tomorrow", "Min Arbitrage (Aggressive) Tomorrow", DEFAULT_AGGRESSIVE_DISCHARGE_SPREAD, 300, "%"),
+        # Profit thresholds (v1.2.0+)
+        ("min_profit_charge_tomorrow", "Min Profit Charge Tomorrow", DEFAULT_MIN_PROFIT_CHARGE, 200, "%"),
+        ("min_profit_discharge_tomorrow", "Min Profit Discharge Tomorrow", DEFAULT_MIN_PROFIT_DISCHARGE, 200, "%"),
+        ("min_profit_discharge_aggressive_tomorrow", "Min Profit Discharge Aggressive Tomorrow", DEFAULT_MIN_PROFIT_DISCHARGE_AGGRESSIVE, 300, "%"),
         ("min_price_difference_tomorrow", "Min Price Difference Tomorrow", DEFAULT_MIN_PRICE_DIFFERENCE, 0.5, "EUR/kWh"),
         ("price_override_threshold_tomorrow", "Price Override Threshold Tomorrow", DEFAULT_PRICE_OVERRIDE_THRESHOLD, 0.5, "EUR/kWh"),
     ]
 
     for key, name, default, max_val, unit in tomorrow_configs:
-        min_val = 1 if "percentile" in key else -100 if "min_spread_discharge" in key or "aggressive_discharge" in key else 0 if "windows" in key else 0
+        min_val = 1 if "percentile" in key else -100 if "min_profit" in key else 0 if "windows" in key else 0
         step = 1 if "%" in unit or "windows" in unit else 0.001
         numbers.append(
             CEWNumber(

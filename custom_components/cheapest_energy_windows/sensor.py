@@ -57,6 +57,12 @@ from .const import (
     ATTR_ACTUAL_SPREAD_AVG,
     ATTR_DISCHARGE_SPREAD_MET,
     ATTR_AGGRESSIVE_DISCHARGE_SPREAD_MET,
+    # Profit-based attributes (v1.2.0+)
+    ATTR_CHARGE_PROFIT_PCT,
+    ATTR_DISCHARGE_PROFIT_PCT,
+    ATTR_CHARGE_PROFIT_MET,
+    ATTR_DISCHARGE_PROFIT_MET,
+    ATTR_AGGRESSIVE_PROFIT_MET,
     ATTR_AVG_CHEAP_PRICE,
     ATTR_AVG_EXPENSIVE_PRICE,
     ATTR_CURRENT_PRICE,
@@ -359,6 +365,13 @@ class CEWTodaySensor(CEWBaseSensor):
             "net_planned_charge_kwh": result.get("net_planned_charge_kwh", 0.0),
             "net_planned_discharge_kwh": result.get("net_planned_discharge_kwh", 0.0),
             ATTR_NUM_WINDOWS: result.get("num_windows", 0),
+            # Profit-based attributes (v1.2.0+)
+            ATTR_CHARGE_PROFIT_PCT: result.get("charge_profit_pct", 0.0),
+            ATTR_DISCHARGE_PROFIT_PCT: result.get("discharge_profit_pct", 0.0),
+            ATTR_CHARGE_PROFIT_MET: result.get("charge_profit_met", False),
+            ATTR_DISCHARGE_PROFIT_MET: result.get("discharge_profit_met", False),
+            ATTR_AGGRESSIVE_PROFIT_MET: result.get("aggressive_profit_met", False),
+            # Legacy spread attributes (deprecated, kept for backwards compatibility)
             ATTR_MIN_SPREAD_REQUIRED: result.get("min_spread_required", 0.0),
             ATTR_SPREAD_PERCENTAGE: result.get("spread_percentage", 0.0),
             ATTR_SPREAD_MET: result.get("spread_met", False),
@@ -503,6 +516,13 @@ class CEWTomorrowSensor(CEWBaseSensor):
             ATTR_ACTUAL_DISCHARGE_TIMES: result.get("actual_discharge_times", []),
             ATTR_ACTUAL_DISCHARGE_PRICES: result.get("actual_discharge_prices", []),
             ATTR_NUM_WINDOWS: result.get("num_windows", 0),
+            # Profit-based attributes (v1.2.0+)
+            ATTR_CHARGE_PROFIT_PCT: result.get("charge_profit_pct", 0.0),
+            ATTR_DISCHARGE_PROFIT_PCT: result.get("discharge_profit_pct", 0.0),
+            ATTR_CHARGE_PROFIT_MET: result.get("charge_profit_met", False),
+            ATTR_DISCHARGE_PROFIT_MET: result.get("discharge_profit_met", False),
+            ATTR_AGGRESSIVE_PROFIT_MET: result.get("aggressive_profit_met", False),
+            # Legacy spread attributes (deprecated, kept for backwards compatibility)
             ATTR_MIN_SPREAD_REQUIRED: result.get("min_spread_required", 0.0),
             ATTR_SPREAD_PERCENTAGE: result.get("spread_percentage", 0.0),
             ATTR_SPREAD_MET: result.get("spread_met", False),

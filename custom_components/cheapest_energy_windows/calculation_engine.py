@@ -78,10 +78,14 @@ class WindowCalculationEngine:
         num_charge_windows = int(config.get(f"charging_windows{suffix}", 4))
         num_discharge_windows = int(config.get(f"expensive_windows{suffix}", 4))
         percentile_threshold = config.get(f"percentile_threshold{suffix}", 25)
-        min_spread = config.get(f"min_spread{suffix}", 10)
-        min_spread_discharge = config.get(f"min_spread_discharge{suffix}", 20)
-        aggressive_spread = config.get(f"aggressive_discharge_spread{suffix}", 40)
+        # Profit thresholds (v1.2.0+): profit = spread - RTE_loss
+        min_profit_charge = config.get(f"min_profit_charge{suffix}", 10)
+        min_profit_discharge = config.get(f"min_profit_discharge{suffix}", 10)
+        min_profit_discharge_aggressive = config.get(f"min_profit_discharge_aggressive{suffix}", 10)
         min_price_diff = config.get(f"min_price_difference{suffix}", 0.05)
+        # Calculate RTE loss for profit checks
+        battery_rte = config.get("battery_rte", 85)
+        rte_loss = 100 - battery_rte
 
         # Process prices based on mode (uses buy price formula from config)
         processed_prices = self._process_prices(raw_prices, pricing_mode, config)
@@ -108,33 +112,12 @@ class WindowCalculationEngine:
         else:
             _LOGGER.debug("Calculation window disabled")
 
-        # Calculate arbitrage_avg early for protection check
+        # Calculate arbitrage_avg for profit display
         arbitrage_avg = self._calculate_arbitrage_avg(processed_prices, config, is_tomorrow)
 
-        # Check if Arbitrage Protection should clear all windows
-        # Uses RTE-linked margin calculation: margin = arbitrage - RTE_loss
-        arb_prot_enabled = config.get(f"arbitrage_protection_enabled{suffix}", False)
-        if arb_prot_enabled:
-            threshold = config.get(f"arbitrage_protection_threshold{suffix}", 0)
-            rte = config.get("battery_rte", 85)
-            rte_loss = 100 - rte
-            margin = arbitrage_avg - rte_loss
-
-            if arbitrage_avg <= 0 or margin < threshold:
-                # Protection triggered - return result with empty windows
-                mode = config.get(f"arbitrage_protection_mode{suffix}", MODE_IDLE)
-                current_state = self._mode_to_state(mode)
-                _LOGGER.debug(f"Arbitrage Protection clearing windows: arbitrage={arbitrage_avg:.1f}%, RTE={rte}%, margin={margin:.1f}% < threshold={threshold}%")
-
-                return self._build_result(
-                    processed_prices,
-                    [],  # Empty charge windows
-                    [],  # Empty discharge windows
-                    [],  # Empty aggressive windows
-                    current_state,
-                    config,
-                    is_tomorrow
-                )
+        # Note: Arbitrage Protection removed in v1.2.0
+        # Profit thresholds now naturally control window qualification
+        # If profit is below threshold, windows won't be selected → system is idle
 
         # Pre-filter prices based on time override to prevent idle/off periods from being selected
         # This ensures that windows calculations respect time overrides from the start
@@ -214,7 +197,8 @@ class WindowCalculationEngine:
             prices_for_charge_calc,  # Use filtered prices
             num_charge_windows,
             percentile_threshold,
-            min_spread,
+            min_profit_charge,
+            rte_loss,
             min_price_diff
         )
 
@@ -222,9 +206,9 @@ class WindowCalculationEngine:
         use_min_sell = config.get("use_min_sell_price", DEFAULT_USE_MIN_SELL_PRICE)
         bypass_spread = config.get("min_sell_price_bypass_spread", DEFAULT_MIN_SELL_PRICE_BYPASS_SPREAD)
 
-        # If bypass_spread is enabled, set thresholds to allow any spread (including negative)
-        # Use -inf to truly bypass the spread check for negative arbitrage scenarios
-        effective_min_spread_discharge = float('-inf') if bypass_spread else min_spread_discharge
+        # If bypass_spread is enabled, set thresholds to allow any profit (including negative)
+        # Use -inf to truly bypass the profit check for negative arbitrage scenarios
+        effective_min_profit_discharge = float('-inf') if bypass_spread else min_profit_discharge
         effective_min_price_diff_discharge = float('-inf') if bypass_spread else min_price_diff
 
         discharge_windows = self._find_discharge_windows(
@@ -232,7 +216,8 @@ class WindowCalculationEngine:
             charge_windows,
             num_discharge_windows,
             percentile_threshold,
-            effective_min_spread_discharge,
+            effective_min_profit_discharge,
+            rte_loss,
             effective_min_price_diff_discharge,
             config  # Pass config for sell price calculation
         )
@@ -244,8 +229,8 @@ class WindowCalculationEngine:
             config
         )
 
-        # Apply same bypass logic to aggressive spread
-        effective_aggressive_spread = float('-inf') if bypass_spread else aggressive_spread
+        # Apply same bypass logic to aggressive profit threshold
+        effective_min_profit_aggressive = float('-inf') if bypass_spread else min_profit_discharge_aggressive
 
         aggressive_windows = self._find_aggressive_discharge_windows(
             prices_for_discharge_calc,  # Use filtered prices for consistency
@@ -253,7 +238,8 @@ class WindowCalculationEngine:
             discharge_windows,
             num_discharge_windows,
             percentile_threshold,
-            effective_aggressive_spread,
+            effective_min_profit_aggressive,
+            rte_loss,
             effective_min_price_diff_discharge
         )
 
@@ -519,7 +505,8 @@ class WindowCalculationEngine:
         prices: List[Dict[str, Any]],
         num_windows: int,
         percentile_threshold: float,
-        min_spread: float,
+        min_profit: float,
+        rte_loss: float,
         min_price_diff: float
     ) -> List[Dict[str, Any]]:
         """Find cheapest windows for charging.
@@ -527,6 +514,10 @@ class WindowCalculationEngine:
         Uses percentile_threshold symmetrically:
         - Candidates: prices in the bottom percentile_threshold% (cheapest)
         - Spread comparison: against average of top percentile_threshold% (most expensive)
+
+        v1.2.0: Uses profit-based threshold (profit = spread - RTE_loss)
+        - Buy-buy spread: if we buy now vs. buy later, how much do we save?
+        - RTE loss applies because energy stored now loses efficiency
         """
         if not prices or num_windows <= 0:
             return []
@@ -551,7 +542,7 @@ class WindowCalculationEngine:
         # Sort by price
         candidates.sort(key=lambda x: x["price"])
 
-        # Progressive selection with spread check
+        # Progressive selection with profit check
         # Compare against top percentile_threshold% (most expensive)
         selected = []
         expensive_threshold = np.percentile(price_array, 100 - percentile_threshold)
@@ -567,13 +558,14 @@ class WindowCalculationEngine:
             test_prices = [s["price"] for s in selected] + [candidate["price"]]
             cheap_avg = np.mean(test_prices)
 
-            # Calculate spread percentage (avg-based for spread check)
-            # Calculate price diff per-window: max_expensive - this_candidate
+            # Calculate spread percentage and profit (buy-buy spread)
+            # profit = spread - RTE_loss
             if cheap_avg > 0:
                 spread_pct = ((expensive_avg - cheap_avg) / cheap_avg) * 100
-                price_diff = expensive_max - candidate["price"]  # Per-window: max sell price minus this charge price
+                profit_pct = spread_pct - rte_loss
+                price_diff = expensive_max - candidate["price"]  # Per-window: max expensive price minus this charge price
 
-                if spread_pct >= min_spread and price_diff >= min_price_diff:
+                if profit_pct >= min_profit and price_diff >= min_price_diff:
                     selected.append(candidate)
 
         return selected
@@ -584,7 +576,8 @@ class WindowCalculationEngine:
         charge_windows: List[Dict[str, Any]],
         num_windows: int,
         percentile_threshold: float,
-        min_spread: float,
+        min_profit: float,
+        rte_loss: float,
         min_price_diff: float,
         config: Dict[str, Any]
     ) -> List[Dict[str, Any]]:
@@ -596,6 +589,10 @@ class WindowCalculationEngine:
         Uses percentile_threshold symmetrically:
         - Candidates: SELL prices in the top percentile_threshold% (most expensive)
         - Spread comparison: sell price avg vs buy price avg (charge windows)
+
+        v1.2.0: Uses profit-based threshold (profit = spread - RTE_loss)
+        - Buy-sell spread: buy cheap, sell expensive
+        - RTE loss applies because we lose efficiency in the round-trip
         """
         if not prices or num_windows <= 0:
             return []
@@ -665,13 +662,14 @@ class WindowCalculationEngine:
             test_sell_prices = [s["sell_price"] for s in selected] + [candidate["sell_price"]]
             expensive_avg = np.mean(test_sell_prices)
 
-            # Calculate spread: (avg_sell - avg_buy) / avg_buy * 100
-            # Can be negative when sell < buy (unprofitable arbitrage)
+            # Calculate spread and profit: (avg_sell - avg_buy) / avg_buy * 100
+            # profit = spread - RTE_loss (can be negative when unprofitable)
             if cheap_avg > 0:
                 spread_pct = ((expensive_avg - cheap_avg) / cheap_avg) * 100
+                profit_pct = spread_pct - rte_loss
                 price_diff = candidate["sell_price"] - cheap_min  # Sell price minus min charge price
 
-                if spread_pct >= min_spread and price_diff >= min_price_diff:
+                if profit_pct >= min_profit and price_diff >= min_price_diff:
                     selected.append(candidate)
 
         return selected
@@ -683,19 +681,23 @@ class WindowCalculationEngine:
         discharge_windows: List[Dict[str, Any]],
         num_windows: int,
         percentile_threshold: float,
-        aggressive_spread: float,
+        min_profit: float,
+        rte_loss: float,
         min_price_diff: float
     ) -> List[Dict[str, Any]]:
         """Find windows for aggressive discharge (peak SELL prices).
 
-        Filters discharge windows by aggressive spread requirement.
+        Filters discharge windows by aggressive profit requirement.
         Uses SELL prices for spread comparison (discharge = selling to grid).
         Per-window price_diff check: window["sell_price"] - cheap_min >= threshold
+
+        v1.2.0: Uses profit-based threshold (profit = spread - RTE_loss)
+        - Higher threshold for aggressive discharge (e.g., drain battery to lower SOC)
         """
         if not prices or num_windows <= 0:
             return []
 
-        # Use discharge windows as base, filter by aggressive spread
+        # Use discharge windows as base, filter by aggressive profit threshold
         candidates = []
 
         if charge_windows:
@@ -711,12 +713,13 @@ class WindowCalculationEngine:
 
         for window in discharge_windows:
             if cheap_avg > 0:
-                # Use SELL price for spread calculation (discharge = selling)
+                # Use SELL price for spread/profit calculation (discharge = selling)
                 sell_price = window.get("sell_price", window["price"])
                 spread_pct = ((sell_price - cheap_avg) / cheap_avg) * 100
+                profit_pct = spread_pct - rte_loss
                 price_diff = sell_price - cheap_min  # Sell price minus min charge price
 
-                if spread_pct >= aggressive_spread and price_diff >= min_price_diff:
+                if profit_pct >= min_profit and price_diff >= min_price_diff:
                     candidates.append(window)
 
         return candidates
@@ -779,23 +782,15 @@ class WindowCalculationEngine:
         arbitrage_avg: float = 0.0,
         is_tomorrow: bool = False
     ) -> str:
-        """Determine current state based on time and configuration."""
+        """Determine current state based on time and configuration.
+
+        v1.2.0: Arbitrage Protection removed. Profit thresholds now naturally
+        control window qualification - if profit is below threshold, no windows
+        are selected and system defaults to idle.
+        """
         # Check if automation is enabled
         if not config.get("automation_enabled", True):
             return STATE_OFF
-
-        # Check Arbitrage protection (RTE-linked margin calculation)
-        suffix = "_tomorrow" if is_tomorrow and config.get("tomorrow_settings_enabled", False) else ""
-        if config.get(f"arbitrage_protection_enabled{suffix}", False):
-            threshold = config.get(f"arbitrage_protection_threshold{suffix}", 0)
-            rte = config.get("battery_rte", 85)
-            rte_loss = 100 - rte
-            margin = arbitrage_avg - rte_loss
-
-            if arbitrage_avg <= 0 or margin < threshold:
-                mode = config.get(f"arbitrage_protection_mode{suffix}", MODE_IDLE)
-                _LOGGER.debug(f"Arbitrage Protection triggered: arbitrage={arbitrage_avg:.1f}%, RTE={rte}%, margin={margin:.1f}% < threshold={threshold}%, mode={mode}")
-                return self._mode_to_state(mode)
 
         now = dt_util.now()
         current_time = now.replace(second=0, microsecond=0)
@@ -1435,6 +1430,18 @@ class WindowCalculationEngine:
             raw = pd.get("raw_price", w["price"])
             return self._calculate_sell_price(raw, w["price"], sell_country, sell_param_a, sell_param_b)
 
+        # Calculate profit percentages (v1.2.0+)
+        # profit = spread - RTE_loss
+        battery_rte = config.get("battery_rte", 85)
+        rte_loss = 100 - battery_rte
+        charge_profit_pct = spread_avg - rte_loss  # Buy-buy spread for charging
+        discharge_profit_pct = arbitrage_avg - rte_loss  # Buy-sell spread for discharge
+
+        # Get profit thresholds from config
+        min_profit_charge = config.get(f"min_profit_charge{suffix}", 10)
+        min_profit_discharge = config.get(f"min_profit_discharge{suffix}", 10)
+        min_profit_discharge_aggressive = config.get(f"min_profit_discharge_aggressive{suffix}", 10)
+
         # Build result
         result = {
             "state": current_state,
@@ -1463,14 +1470,21 @@ class WindowCalculationEngine:
             "net_planned_charge_kwh": net_planned_charge_kwh,
             "net_planned_discharge_kwh": net_planned_discharge_kwh,
             "num_windows": len(charge_windows),
-            "min_spread_required": config.get("min_spread", 10),
+            # Profit-based attributes (v1.2.0+)
+            "charge_profit_pct": round(charge_profit_pct, 1),  # Buy-buy profit for charging
+            "discharge_profit_pct": round(discharge_profit_pct, 1),  # Buy-sell profit for discharge
+            "charge_profit_met": bool(charge_profit_pct >= min_profit_charge),
+            "discharge_profit_met": bool(discharge_profit_pct >= min_profit_discharge),
+            "aggressive_profit_met": bool(discharge_profit_pct >= min_profit_discharge_aggressive),
+            # Legacy spread attributes (deprecated, kept for backwards compatibility)
+            "min_spread_required": config.get("min_profit_charge", 10),  # Map to new name
             "spread_percentage": round(arbitrage_avg, 1),  # For operational spread check (sell vs buy)
-            "spread_met": bool(arbitrage_avg >= config.get("min_spread", 10)),
+            "spread_met": bool(charge_profit_pct >= min_profit_charge),  # Map to profit check
             "spread_avg": round(spread_avg, 1),  # Buy vs buy (price volatility)
             "arbitrage_avg": round(arbitrage_avg, 1),  # Sell vs buy (arbitrage margin)
             "actual_spread_avg": round(spread_avg, 1),  # For backwards compatibility
-            "discharge_spread_met": bool(arbitrage_avg >= config.get("min_spread_discharge", 20)),
-            "aggressive_discharge_spread_met": bool(arbitrage_avg >= config.get("aggressive_discharge_spread", 40)),
+            "discharge_spread_met": bool(discharge_profit_pct >= min_profit_discharge),  # Map to profit check
+            "aggressive_discharge_spread_met": bool(discharge_profit_pct >= min_profit_discharge_aggressive),  # Map to profit check
             "avg_cheap_price": round(avg_cheap, 5),
             "avg_expensive_price": round(avg_expensive, 5),
             "current_price": round(current_price, 5) if current_price else 0,
@@ -1519,6 +1533,13 @@ class WindowCalculationEngine:
             "net_planned_charge_kwh": 0,
             "net_planned_discharge_kwh": 0,
             "num_windows": 0,
+            # Profit-based attributes (v1.2.0+)
+            "charge_profit_pct": 0,
+            "discharge_profit_pct": 0,
+            "charge_profit_met": False,
+            "discharge_profit_met": False,
+            "aggressive_profit_met": False,
+            # Legacy spread attributes (deprecated)
             "min_spread_required": 0,
             "spread_percentage": 0,
             "spread_met": False,

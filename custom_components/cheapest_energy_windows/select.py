@@ -50,8 +50,8 @@ async def async_setup_entry(
         ("base_usage_discharge_strategy", "Base Usage: During Discharge", ["already_included", "subtract_base"], "subtract_base", "mdi:battery-arrow-down"),
         ("base_usage_aggressive_strategy", "Base Usage: During Aggressive Discharge", ["same_as_discharge", "already_included", "subtract_base"], "same_as_discharge", "mdi:battery-alert"),
         ("price_country", "Price Formula", country_display_names, default_country_display, "mdi:map-marker"),
-        ("arbitrage_protection_mode", "Arbitrage Protection Mode", ["idle", "charge", "discharge", "discharge_aggressive", "off"], "idle", "mdi:shield-lock"),
-        ("arbitrage_protection_mode_tomorrow", "Arbitrage Protection Mode Tomorrow", ["idle", "charge", "discharge", "discharge_aggressive", "off"], "idle", "mdi:shield-lock"),
+        # Note: Arbitrage Protection removed in v1.2.0
+        # Profit thresholds now naturally control window qualification
     ]
 
     for key, name, options, default, icon in select_configs:

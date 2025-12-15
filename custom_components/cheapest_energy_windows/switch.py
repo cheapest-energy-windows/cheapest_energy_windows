@@ -51,8 +51,8 @@ async def async_setup_entry(
         ("battery_use_soc_safety", "Battery Use SOC Safety", False, "mdi:shield-battery"),
         ("use_min_sell_price", "Use Minimum Sell Price", False, "mdi:cash-check"),
         ("min_sell_price_bypass_spread", "Min Sell Price Bypasses Spread", False, "mdi:skip-forward"),
-        ("arbitrage_protection_enabled", "Arbitrage Protection", False, "mdi:shield-check"),
-        ("arbitrage_protection_enabled_tomorrow", "Arbitrage Protection Tomorrow", False, "mdi:shield-check"),
+        # Note: Arbitrage Protection removed in v1.2.0
+        # Profit thresholds now naturally control window qualification
     ]
 
     for key, name, default, icon in switch_configs:

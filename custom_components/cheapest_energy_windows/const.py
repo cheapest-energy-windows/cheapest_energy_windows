@@ -5,7 +5,7 @@ from typing import Final
 # Domain
 DOMAIN: Final = "cheapest_energy_windows"
 PREFIX: Final = "cew_"
-VERSION: Final = "1.1.0"
+VERSION: Final = "1.2.0"
 
 # Platforms
 PLATFORMS: Final = ["sensor", "number", "select", "switch", "time", "text"]
@@ -41,10 +41,11 @@ CONF_SELL_FORMULA_PARAM_B: Final = "sell_formula_param_b"
 CONF_BUY_FORMULA_PARAM_A: Final = "buy_formula_param_a"
 CONF_BUY_FORMULA_PARAM_B: Final = "buy_formula_param_b"
 
-# Arbitrage Protection settings
-CONF_ARBITRAGE_PROTECTION_ENABLED: Final = "arbitrage_protection_enabled"
-CONF_ARBITRAGE_PROTECTION_THRESHOLD: Final = "arbitrage_protection_threshold"
-CONF_ARBITRAGE_PROTECTION_MODE: Final = "arbitrage_protection_mode"
+# Profit threshold settings (replaced old spread settings)
+# Profit = Spread - RTE_Loss, where RTE_Loss = 100 - battery_rte
+CONF_MIN_PROFIT_CHARGE: Final = "min_profit_charge"
+CONF_MIN_PROFIT_DISCHARGE: Final = "min_profit_discharge"
+CONF_MIN_PROFIT_DISCHARGE_AGGRESSIVE: Final = "min_profit_discharge_aggressive"
 
 # Default values
 DEFAULT_PRICE_SENSOR: Final = ""
@@ -54,6 +55,12 @@ DEFAULT_ADDITIONAL_COST: Final = 0.02398
 DEFAULT_CHARGING_WINDOWS: Final = 6
 DEFAULT_EXPENSIVE_WINDOWS: Final = 3
 DEFAULT_PERCENTILE_THRESHOLD: Final = 25
+# Profit thresholds (profit = spread - RTE_loss, default 10%)
+DEFAULT_MIN_PROFIT_CHARGE: Final = 10
+DEFAULT_MIN_PROFIT_DISCHARGE: Final = 10
+DEFAULT_MIN_PROFIT_DISCHARGE_AGGRESSIVE: Final = 10
+
+# Legacy spread defaults (deprecated, kept for migration)
 DEFAULT_MIN_SPREAD: Final = 30
 DEFAULT_MIN_SPREAD_DISCHARGE: Final = 30
 DEFAULT_AGGRESSIVE_DISCHARGE_SPREAD: Final = 60
@@ -77,10 +84,6 @@ DEFAULT_BASE_USAGE_IDLE_STRATEGY: Final = "battery_covers"
 DEFAULT_BASE_USAGE_DISCHARGE_STRATEGY: Final = "subtract_base"
 DEFAULT_BASE_USAGE_AGGRESSIVE_STRATEGY: Final = "same_as_discharge"
 
-# Arbitrage Protection defaults
-DEFAULT_ARBITRAGE_PROTECTION_ENABLED: Final = False
-DEFAULT_ARBITRAGE_PROTECTION_THRESHOLD: Final = 10  # Minimum margin % required
-DEFAULT_ARBITRAGE_PROTECTION_MODE: Final = "idle"
 
 # Default price country (used as fallback)
 # Country formulas are now defined in the formulas/ subpackage
@@ -154,6 +157,14 @@ ATTR_TOTAL_COST: Final = "total_cost"
 ATTR_PLANNED_TOTAL_COST: Final = "planned_total_cost"
 ATTR_PLANNED_CHARGE_COST: Final = "planned_charge_cost"
 ATTR_NUM_WINDOWS: Final = "num_windows"
+# Profit-based attributes (v1.2.0+)
+ATTR_CHARGE_PROFIT_PCT: Final = "charge_profit_pct"
+ATTR_DISCHARGE_PROFIT_PCT: Final = "discharge_profit_pct"
+ATTR_CHARGE_PROFIT_MET: Final = "charge_profit_met"
+ATTR_DISCHARGE_PROFIT_MET: Final = "discharge_profit_met"
+ATTR_AGGRESSIVE_PROFIT_MET: Final = "aggressive_profit_met"
+
+# Legacy spread attributes (deprecated, kept for backwards compatibility)
 ATTR_MIN_SPREAD_REQUIRED: Final = "min_spread_required"
 ATTR_SPREAD_PERCENTAGE: Final = "spread_percentage"
 ATTR_SPREAD_MET: Final = "spread_met"
@@ -187,10 +198,17 @@ CALCULATION_AFFECTING_KEYS: Final = {
     "charging_windows",
     "expensive_windows",
     "percentile_threshold",
+    "min_price_difference",
+
+    # Profit thresholds (v1.2.0+)
+    "min_profit_charge",
+    "min_profit_discharge",
+    "min_profit_discharge_aggressive",
+
+    # Legacy spread settings (deprecated, but still trigger refresh for migration)
     "min_spread",
     "min_spread_discharge",
     "aggressive_discharge_spread",
-    "min_price_difference",
 
     # Unified price country
     "price_country",
@@ -259,13 +277,15 @@ CALCULATION_AFFECTING_KEYS: Final = {
     "use_min_sell_price",
     "min_sell_price_bypass_spread",
 
-    # Arbitrage Protection
-    "arbitrage_protection_enabled",
-    "arbitrage_protection_threshold",
-    "arbitrage_protection_mode",
-    "arbitrage_protection_enabled_tomorrow",
-    "arbitrage_protection_threshold_tomorrow",
-    "arbitrage_protection_mode_tomorrow",
+    # Tomorrow profit thresholds (v1.2.0+)
+    "min_profit_charge_tomorrow",
+    "min_profit_discharge_tomorrow",
+    "min_profit_discharge_aggressive_tomorrow",
+
+    # Legacy tomorrow spread settings (deprecated)
+    "min_spread_tomorrow",
+    "min_spread_discharge_tomorrow",
+    "aggressive_discharge_spread_tomorrow",
 }
 
 # Configuration keys that DON'T affect calculation (UI/notification settings)

@@ -64,9 +64,10 @@ from .const import (
     DEFAULT_CHARGING_WINDOWS,
     DEFAULT_EXPENSIVE_WINDOWS,
     DEFAULT_PERCENTILE_THRESHOLD,
-    DEFAULT_MIN_SPREAD,
-    DEFAULT_MIN_SPREAD_DISCHARGE,
-    DEFAULT_AGGRESSIVE_DISCHARGE_SPREAD,
+    # Profit thresholds (v1.2.0+)
+    DEFAULT_MIN_PROFIT_CHARGE,
+    DEFAULT_MIN_PROFIT_DISCHARGE,
+    DEFAULT_MIN_PROFIT_DISCHARGE_AGGRESSIVE,
     DEFAULT_MIN_PRICE_DIFFERENCE,
     DEFAULT_PRICE_OVERRIDE_THRESHOLD,
     PRICING_15_MINUTES,
@@ -616,23 +617,23 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         mode=selector.NumberSelectorMode.BOX,
                     )
                 ),
-                vol.Required("min_spread", default=DEFAULT_MIN_SPREAD): selector.NumberSelector(
+                vol.Required("min_profit_charge", default=DEFAULT_MIN_PROFIT_CHARGE): selector.NumberSelector(
                     selector.NumberSelectorConfig(
-                        min=0,
+                        min=-100,
                         max=200,
                         mode=selector.NumberSelectorMode.BOX,
                     )
                 ),
-                vol.Required("min_spread_discharge", default=DEFAULT_MIN_SPREAD_DISCHARGE): selector.NumberSelector(
+                vol.Required("min_profit_discharge", default=DEFAULT_MIN_PROFIT_DISCHARGE): selector.NumberSelector(
                     selector.NumberSelectorConfig(
-                        min=0,
+                        min=-100,
                         max=200,
                         mode=selector.NumberSelectorMode.BOX,
                     )
                 ),
-                vol.Required("aggressive_discharge_spread", default=DEFAULT_AGGRESSIVE_DISCHARGE_SPREAD): selector.NumberSelector(
+                vol.Required("min_profit_discharge_aggressive", default=DEFAULT_MIN_PROFIT_DISCHARGE_AGGRESSIVE): selector.NumberSelector(
                     selector.NumberSelectorConfig(
-                        min=0,
+                        min=-100,
                         max=300,
                         mode=selector.NumberSelectorMode.BOX,
                     )

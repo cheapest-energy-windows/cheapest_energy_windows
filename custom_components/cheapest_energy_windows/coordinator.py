@@ -229,9 +229,10 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             DEFAULT_CHARGING_WINDOWS,
             DEFAULT_EXPENSIVE_WINDOWS,
             DEFAULT_PERCENTILE_THRESHOLD,
-            DEFAULT_MIN_SPREAD,
-            DEFAULT_MIN_SPREAD_DISCHARGE,
-            DEFAULT_AGGRESSIVE_DISCHARGE_SPREAD,
+            # Profit thresholds (v1.2.0+)
+            DEFAULT_MIN_PROFIT_CHARGE,
+            DEFAULT_MIN_PROFIT_DISCHARGE,
+            DEFAULT_MIN_PROFIT_DISCHARGE_AGGRESSIVE,
             DEFAULT_MIN_PRICE_DIFFERENCE,
             DEFAULT_BATTERY_RTE,
             DEFAULT_CHARGE_POWER,
@@ -245,9 +246,6 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             DEFAULT_CALCULATION_WINDOW_END,
             DEFAULT_BATTERY_MIN_SOC_DISCHARGE,
             DEFAULT_BATTERY_MIN_SOC_AGGRESSIVE_DISCHARGE,
-            DEFAULT_ARBITRAGE_PROTECTION_ENABLED,
-            DEFAULT_ARBITRAGE_PROTECTION_THRESHOLD,
-            DEFAULT_ARBITRAGE_PROTECTION_MODE,
         )
 
         options = self.config_entry.options
@@ -260,9 +258,10 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             "charging_windows": float(options.get("charging_windows", DEFAULT_CHARGING_WINDOWS)),
             "expensive_windows": float(options.get("expensive_windows", DEFAULT_EXPENSIVE_WINDOWS)),
             "percentile_threshold": float(options.get("percentile_threshold", DEFAULT_PERCENTILE_THRESHOLD)),
-            "min_spread": float(options.get("min_spread", DEFAULT_MIN_SPREAD)),
-            "min_spread_discharge": float(options.get("min_spread_discharge", DEFAULT_MIN_SPREAD_DISCHARGE)),
-            "aggressive_discharge_spread": float(options.get("aggressive_discharge_spread", DEFAULT_AGGRESSIVE_DISCHARGE_SPREAD)),
+            # Profit thresholds (v1.2.0+)
+            "min_profit_charge": float(options.get("min_profit_charge", DEFAULT_MIN_PROFIT_CHARGE)),
+            "min_profit_discharge": float(options.get("min_profit_discharge", DEFAULT_MIN_PROFIT_DISCHARGE)),
+            "min_profit_discharge_aggressive": float(options.get("min_profit_discharge_aggressive", DEFAULT_MIN_PROFIT_DISCHARGE_AGGRESSIVE)),
             "min_price_difference": float(options.get("min_price_difference", DEFAULT_MIN_PRICE_DIFFERENCE)),
             "battery_rte": float(options.get("battery_rte", DEFAULT_BATTERY_RTE)),
             "charge_power": float(options.get("charge_power", DEFAULT_CHARGE_POWER)),
@@ -280,13 +279,12 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             "charging_windows_tomorrow": float(options.get("charging_windows_tomorrow", DEFAULT_CHARGING_WINDOWS)),
             "expensive_windows_tomorrow": float(options.get("expensive_windows_tomorrow", DEFAULT_EXPENSIVE_WINDOWS)),
             "percentile_threshold_tomorrow": float(options.get("percentile_threshold_tomorrow", DEFAULT_PERCENTILE_THRESHOLD)),
-            "min_spread_tomorrow": float(options.get("min_spread_tomorrow", DEFAULT_MIN_SPREAD)),
-            "min_spread_discharge_tomorrow": float(options.get("min_spread_discharge_tomorrow", DEFAULT_MIN_SPREAD_DISCHARGE)),
-            "aggressive_discharge_spread_tomorrow": float(options.get("aggressive_discharge_spread_tomorrow", DEFAULT_AGGRESSIVE_DISCHARGE_SPREAD)),
+            # Profit thresholds tomorrow (v1.2.0+)
+            "min_profit_charge_tomorrow": float(options.get("min_profit_charge_tomorrow", DEFAULT_MIN_PROFIT_CHARGE)),
+            "min_profit_discharge_tomorrow": float(options.get("min_profit_discharge_tomorrow", DEFAULT_MIN_PROFIT_DISCHARGE)),
+            "min_profit_discharge_aggressive_tomorrow": float(options.get("min_profit_discharge_aggressive_tomorrow", DEFAULT_MIN_PROFIT_DISCHARGE_AGGRESSIVE)),
             "min_price_difference_tomorrow": float(options.get("min_price_difference_tomorrow", DEFAULT_MIN_PRICE_DIFFERENCE)),
             "price_override_threshold_tomorrow": float(options.get("price_override_threshold_tomorrow", DEFAULT_PRICE_OVERRIDE_THRESHOLD)),
-            "arbitrage_protection_threshold": float(options.get("arbitrage_protection_threshold", DEFAULT_ARBITRAGE_PROTECTION_THRESHOLD)),
-            "arbitrage_protection_threshold_tomorrow": float(options.get("arbitrage_protection_threshold_tomorrow", DEFAULT_ARBITRAGE_PROTECTION_THRESHOLD)),
 
             # Boolean values (switches)
             "automation_enabled": bool(options.get("automation_enabled", True)),
@@ -300,8 +298,7 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             "time_override_enabled_tomorrow": bool(options.get("time_override_enabled_tomorrow", False)),
             "calculation_window_enabled": bool(options.get("calculation_window_enabled", False)),
             "calculation_window_enabled_tomorrow": bool(options.get("calculation_window_enabled_tomorrow", False)),
-            "arbitrage_protection_enabled": bool(options.get("arbitrage_protection_enabled", DEFAULT_ARBITRAGE_PROTECTION_ENABLED)),
-            "arbitrage_protection_enabled_tomorrow": bool(options.get("arbitrage_protection_enabled_tomorrow", DEFAULT_ARBITRAGE_PROTECTION_ENABLED)),
+            # Note: Arbitrage Protection removed in v1.2.0 - profit thresholds control behavior
             "notify_automation_disabled": bool(options.get("notify_automation_disabled", False)),
             "notify_charging": bool(options.get("notify_charging", True)),
             "notify_discharge": bool(options.get("notify_discharge", True)),
@@ -312,8 +309,7 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             "pricing_window_duration": options.get("pricing_window_duration", "15_minutes"),
             "time_override_mode": options.get("time_override_mode", "charge"),
             "time_override_mode_tomorrow": options.get("time_override_mode_tomorrow", "charge"),
-            "arbitrage_protection_mode": options.get("arbitrage_protection_mode", DEFAULT_ARBITRAGE_PROTECTION_MODE),
-            "arbitrage_protection_mode_tomorrow": options.get("arbitrage_protection_mode_tomorrow", DEFAULT_ARBITRAGE_PROTECTION_MODE),
+            # Note: Arbitrage Protection mode removed in v1.2.0
 
             # Unified price country
             "price_country": options.get("price_country", DEFAULT_PRICE_COUNTRY),
