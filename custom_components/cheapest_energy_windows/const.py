@@ -199,6 +199,7 @@ CALCULATION_AFFECTING_KEYS: Final = {
     "expensive_windows",
     "percentile_threshold",
     "min_price_difference",
+    "min_price_diff_enabled",
 
     # Profit thresholds (v1.2.0+)
     "min_profit_charge",
@@ -262,6 +263,7 @@ CALCULATION_AFFECTING_KEYS: Final = {
     "min_spread_discharge_tomorrow",
     "aggressive_discharge_spread_tomorrow",
     "min_price_difference_tomorrow",
+    "min_price_diff_enabled_tomorrow",
     "price_override_enabled_tomorrow",
     "price_override_threshold_tomorrow",
     "time_override_enabled_tomorrow",

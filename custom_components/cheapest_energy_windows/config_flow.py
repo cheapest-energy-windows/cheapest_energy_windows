@@ -228,17 +228,6 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         # Get available countries from the formula registry
         country_options = get_country_options()
 
-        # Build description with formula info for each country
-        formula_descriptions = []
-        for country_id, display_name in country_options:
-            formula = get_formula(country_id)
-            if formula:
-                formula_descriptions.append(
-                    f"**{display_name}**\n"
-                    f"Buy: `{formula.buy_formula_description}`\n"
-                    f"Sell: `{formula.sell_formula_description}`"
-                )
-
         return self.async_show_form(
             step_id="price_formulas",
             data_schema=vol.Schema({
@@ -254,9 +243,12 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             }),
             description_placeholders={
                 "info": "🌍 **Select Your Electricity Contract Type**\n\n"
-                       "Choose the pricing formula that matches your energy contract:\n\n"
-                       + "\n\n".join(formula_descriptions) +
-                       "\n\n💡 You can adjust all parameters after installation via the dashboard."
+                       "Each country has different ways of calculating your final electricity price from the spot price. "
+                       "This includes things like VAT, energy taxes, and supplier fees.\n\n"
+                       "Select your country/contract type from the dropdown. The next step will show the specific formula and let you configure the parameters.\n\n"
+                       "🌐 **Your country not listed?**\n"
+                       "Request it on our GitHub: github.com/cheapest-energy-windows/cheapest_energy_windows\n\n"
+                       "💡 All parameters can be adjusted after installation via the dashboard."
             },
         )
 
@@ -393,7 +385,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             }),
             description_placeholders={
                 "info": f"{title}\n\n{formula_info}\n"
-                       "💡 Buy/Sell use same Multiplier (B) and Cost (A).\n"
+                       "💡 These parameters are for the BUY formula.\n"
+                       "💡 Sell formula parameters can be configured via the dashboard after setup.\n"
                        "💡 VAT only applies to BUY price, not SELL."
             },
         )
@@ -658,16 +651,16 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             }),
             description_placeholders={
                 "info": "⚡ **Pricing Windows Configuration**\n\n"
-                       "**Window Duration**\n"
-                       "Match this to your energy contract pricing intervals.\n\n"
                        "**Charging Windows**\n"
                        "Number of cheapest time slots to use for charging.\n\n"
                        "**Discharge Windows**\n"
                        "Number of most expensive slots for discharging.\n\n"
                        "**Percentile Threshold**\n"
                        "Only use windows in the cheapest/most expensive X%.\n\n"
-                       "**Spread Settings**\n"
-                       "Minimum price difference (%) required between charge and discharge prices.\n\n"
+                       "**Profit Settings**\n"
+                       "Profit = Spread - RTE Loss. Your battery loses energy during charge/discharge cycles.\n"
+                       "Example: 25% price spread - 15% RTE loss = 10% actual profit.\n"
+                       "Set the minimum profit % you want before the system acts.\n\n"
                        "**Price Override**\n"
                        "Always charge when price drops below threshold, ignoring other rules.\n\n"
                        "💡 These can be adjusted later via the dashboard."

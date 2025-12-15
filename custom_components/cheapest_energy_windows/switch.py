@@ -51,6 +51,8 @@ async def async_setup_entry(
         ("battery_use_soc_safety", "Battery Use SOC Safety", False, "mdi:shield-battery"),
         ("use_min_sell_price", "Use Minimum Sell Price", False, "mdi:cash-check"),
         ("min_sell_price_bypass_spread", "Min Sell Price Bypasses Spread", False, "mdi:skip-forward"),
+        ("min_price_diff_enabled", "Min Buy Price Diff Enabled", True, "mdi:cash-check"),
+        ("min_price_diff_enabled_tomorrow", "Min Buy Price Diff Enabled Tomorrow", True, "mdi:cash-check"),
         # Note: Arbitrage Protection removed in v1.2.0
         # Profit thresholds now naturally control window qualification
     ]

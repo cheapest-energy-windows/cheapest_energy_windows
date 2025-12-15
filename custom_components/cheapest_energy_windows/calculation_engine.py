@@ -82,7 +82,8 @@ class WindowCalculationEngine:
         min_profit_charge = config.get(f"min_profit_charge{suffix}", 10)
         min_profit_discharge = config.get(f"min_profit_discharge{suffix}", 10)
         min_profit_discharge_aggressive = config.get(f"min_profit_discharge_aggressive{suffix}", 10)
-        min_price_diff = config.get(f"min_price_difference{suffix}", 0.05)
+        min_price_diff_enabled = config.get(f"min_price_diff_enabled{suffix}", True)
+        min_price_diff = config.get(f"min_price_difference{suffix}", 0.05) if min_price_diff_enabled else float('-inf')
         # Calculate RTE loss for profit checks
         battery_rte = config.get("battery_rte", 85)
         rte_loss = 100 - battery_rte
@@ -664,12 +665,13 @@ class WindowCalculationEngine:
 
             # Calculate spread and profit: (avg_sell - avg_buy) / avg_buy * 100
             # profit = spread - RTE_loss (can be negative when unprofitable)
+            # Note: min_price_diff only applies to charge windows (buy-buy comparison)
+            # For discharge, profit threshold is sufficient
             if cheap_avg > 0:
                 spread_pct = ((expensive_avg - cheap_avg) / cheap_avg) * 100
                 profit_pct = spread_pct - rte_loss
-                price_diff = candidate["sell_price"] - cheap_min  # Sell price minus min charge price
 
-                if profit_pct >= min_profit and price_diff >= min_price_diff:
+                if profit_pct >= min_profit:
                     selected.append(candidate)
 
         return selected
@@ -714,12 +716,12 @@ class WindowCalculationEngine:
         for window in discharge_windows:
             if cheap_avg > 0:
                 # Use SELL price for spread/profit calculation (discharge = selling)
+                # Note: min_price_diff only applies to charge windows (buy-buy comparison)
                 sell_price = window.get("sell_price", window["price"])
                 spread_pct = ((sell_price - cheap_avg) / cheap_avg) * 100
                 profit_pct = spread_pct - rte_loss
-                price_diff = sell_price - cheap_min  # Sell price minus min charge price
 
-                if profit_pct >= min_profit and price_diff >= min_price_diff:
+                if profit_pct >= min_profit:
                     candidates.append(window)
 
         return candidates
