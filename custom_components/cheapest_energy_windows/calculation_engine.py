@@ -632,6 +632,10 @@ class WindowCalculationEngine:
         # Calculate percentile threshold for expensive SELL prices (top X%)
         expensive_threshold = np.percentile(sell_price_array, 100 - percentile_threshold)
 
+        # Calculate fixed expensive_avg from top percentile (symmetric with charge)
+        expensive_sell_prices = sell_price_array[sell_price_array >= expensive_threshold]
+        expensive_avg = np.mean(expensive_sell_prices) if len(expensive_sell_prices) > 0 else np.max(sell_price_array)
+
         # Get candidates above threshold (by SELL price)
         candidates = []
         for price_data in available_prices:
@@ -658,10 +662,6 @@ class WindowCalculationEngine:
         for candidate in candidates:
             if len(selected) >= num_windows:
                 break
-
-            # Test spread with this window (using running average of SELL prices)
-            test_sell_prices = [s["sell_price"] for s in selected] + [candidate["sell_price"]]
-            expensive_avg = np.mean(test_sell_prices)
 
             # Calculate spread and profit: (avg_sell - avg_buy) / avg_buy * 100
             # profit = spread - RTE_loss (can be negative when unprofitable)
