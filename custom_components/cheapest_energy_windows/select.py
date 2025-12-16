@@ -46,7 +46,7 @@ async def async_setup_entry(
         ("time_override_mode", "Time Override Mode", ["idle", "charge", "discharge", "discharge_aggressive", "off"], "idle", "mdi:toggle-switch"),
         ("time_override_mode_tomorrow", "Time Override Mode Tomorrow", ["idle", "charge", "discharge", "discharge_aggressive", "off"], "idle", "mdi:toggle-switch"),
         ("base_usage_charge_strategy", "Base Usage: During Charging", ["grid_covers_both", "battery_covers_base"], "grid_covers_both", "mdi:battery-charging"),
-        ("base_usage_idle_strategy", "Base Usage: During Idle", ["battery_covers", "grid_covers"], "battery_covers", "mdi:home-lightning-bolt"),
+        ("base_usage_idle_strategy", "Base Usage: During Idle", ["battery_covers_limited", "battery_covers", "grid_covers"], "battery_covers_limited", "mdi:home-lightning-bolt"),
         ("base_usage_discharge_strategy", "Base Usage: During Discharge", ["already_included", "subtract_base"], "subtract_base", "mdi:battery-arrow-down"),
         ("base_usage_aggressive_strategy", "Base Usage: During Aggressive Discharge", ["same_as_discharge", "already_included", "subtract_base"], "same_as_discharge", "mdi:battery-alert"),
         ("price_country", "Price Formula", country_display_names, default_country_display, "mdi:map-marker"),

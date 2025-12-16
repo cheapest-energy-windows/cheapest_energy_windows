@@ -1394,6 +1394,11 @@ class WindowCalculationEngine:
 
         planned_total_cost = round(planned_charge_cost + planned_base_usage_cost - planned_discharge_revenue, 3)
 
+        # Calculate effective base usage (limited by charged energy when idle strategy is "battery_covers_limited")
+        # This is used by the dashboard for Estimated Savings calculation
+        limit_savings_enabled = (idle_strategy == "battery_covers_limited")
+        base_usage_kwh = base_usage * 24  # Full day base usage in kWh
+
         # Calculate net planned charge (accounts for battery_covers_base strategy)
         # When battery_covers_base: battery outputs base_usage while charging, so net charge = charge_power - base_usage
         # When grid_covers_both: full charge_power goes to battery
@@ -1405,6 +1410,28 @@ class WindowCalculationEngine:
             else:  # grid_covers_both
                 net_planned_charge_kwh += duration_hours * charge_power
         net_planned_charge_kwh = round(net_planned_charge_kwh, 3)
+
+        # Calculate effective base usage (limit to usable energy if toggle is on)
+        battery_rte_pct = config.get("battery_rte", 85)
+        battery_rte_decimal = battery_rte_pct / 100
+        usable_kwh = net_planned_charge_kwh * battery_rte_decimal
+        if limit_savings_enabled:
+            effective_base_usage_kwh = min(base_usage_kwh, usable_kwh)
+        else:
+            effective_base_usage_kwh = base_usage_kwh
+        effective_base_usage_kwh = round(effective_base_usage_kwh, 3)
+
+        # Calculate uncovered base usage cost (when limit enabled and battery can't cover all)
+        day_avg_price = float(np.mean([p["price"] for p in prices])) if prices else 0
+        if limit_savings_enabled and usable_kwh < base_usage_kwh:
+            uncovered_kwh = base_usage_kwh - usable_kwh
+            uncovered_cost = uncovered_kwh * day_avg_price
+        else:
+            uncovered_kwh = 0
+            uncovered_cost = 0
+
+        # Update planned_total_cost to include uncovered base usage cost
+        planned_total_cost = round(planned_total_cost + uncovered_cost, 3)
 
         # Calculate net planned discharge (accounts for subtract_base strategy)
         # When subtract_base: only net export goes to grid (discharge - base_usage)
@@ -1466,11 +1493,15 @@ class WindowCalculationEngine:
             "completed_discharge_revenue": round(completed_discharge_revenue, 3),
             "completed_base_usage_cost": round(completed_base_usage_cost, 3),
             "completed_base_usage_battery": round(completed_base_usage_battery, 3),
-            "total_cost": round(completed_charge_cost + completed_base_usage_cost - completed_discharge_revenue, 3),
+            "uncovered_base_usage_kwh": round(uncovered_kwh, 3),
+            "uncovered_base_usage_cost": round(uncovered_cost, 3),
+            "total_cost": round(completed_charge_cost + completed_base_usage_cost + uncovered_cost - completed_discharge_revenue, 3),
             "planned_total_cost": planned_total_cost,
             "planned_charge_cost": round(planned_charge_cost, 3),
             "net_planned_charge_kwh": net_planned_charge_kwh,
             "net_planned_discharge_kwh": net_planned_discharge_kwh,
+            "effective_base_usage_kwh": effective_base_usage_kwh,
+            "base_usage_kwh": round(base_usage_kwh, 3),
             "num_windows": len(charge_windows),
             # Profit-based attributes (v1.2.0+)
             "charge_profit_pct": round(charge_profit_pct, 1),  # Buy-buy profit for charging
@@ -1529,11 +1560,15 @@ class WindowCalculationEngine:
             "completed_discharge_revenue": 0,
             "completed_base_usage_cost": 0,
             "completed_base_usage_battery": 0,
+            "uncovered_base_usage_kwh": 0,
+            "uncovered_base_usage_cost": 0,
             "total_cost": 0,
             "planned_total_cost": 0,
             "planned_charge_cost": 0,
             "net_planned_charge_kwh": 0,
             "net_planned_discharge_kwh": 0,
+            "effective_base_usage_kwh": 0,
+            "base_usage_kwh": 0,
             "num_windows": 0,
             # Profit-based attributes (v1.2.0+)
             "charge_profit_pct": 0,

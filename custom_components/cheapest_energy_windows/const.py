@@ -80,7 +80,7 @@ DEFAULT_CALCULATION_WINDOW_START: Final = "00:00:00"
 DEFAULT_CALCULATION_WINDOW_END: Final = "23:59:59"
 DEFAULT_BASE_USAGE: Final = 0
 DEFAULT_BASE_USAGE_CHARGE_STRATEGY: Final = "grid_covers_both"
-DEFAULT_BASE_USAGE_IDLE_STRATEGY: Final = "battery_covers"
+DEFAULT_BASE_USAGE_IDLE_STRATEGY: Final = "battery_covers_limited"
 DEFAULT_BASE_USAGE_DISCHARGE_STRATEGY: Final = "subtract_base"
 DEFAULT_BASE_USAGE_AGGRESSIVE_STRATEGY: Final = "same_as_discharge"
 
@@ -288,6 +288,7 @@ CALCULATION_AFFECTING_KEYS: Final = {
     "min_spread_tomorrow",
     "min_spread_discharge_tomorrow",
     "aggressive_discharge_spread_tomorrow",
+
 }
 
 # Configuration keys that DON'T affect calculation (UI/notification settings)
