@@ -1411,10 +1411,32 @@ class WindowCalculationEngine:
                 net_planned_charge_kwh += duration_hours * charge_power
         net_planned_charge_kwh = round(net_planned_charge_kwh, 3)
 
+        # Calculate net planned discharge (accounts for subtract_base strategy)
+        # When subtract_base: only net export goes to grid (discharge - base_usage)
+        # When already_included: full discharge_power goes to grid
+        # NOTE: Must calculate BEFORE usable_kwh so we can account for discharged energy
+        net_planned_discharge_kwh = 0
+        for w in actual_discharge:
+            duration_hours = w["duration"] / 60
+            # Determine which strategy to use based on window state
+            if w.get("state") == STATE_DISCHARGE_AGGRESSIVE:
+                strategy = aggressive_strategy if aggressive_strategy != "same_as_discharge" else discharge_strategy
+            else:
+                strategy = discharge_strategy
+
+            if strategy == "already_included":
+                # Full discharge power goes to grid
+                net_planned_discharge_kwh += duration_hours * discharge_power
+            else:  # subtract_base
+                # Only net export goes to grid (discharge - base_usage)
+                net_planned_discharge_kwh += duration_hours * max(0, discharge_power - base_usage)
+        net_planned_discharge_kwh = round(net_planned_discharge_kwh, 3)
+
         # Calculate effective base usage (limit to usable energy if toggle is on)
         battery_rte_pct = config.get("battery_rte", 85)
         battery_rte_decimal = battery_rte_pct / 100
-        usable_kwh = net_planned_charge_kwh * battery_rte_decimal
+        # usable_kwh = energy available for base usage = charged (after RTE) - discharged
+        usable_kwh = max(0, (net_planned_charge_kwh * battery_rte_decimal) - net_planned_discharge_kwh)
         if limit_savings_enabled:
             effective_base_usage_kwh = min(base_usage_kwh, usable_kwh)
         else:
@@ -1432,26 +1454,6 @@ class WindowCalculationEngine:
 
         # Update planned_total_cost to include uncovered base usage cost
         planned_total_cost = round(planned_total_cost + uncovered_cost, 3)
-
-        # Calculate net planned discharge (accounts for subtract_base strategy)
-        # When subtract_base: only net export goes to grid (discharge - base_usage)
-        # When already_included: full discharge_power goes to grid
-        net_planned_discharge_kwh = 0
-        for w in actual_discharge:
-            duration_hours = w["duration"] / 60
-            # Determine which strategy to use based on window state
-            if w.get("state") == STATE_DISCHARGE_AGGRESSIVE:
-                strategy = aggressive_strategy if aggressive_strategy != "same_as_discharge" else discharge_strategy
-            else:
-                strategy = discharge_strategy
-
-            if strategy == "already_included":
-                # Full discharge power goes to grid
-                net_planned_discharge_kwh += duration_hours * discharge_power
-            else:  # subtract_base
-                # Only net export goes to grid (discharge - base_usage)
-                net_planned_discharge_kwh += duration_hours * max(0, discharge_power - base_usage)
-        net_planned_discharge_kwh = round(net_planned_discharge_kwh, 3)
 
         # Calculate sell prices for discharge windows
         def get_sell_price_for_window(w):
