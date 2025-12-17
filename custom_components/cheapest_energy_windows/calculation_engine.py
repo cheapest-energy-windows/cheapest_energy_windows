@@ -1455,6 +1455,18 @@ class WindowCalculationEngine:
         # Update planned_total_cost to include uncovered base usage cost
         planned_total_cost = round(planned_total_cost + uncovered_cost, 3)
 
+        # Calculate completed (time-proportional) uncovered cost for total_cost
+        # uncovered_cost is full-day projection; total_cost needs only elapsed portion
+        if prices and limit_savings_enabled and uncovered_cost > 0:
+            day_start = prices[0]["timestamp"]
+            day_end = prices[-1]["timestamp"] + timedelta(minutes=prices[-1]["duration"])
+            total_day_seconds = (day_end - day_start).total_seconds()
+            elapsed_seconds = max(0, min((current_time - day_start).total_seconds(), total_day_seconds))
+            time_fraction = elapsed_seconds / total_day_seconds if total_day_seconds > 0 else 0
+            completed_uncovered_cost = round(uncovered_cost * time_fraction, 3)
+        else:
+            completed_uncovered_cost = 0
+
         # Calculate sell prices for discharge windows
         def get_sell_price_for_window(w):
             pd = price_lookup.get(w["timestamp"], {})
@@ -1497,7 +1509,7 @@ class WindowCalculationEngine:
             "completed_base_usage_battery": round(completed_base_usage_battery, 3),
             "uncovered_base_usage_kwh": round(uncovered_kwh, 3),
             "uncovered_base_usage_cost": round(uncovered_cost, 3),
-            "total_cost": round(completed_charge_cost + completed_base_usage_cost + uncovered_cost - completed_discharge_revenue, 3),
+            "total_cost": round(completed_charge_cost + completed_base_usage_cost + completed_uncovered_cost - completed_discharge_revenue, 3),
             "planned_total_cost": planned_total_cost,
             "planned_charge_cost": round(planned_charge_cost, 3),
             "net_planned_charge_kwh": net_planned_charge_kwh,
