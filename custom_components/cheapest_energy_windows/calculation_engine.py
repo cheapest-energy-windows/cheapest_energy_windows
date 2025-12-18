@@ -1669,6 +1669,9 @@ class WindowCalculationEngine:
             "net_post_discharge_eur_kwh": round(net_post_discharge_eur_kwh, 5),
             "battery_margin_eur_kwh": round(battery_margin_eur_kwh, 5),
             "battery_arbitrage_value": round(battery_arbitrage_value, 3),
+            # Estimated Savings presentation (clearer format)
+            "actual_price_kwh": round(planned_total_cost / net_grid_kwh, 5) if net_grid_kwh > 0 else 0,
+            "cost_difference": round((base_usage_kwh * day_avg_price) - planned_total_cost, 2),
             # Power in kW (reduces repetitive W->kW conversion)
             "charge_power_kw": round(charge_power, 3),
             "discharge_power_kw": round(discharge_power, 3),
@@ -1854,6 +1857,8 @@ class WindowCalculationEngine:
             "net_post_discharge_eur_kwh": 0,
             "battery_margin_eur_kwh": 0,
             "battery_arbitrage_value": 0,
+            "actual_price_kwh": 0,
+            "cost_difference": 0,
             "charge_power_kw": 0,
             "discharge_power_kw": 0,
             "base_usage_kw": 0,
