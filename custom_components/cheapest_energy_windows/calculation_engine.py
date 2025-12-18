@@ -1485,6 +1485,88 @@ class WindowCalculationEngine:
         min_profit_discharge = config.get(f"min_profit_discharge{suffix}", 10)
         min_profit_discharge_aggressive = config.get(f"min_profit_discharge_aggressive{suffix}", 10)
 
+        # === DASHBOARD HELPER ATTRIBUTES ===
+        # These reduce repetitive calculations in the dashboard
+
+        # Grouped windows (consecutive windows merged into blocks)
+        grouped_charge_windows = self._group_consecutive_windows(
+            actual_charge, avg_expensive_buy, is_discharge=False
+        )
+        grouped_discharge_windows = self._group_consecutive_windows(
+            actual_discharge, avg_cheap_buy, is_discharge=True
+        )
+
+        # Sorted prices for dashboard use
+        sorted_buy_prices = sorted([p["price"] for p in prices])
+        sorted_sell_prices = sorted(all_sell_prices.tolist())
+
+        # Percentile averages (already calculated, just expose)
+        percentile_cheap_avg = avg_cheap_buy
+        percentile_expensive_avg = avg_expensive_buy
+        percentile_expensive_sell_avg = avg_expensive_sell
+
+        # Cheap/expensive half averages (for fallback display when no windows)
+        half_idx = len(sorted_buy_prices) // 2
+        cheap_half_avg = float(np.mean(sorted_buy_prices[:half_idx])) if half_idx > 0 else 0
+        expensive_half_avg = float(np.mean(sorted_buy_prices[half_idx:])) if half_idx < len(sorted_buy_prices) else 0
+
+        # Estimated savings calculations
+        # These match what the dashboard was calculating in Jinja2
+        battery_rte_decimal = battery_rte / 100
+        window_duration_hours = (prices[0]["duration"] / 60) if prices else 0.25
+
+        # Calculate charged/discharged kWh using effective power (respects base usage strategies)
+        effective_charge_power = (charge_power - base_usage) if charge_strategy == "battery_covers_base" else charge_power
+        effective_discharge_power = (discharge_power - base_usage) if discharge_strategy == "subtract_base" else discharge_power
+
+        charged_kwh = len(actual_charge) * window_duration_hours * effective_charge_power
+        usable_kwh = charged_kwh * battery_rte_decimal
+        discharged_kwh = len(actual_discharge) * window_duration_hours * effective_discharge_power
+        remaining_kwh = usable_kwh - discharged_kwh
+
+        # Uncovered base usage (when battery can't cover all base usage)
+        uncovered_base = max(0, base_usage_kwh - max(0, remaining_kwh))
+
+        # Net grid kWh (imports - exports)
+        net_grid_kwh = (charged_kwh + uncovered_base) - discharged_kwh
+
+        # Baseline cost (what you'd pay at average price)
+        baseline_cost = net_grid_kwh * day_avg_price
+
+        # Estimated savings
+        estimated_savings = baseline_cost - planned_total_cost
+
+        # True savings (proportional when net_grid covers base, otherwise all savings apply)
+        if net_grid_kwh >= base_usage_kwh and net_grid_kwh > 0:
+            true_savings = (estimated_savings / net_grid_kwh) * base_usage_kwh
+        else:
+            # Net grid is less than base usage (or negative) - battery covers base usage
+            true_savings = estimated_savings
+
+        # Net post-discharge metrics (battery arbitrage value)
+        # Gross values for Battery line matching
+        gross_charged_kwh = len(actual_charge) * window_duration_hours * charge_power
+        gross_usable_kwh = gross_charged_kwh * battery_rte_decimal
+        gross_discharged_kwh = len(actual_discharge) * window_duration_hours * discharge_power
+        actual_remaining_kwh = gross_usable_kwh - gross_discharged_kwh
+
+        # Net post-discharge €/kWh
+        total_charge_cost = sum(w["price"] for w in actual_charge) * window_duration_hours * effective_charge_power if actual_charge else 0
+
+        # Calculate discharge revenue - need to get sell prices for each window
+        discharge_sell_prices_sum = 0
+        for w in actual_discharge:
+            if "sell_price" in w:
+                discharge_sell_prices_sum += w["sell_price"]
+            else:
+                raw = price_lookup.get(w["timestamp"], {}).get("raw_price", w["price"])
+                discharge_sell_prices_sum += self._calculate_sell_price(raw, w["price"], sell_country, sell_param_a, sell_param_b)
+        discharge_revenue = discharge_sell_prices_sum * window_duration_hours * effective_discharge_power
+
+        net_post_discharge_eur_kwh = ((total_charge_cost - discharge_revenue) / remaining_kwh) if remaining_kwh > 0 else 0
+        battery_margin_eur_kwh = day_avg_price - net_post_discharge_eur_kwh
+        battery_arbitrage_value = actual_remaining_kwh * battery_margin_eur_kwh if actual_remaining_kwh > 0 else 0
+
         # Build result
         result = {
             "state": current_state,
@@ -1547,9 +1629,135 @@ class WindowCalculationEngine:
             "time_override_active": config.get("time_override_enabled", False),
             "automation_enabled": config.get("automation_enabled", True),
             "calculation_window_enabled": config.get("calculation_window_enabled", False),
+            # === DASHBOARD HELPER ATTRIBUTES ===
+            # Grouped windows (reduces ~140 lines of Jinja2)
+            "grouped_charge_windows": grouped_charge_windows,
+            "grouped_discharge_windows": grouped_discharge_windows,
+            # Percentile averages (reduces ~60 lines)
+            "percentile_cheap_avg": round(percentile_cheap_avg, 5),
+            "percentile_expensive_avg": round(percentile_expensive_avg, 5),
+            "percentile_expensive_sell_avg": round(percentile_expensive_sell_avg, 5),
+            # Half averages for fallback display
+            "cheap_half_avg": round(cheap_half_avg, 5),
+            "expensive_half_avg": round(expensive_half_avg, 5),
+            # Sorted prices
+            "sorted_buy_prices": [round(p, 5) for p in sorted_buy_prices],
+            "sorted_sell_prices": [round(p, 5) for p in sorted_sell_prices],
+            # Day average price
+            "day_avg_price": round(day_avg_price, 5),
+            # Estimated savings (reduces ~80 lines)
+            "net_grid_kwh": round(net_grid_kwh, 3),
+            "baseline_cost": round(baseline_cost, 3),
+            "estimated_savings": round(estimated_savings, 3),
+            "true_savings": round(true_savings, 3),
+            # Battery metrics (reduces ~40 lines)
+            "gross_charged_kwh": round(gross_charged_kwh, 3),
+            "gross_usable_kwh": round(gross_usable_kwh, 3),
+            "gross_discharged_kwh": round(gross_discharged_kwh, 3),
+            "actual_remaining_kwh": round(actual_remaining_kwh, 3),
+            "net_post_discharge_eur_kwh": round(net_post_discharge_eur_kwh, 5),
+            "battery_margin_eur_kwh": round(battery_margin_eur_kwh, 5),
+            "battery_arbitrage_value": round(battery_arbitrage_value, 3),
+            # Power in kW (reduces repetitive W->kW conversion)
+            "charge_power_kw": round(charge_power, 3),
+            "discharge_power_kw": round(discharge_power, 3),
+            "base_usage_kw": round(base_usage, 3),
+            # Window duration
+            "window_duration_hours": window_duration_hours,
         }
 
         return result
+
+    def _group_consecutive_windows(
+        self,
+        windows: List[Dict[str, Any]],
+        ref_price: float = 0.0,
+        is_discharge: bool = False
+    ) -> List[Dict[str, Any]]:
+        """Group consecutive time windows into contiguous blocks.
+
+        Args:
+            windows: List of window dicts with timestamp, price, duration, and optionally sell_price
+            ref_price: Reference price for spread calculation (expensive avg for charge, cheap avg for discharge)
+            is_discharge: If True, use sell_price for calculations
+
+        Returns:
+            List of grouped windows with start, end, prices, avg_price, spread_pct, kwh, cost/revenue
+        """
+        if not windows:
+            return []
+
+        # Sort by timestamp
+        sorted_windows = sorted(windows, key=lambda x: x["timestamp"])
+
+        groups = []
+        current_group = None
+
+        for window in sorted_windows:
+            window_start = window["timestamp"]
+            window_end = window_start + timedelta(minutes=window["duration"])
+            price = window.get("sell_price", window["price"]) if is_discharge else window["price"]
+
+            if current_group is None:
+                # Start new group
+                current_group = {
+                    "start": window_start,
+                    "end": window_end,
+                    "prices": [price],
+                    "duration": window["duration"]
+                }
+            elif window_start == current_group["end"]:
+                # Consecutive window, extend group
+                current_group["end"] = window_end
+                current_group["prices"].append(price)
+            else:
+                # Gap found, finalize current group and start new one
+                groups.append(self._finalize_group(current_group, ref_price, is_discharge))
+                current_group = {
+                    "start": window_start,
+                    "end": window_end,
+                    "prices": [price],
+                    "duration": window["duration"]
+                }
+
+        # Don't forget the last group
+        if current_group:
+            groups.append(self._finalize_group(current_group, ref_price, is_discharge))
+
+        return groups
+
+    def _finalize_group(
+        self,
+        group: Dict[str, Any],
+        ref_price: float,
+        is_discharge: bool
+    ) -> Dict[str, Any]:
+        """Finalize a window group with calculated metrics."""
+        prices = group["prices"]
+        avg_price = float(np.mean(prices))
+        window_duration = group["duration"] / 60  # Convert to hours
+        num_windows = len(prices)
+        kwh = window_duration * num_windows  # Will be multiplied by power in dashboard
+
+        # Calculate spread percentage
+        if is_discharge:
+            # For discharge: (sell_avg - ref_buy) / ref_buy * 100
+            spread_pct = ((avg_price - ref_price) / ref_price * 100) if ref_price > 0 else 0
+        else:
+            # For charge: (ref_expensive - buy_avg) / buy_avg * 100
+            spread_pct = ((ref_price - avg_price) / avg_price * 100) if avg_price > 0 else 0
+
+        return {
+            "start": group["start"].isoformat(),
+            "end": group["end"].isoformat(),
+            "start_time": group["start"].strftime("%H:%M"),
+            "end_time": group["end"].strftime("%H:%M"),
+            "prices": [round(p, 5) for p in prices],
+            "avg_price": round(avg_price, 5),
+            "spread_pct": round(spread_pct, 1),
+            "num_windows": num_windows,
+            "duration_hours": round(window_duration * num_windows, 2),
+        }
 
     def _empty_result(self, is_tomorrow: bool) -> Dict[str, Any]:
         """Return an empty result structure."""
@@ -1612,4 +1820,30 @@ class WindowCalculationEngine:
             "time_override_active": False,
             "automation_enabled": False,
             "calculation_window_enabled": False,
+            # === DASHBOARD HELPER ATTRIBUTES ===
+            "grouped_charge_windows": [],
+            "grouped_discharge_windows": [],
+            "percentile_cheap_avg": 0,
+            "percentile_expensive_avg": 0,
+            "percentile_expensive_sell_avg": 0,
+            "cheap_half_avg": 0,
+            "expensive_half_avg": 0,
+            "sorted_buy_prices": [],
+            "sorted_sell_prices": [],
+            "day_avg_price": 0,
+            "net_grid_kwh": 0,
+            "baseline_cost": 0,
+            "estimated_savings": 0,
+            "true_savings": 0,
+            "gross_charged_kwh": 0,
+            "gross_usable_kwh": 0,
+            "gross_discharged_kwh": 0,
+            "actual_remaining_kwh": 0,
+            "net_post_discharge_eur_kwh": 0,
+            "battery_margin_eur_kwh": 0,
+            "battery_arbitrage_value": 0,
+            "charge_power_kw": 0,
+            "discharge_power_kw": 0,
+            "base_usage_kw": 0,
+            "window_duration_hours": 0.25,
         }
