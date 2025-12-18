@@ -95,18 +95,23 @@ class WindowCalculationEngine:
             _LOGGER.debug("No prices to process")
             return self._empty_result(is_tomorrow)
 
+        # Store all prices for base usage calculations (before any filtering)
+        # Base usage should always be calculated over full 24h, not just calculation window
+        all_prices = processed_prices.copy()
+
         # Apply calculation window filter if enabled (use suffix for tomorrow settings)
+        # This only affects charge/discharge window selection, NOT base usage calculations
         calc_window_enabled = config.get(f"calculation_window_enabled{suffix}", False)
         if calc_window_enabled:
             calc_window_start = config.get(f"calculation_window_start{suffix}", "00:00:00")
             calc_window_end = config.get(f"calculation_window_end{suffix}", "23:59:59")
-            _LOGGER.debug(f"Calculation window ENABLED: {calc_window_start} - {calc_window_end}, filtering {len(processed_prices)} prices")
+            _LOGGER.debug(f"Calculation window ENABLED: {calc_window_start} - {calc_window_end}, filtering {len(processed_prices)} prices for window selection")
             processed_prices = self._filter_prices_by_calculation_window(
                 processed_prices,
                 calc_window_start,
                 calc_window_end
             )
-            _LOGGER.debug(f"After calculation window filter: {len(processed_prices)} prices remain")
+            _LOGGER.debug(f"After calculation window filter: {len(processed_prices)} prices for window selection, {len(all_prices)} prices for base usage")
             if not processed_prices:
                 _LOGGER.debug("No prices after calculation window filter")
                 return self._empty_result(is_tomorrow)
@@ -272,6 +277,7 @@ class WindowCalculationEngine:
         # Build result
         result = self._build_result(
             processed_prices,
+            all_prices,
             charge_windows,
             discharge_windows,
             aggressive_windows,
@@ -1163,6 +1169,7 @@ class WindowCalculationEngine:
     def _build_result(
         self,
         prices: List[Dict[str, Any]],
+        all_prices: List[Dict[str, Any]],
         charge_windows: List[Dict[str, Any]],
         discharge_windows: List[Dict[str, Any]],
         aggressive_windows: List[Dict[str, Any]],
@@ -1330,7 +1337,9 @@ class WindowCalculationEngine:
         charge_timestamps = {w["timestamp"] for w in actual_charge}
         discharge_timestamps = {w["timestamp"] for w in actual_discharge}
 
-        for price_data in prices:
+        # Use all_prices (not filtered by calculation window) for base usage calculations
+        # Base usage should cover full 24h regardless of calculation window
+        for price_data in all_prices:
             timestamp = price_data["timestamp"]
             if timestamp + timedelta(minutes=price_data["duration"]) <= current_time:
                 # Check if this period is idle (not in any active window)
@@ -1382,8 +1391,8 @@ class WindowCalculationEngine:
                 net_export = max(0, discharge_power - base_usage)
                 planned_discharge_revenue += sell_price * duration_hours * net_export
 
-        # All idle periods
-        for price_data in prices:
+        # All idle periods (use all_prices for full 24h coverage)
+        for price_data in all_prices:
             timestamp = price_data["timestamp"]
             is_active = timestamp in charge_timestamps or timestamp in discharge_timestamps
 
@@ -1444,7 +1453,8 @@ class WindowCalculationEngine:
         effective_base_usage_kwh = round(effective_base_usage_kwh, 3)
 
         # Calculate uncovered base usage cost (when limit enabled and battery can't cover all)
-        day_avg_price = float(np.mean([p["price"] for p in prices])) if prices else 0
+        # Use all_prices for day average (full 24h, not filtered by calculation window)
+        day_avg_price = float(np.mean([p["price"] for p in all_prices])) if all_prices else 0
         if limit_savings_enabled and usable_kwh < base_usage_kwh:
             uncovered_kwh = base_usage_kwh - usable_kwh
             uncovered_cost = uncovered_kwh * day_avg_price
@@ -1457,9 +1467,9 @@ class WindowCalculationEngine:
 
         # Calculate completed (time-proportional) uncovered cost for total_cost
         # uncovered_cost is full-day projection; total_cost needs only elapsed portion
-        if prices and limit_savings_enabled and uncovered_cost > 0:
-            day_start = prices[0]["timestamp"]
-            day_end = prices[-1]["timestamp"] + timedelta(minutes=prices[-1]["duration"])
+        if all_prices and limit_savings_enabled and uncovered_cost > 0:
+            day_start = all_prices[0]["timestamp"]
+            day_end = all_prices[-1]["timestamp"] + timedelta(minutes=all_prices[-1]["duration"])
             total_day_seconds = (day_end - day_start).total_seconds()
             elapsed_seconds = max(0, min((current_time - day_start).total_seconds(), total_day_seconds))
             time_fraction = elapsed_seconds / total_day_seconds if total_day_seconds > 0 else 0
@@ -1598,6 +1608,7 @@ class WindowCalculationEngine:
             "net_planned_discharge_kwh": net_planned_discharge_kwh,
             "effective_base_usage_kwh": effective_base_usage_kwh,
             "base_usage_kwh": round(base_usage_kwh, 3),
+            "base_usage_day_cost": round(base_usage_kwh * day_avg_price, 2),  # Daily base usage cost at avg price
             "num_windows": len(charge_windows),
             # Profit-based attributes (v1.2.0+)
             "charge_profit_pct": round(charge_profit_pct, 1),  # Buy-buy profit for charging
@@ -1791,6 +1802,7 @@ class WindowCalculationEngine:
             "net_planned_discharge_kwh": 0,
             "effective_base_usage_kwh": 0,
             "base_usage_kwh": 0,
+            "base_usage_day_cost": 0,
             "num_windows": 0,
             # Profit-based attributes (v1.2.0+)
             "charge_profit_pct": 0,

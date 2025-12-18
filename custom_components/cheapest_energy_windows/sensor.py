@@ -417,6 +417,8 @@ class CEWTodaySensor(CEWBaseSensor):
             "charge_power_kw": result.get("charge_power_kw", 0),
             "discharge_power_kw": result.get("discharge_power_kw", 0),
             "base_usage_kw": result.get("base_usage_kw", 0),
+            "base_usage_kwh": result.get("base_usage_kwh", 0),
+            "base_usage_day_cost": result.get("base_usage_day_cost", 0),
             "window_duration_hours": result.get("window_duration_hours", 0.25),
         }
 
@@ -591,6 +593,8 @@ class CEWTomorrowSensor(CEWBaseSensor):
             "charge_power_kw": result.get("charge_power_kw", 0),
             "discharge_power_kw": result.get("discharge_power_kw", 0),
             "base_usage_kw": result.get("base_usage_kw", 0),
+            "base_usage_kwh": result.get("base_usage_kwh", 0),
+            "base_usage_day_cost": result.get("base_usage_day_cost", 0),
             "window_duration_hours": result.get("window_duration_hours", 0.25),
         }
 
