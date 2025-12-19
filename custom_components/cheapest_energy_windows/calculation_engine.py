@@ -1411,50 +1411,82 @@ class WindowCalculationEngine:
                     )
 
             elif window_type in ("discharge", "aggressive"):
-                # Calculate how much we CAN discharge
-                # During discharge, battery provides BOTH grid export AND base usage
-                desired_discharge = discharge_power * duration_hours
-                base_demand = base_usage * duration_hours
-                total_drain_needed = desired_discharge + base_demand  # Battery provides both
-
-                if limit_discharge:
-                    # Conservative mode: buffer is the STARTING energy, not a floor
-                    # All current battery energy is available for discharge (down to 0)
-                    available_for_discharge = max(0, battery_state)
-                    # Can we provide both discharge AND base usage?
-                    if available_for_discharge >= total_drain_needed:
-                        actual_discharge = desired_discharge
-                        actual_base_from_battery = base_demand
-                    else:
-                        # Limited availability - prioritize base usage, rest to discharge
-                        actual_base_from_battery = min(base_demand, available_for_discharge)
-                        actual_discharge = min(desired_discharge, available_for_discharge - actual_base_from_battery)
-                else:
-                    # Optimistic mode: can discharge all the way to 0
-                    if battery_state >= total_drain_needed:
-                        actual_discharge = desired_discharge
-                        actual_base_from_battery = base_demand
-                    else:
-                        # Limited - prioritize base usage
-                        actual_base_from_battery = min(base_demand, battery_state)
-                        actual_discharge = min(desired_discharge, battery_state - actual_base_from_battery)
-
-                total_actual_drain = actual_discharge + actual_base_from_battery
-
-                # Determine which strategy to use
+                # Determine which strategy to use (needed early for drain calculation)
                 if window_type == "aggressive":
                     strategy = aggressive_strategy if aggressive_strategy != "same_as_discharge" else discharge_strategy
                 else:
                     strategy = discharge_strategy
 
+                # Calculate discharge parameters based on strategy
+                base_demand = base_usage * duration_hours
+
+                if strategy == "already_included":
+                    # User configured discharge_power as NET export to grid
+                    # Battery must also cover house, so total drain = discharge + base
+                    desired_net_export = discharge_power * duration_hours
+                    total_drain_needed = desired_net_export + base_demand
+                else:  # subtract_base
+                    # User configured discharge_power as GROSS battery output
+                    # Battery outputs at discharge_power, house takes base_usage first, grid gets remainder
+                    desired_battery_output = discharge_power * duration_hours
+                    total_drain_needed = desired_battery_output  # Battery max output (includes house share)
+                    desired_net_export = max(0, (discharge_power - base_usage)) * duration_hours
+
                 if limit_discharge:
-                    # Conservative mode: only include if we can do FULL discharge + base
-                    # 100% threshold - skip if battery can't support full operation
+                    # Conservative mode: buffer is the STARTING energy, not a floor
+                    # All current battery energy is available for discharge (down to 0)
+                    available_for_discharge = max(0, battery_state)
+
+                    if strategy == "already_included":
+                        # Need full discharge + base
+                        if available_for_discharge >= total_drain_needed:
+                            actual_net_export = desired_net_export
+                            actual_base_from_battery = base_demand
+                        else:
+                            # Limited - prioritize base usage, rest to export
+                            actual_base_from_battery = min(base_demand, available_for_discharge)
+                            actual_net_export = min(desired_net_export, available_for_discharge - actual_base_from_battery)
+                    else:  # subtract_base
+                        # Battery outputs up to discharge_power, split between house and grid
+                        if available_for_discharge >= total_drain_needed:
+                            actual_battery_output = total_drain_needed
+                            actual_base_from_battery = base_demand
+                            actual_net_export = actual_battery_output - actual_base_from_battery
+                        else:
+                            # Limited - house gets priority
+                            actual_battery_output = available_for_discharge
+                            actual_base_from_battery = min(base_demand, actual_battery_output)
+                            actual_net_export = max(0, actual_battery_output - actual_base_from_battery)
+                else:
+                    # Optimistic mode: can discharge all the way to 0
+                    if strategy == "already_included":
+                        if battery_state >= total_drain_needed:
+                            actual_net_export = desired_net_export
+                            actual_base_from_battery = base_demand
+                        else:
+                            # Limited - prioritize base usage
+                            actual_base_from_battery = min(base_demand, battery_state)
+                            actual_net_export = min(desired_net_export, battery_state - actual_base_from_battery)
+                    else:  # subtract_base
+                        if battery_state >= total_drain_needed:
+                            actual_battery_output = total_drain_needed
+                            actual_base_from_battery = base_demand
+                            actual_net_export = actual_battery_output - actual_base_from_battery
+                        else:
+                            # Limited - house gets priority
+                            actual_battery_output = battery_state
+                            actual_base_from_battery = min(base_demand, actual_battery_output)
+                            actual_net_export = max(0, actual_battery_output - actual_base_from_battery)
+
+                total_actual_drain = actual_net_export + actual_base_from_battery
+
+                if limit_discharge:
+                    # Conservative mode: only include if we can do FULL discharge
                     _LOGGER.debug(
                         f"Conservative check @ {period['timestamp']}: "
                         f"battery={battery_state:.2f}, needed={total_drain_needed:.2f}, "
-                        f"available={available_for_discharge:.2f}, desired={desired_discharge:.2f}, "
-                        f"actual={actual_discharge:.2f}"
+                        f"available={available_for_discharge:.2f}, desired_export={desired_net_export:.2f}, "
+                        f"actual_export={actual_net_export:.2f}"
                     )
                     if battery_state >= total_drain_needed:
                         if window_type == "discharge":
@@ -1462,22 +1494,17 @@ class WindowCalculationEngine:
                         else:
                             feasible_aggressive_windows.append(period)
                         battery_state -= total_actual_drain
-                        actual_discharge_kwh += actual_discharge
+                        actual_discharge_kwh += actual_net_export
 
-                        # Calculate revenue based on strategy
-                        if strategy == "already_included":
-                            # User configured discharge as gross (includes base in their mind)
-                            planned_discharge_revenue += sell_price * actual_discharge
-                        else:  # subtract_base
-                            # Net export = discharge only (base was for house, not grid)
-                            planned_discharge_revenue += sell_price * actual_discharge
+                        # Revenue based on net export to grid
+                        planned_discharge_revenue += sell_price * actual_net_export
                     else:
                         _LOGGER.debug(f"  -> SKIPPED: battery={battery_state:.2f} < needed={total_drain_needed:.2f}")
                         skipped_discharge_windows.append({
                             "timestamp": period["timestamp"].isoformat() if hasattr(period["timestamp"], 'isoformat') else str(period["timestamp"]),
                             "price": price,
                             "sell_price": sell_price,
-                            "reason": f"Insufficient battery ({battery_state:.2f} kWh < {total_drain_needed:.2f} kWh needed for discharge + base)"
+                            "reason": f"Insufficient battery ({battery_state:.2f} kWh < {total_drain_needed:.2f} kWh needed)"
                         })
                         # Even if discharge window is skipped, base usage still drains battery
                         battery_state -= actual_base_from_battery
@@ -1489,20 +1516,17 @@ class WindowCalculationEngine:
                             uncovered_base_kwh += uncovered
                 else:
                     # Optimistic mode: include all, track what we can actually discharge
-                    if actual_discharge < desired_discharge * 0.5:
+                    if actual_net_export < desired_net_export * 0.5:
                         feasibility_issues.append(
                             f"{period['timestamp']}: Discharge limited by battery state "
-                            f"({actual_discharge:.2f}/{desired_discharge:.2f} kWh)"
+                            f"({actual_net_export:.2f}/{desired_net_export:.2f} kWh)"
                         )
 
                     battery_state -= total_actual_drain
-                    actual_discharge_kwh += actual_discharge
+                    actual_discharge_kwh += actual_net_export
 
-                    # Calculate revenue based on strategy
-                    if strategy == "already_included":
-                        planned_discharge_revenue += sell_price * actual_discharge
-                    else:  # subtract_base
-                        planned_discharge_revenue += sell_price * actual_discharge
+                    # Revenue based on net export to grid
+                    planned_discharge_revenue += sell_price * actual_net_export
 
                 battery_state = max(0, battery_state)  # Ensure non-negative
 
@@ -1691,6 +1715,10 @@ class WindowCalculationEngine:
         completed_discharge_revenue = 0
         completed_base_usage_cost = 0  # Grid cost for base usage
         completed_base_usage_battery = 0  # Battery kWh used for base usage
+        # kWh tracking for completed periods
+        completed_charge_kwh = 0  # Grid draw for charging
+        completed_discharge_kwh = 0  # Export to grid
+        completed_base_grid_kwh = 0  # Grid draw for uncovered base usage
 
         # CHARGE windows: Apply charge strategy
         for w in actual_charge:
@@ -1699,9 +1727,11 @@ class WindowCalculationEngine:
                 if charge_strategy == "grid_covers_both":
                     # Grid provides charge power + base usage
                     completed_charge_cost += w["price"] * duration_hours * (charge_power + base_usage)
+                    completed_charge_kwh += duration_hours * (charge_power + base_usage)
                 else:  # battery_covers_base
                     # Grid provides charge power only, battery covers base
                     completed_charge_cost += w["price"] * duration_hours * charge_power
+                    completed_charge_kwh += duration_hours * charge_power
                     completed_base_usage_battery += duration_hours * base_usage
 
         # DISCHARGE/AGGRESSIVE windows: Apply discharge/aggressive strategies
@@ -1731,10 +1761,12 @@ class WindowCalculationEngine:
                 if strategy == "already_included":
                     # Full discharge power generates revenue at SELL price
                     completed_discharge_revenue += sell_price * duration_hours * discharge_power
+                    completed_discharge_kwh += duration_hours * discharge_power
                 else:  # subtract_base (NoM)
                     # Battery covers base first, exports the rest at SELL price
                     net_export = max(0, discharge_power - base_usage)
                     completed_discharge_revenue += sell_price * duration_hours * net_export
+                    completed_discharge_kwh += duration_hours * net_export
                     completed_base_usage_battery += duration_hours * base_usage
 
         # IDLE periods: Apply idle strategy
@@ -1755,6 +1787,7 @@ class WindowCalculationEngine:
                     if idle_strategy == "grid_covers":
                         # Grid provides base usage, add to cost
                         completed_base_usage_cost += price_data["price"] * duration_hours * base_usage
+                        completed_base_grid_kwh += duration_hours * base_usage
                     else:  # battery_covers (NoM)
                         # Battery provides base usage, track battery consumption
                         completed_base_usage_battery += duration_hours * base_usage
@@ -1953,20 +1986,19 @@ class WindowCalculationEngine:
         # Estimated savings
         estimated_savings = baseline_cost - planned_total_cost
 
-        # True savings (proportional when net_grid covers base, otherwise all savings apply)
-        if net_grid_kwh >= base_usage_kwh and net_grid_kwh > 0:
-            true_savings = (estimated_savings / net_grid_kwh) * base_usage_kwh
-        else:
-            # Net grid is less than base usage (or negative) - battery covers base usage
-            true_savings = estimated_savings
-
-        # Net post-discharge metrics (battery arbitrage value)
-        # Gross values for Battery line matching
+        # Gross values for Battery line matching (needed for true_savings calculation)
         gross_charged_kwh = len(actual_charge) * window_duration_hours * charge_power
         # Note: RTE is NOT applied here - it only affects battery state simulation, not cost/display calculations
         gross_usable_kwh = gross_charged_kwh  # No RTE penalty
         gross_discharged_kwh = len(actual_discharge) * window_duration_hours * discharge_power
         actual_remaining_kwh = gross_usable_kwh - gross_discharged_kwh
+
+        # True savings = savings on what we KEPT (base usage + remaining buffer)
+        # Savings rate per kWh (avg price - actual price paid)
+        savings_per_kwh = day_avg_price - (planned_total_cost / net_grid_kwh) if net_grid_kwh > 0 else 0
+        true_savings = savings_per_kwh * (base_usage_kwh + max(0, actual_remaining_kwh))
+
+        # Net post-discharge metrics (battery arbitrage value)
 
         # Net post-discharge €/kWh
         total_charge_cost = sum(w["price"] for w in actual_charge) * window_duration_hours * effective_charge_power if actual_charge else 0
@@ -1984,6 +2016,8 @@ class WindowCalculationEngine:
         net_post_discharge_eur_kwh = ((total_charge_cost - discharge_revenue) / remaining_kwh) if remaining_kwh > 0 else 0
         battery_margin_eur_kwh = day_avg_price - net_post_discharge_eur_kwh
         battery_arbitrage_value = actual_remaining_kwh * battery_margin_eur_kwh if actual_remaining_kwh > 0 else 0
+        # Initialize end-of-day buffer value (will be recalculated by chrono if available)
+        battery_state_end_of_day_value = battery_arbitrage_value
 
         # === CHRONOLOGICAL BUFFER TRACKING ===
         # Get buffer energy and limiting mode from config
@@ -2387,10 +2421,12 @@ class WindowCalculationEngine:
             # Recalculate savings
             baseline_cost = net_grid_kwh * day_avg_price
             estimated_savings = baseline_cost - planned_total_cost
-            if net_grid_kwh >= base_usage_kwh and net_grid_kwh > 0:
-                true_savings = (estimated_savings / net_grid_kwh) * base_usage_kwh
-            else:
-                true_savings = estimated_savings
+            # True savings = savings on what we KEPT (base usage + end-of-day buffer)
+            # Use final_battery_state from chrono (more accurate than actual_remaining_kwh)
+            savings_per_kwh = day_avg_price - (planned_total_cost / net_grid_kwh) if net_grid_kwh > 0 else 0
+            true_savings = savings_per_kwh * (base_usage_kwh + max(0, final_battery_state))
+            # End-of-day buffer value (for dashboard display)
+            battery_state_end_of_day_value = final_battery_state * battery_margin_eur_kwh if final_battery_state > 0 else 0
 
             _LOGGER.debug(
                 f"Gross metrics recalculated: charge={gross_charged_kwh:.2f}, usable={gross_usable_kwh:.2f}, "
@@ -2434,11 +2470,17 @@ class WindowCalculationEngine:
             "completed_discharge_revenue": round(completed_discharge_revenue, 3),
             "completed_base_usage_cost": round(completed_base_usage_cost, 3),
             "completed_base_usage_battery": round(completed_base_usage_battery, 3),
+            # Completed kWh tracking (current net grid usage)
+            "completed_charge_kwh": round(completed_charge_kwh, 3),
+            "completed_discharge_kwh": round(completed_discharge_kwh, 3),
+            "completed_base_grid_kwh": round(completed_base_grid_kwh, 3),
+            "completed_net_grid_kwh": round(completed_charge_kwh + completed_base_grid_kwh - completed_discharge_kwh, 3),
             "uncovered_base_usage_kwh": round(uncovered_kwh, 3),
             "uncovered_base_usage_cost": round(uncovered_cost, 3),
             "total_cost": round(completed_charge_cost + completed_base_usage_cost + completed_uncovered_cost - completed_discharge_revenue, 3),
             "planned_total_cost": planned_total_cost,
             "planned_charge_cost": round(planned_charge_cost, 3),
+            "planned_discharge_revenue": round(planned_discharge_revenue, 3),
             "net_planned_charge_kwh": net_planned_charge_kwh,
             "net_planned_discharge_kwh": net_planned_discharge_kwh,
             "effective_base_usage_kwh": effective_base_usage_kwh,
@@ -2527,6 +2569,7 @@ class WindowCalculationEngine:
             "grid_kwh_estimated_today": chrono_result.get("grid_kwh_total", 0.0),
             "battery_state_current": round(current_battery_state, 3),
             "battery_state_end_of_day": chrono_result.get("final_battery_state", 0.0),
+            "battery_state_end_of_day_value": round(battery_state_end_of_day_value, 3),
             # Discharge limiting (conservative mode)
             "limit_discharge_to_buffer": limit_discharge,
             "skipped_discharge_windows": chrono_result["skipped_discharge_windows"],
@@ -2655,11 +2698,16 @@ class WindowCalculationEngine:
             "completed_discharge_revenue": 0,
             "completed_base_usage_cost": 0,
             "completed_base_usage_battery": 0,
+            "completed_charge_kwh": 0,
+            "completed_discharge_kwh": 0,
+            "completed_base_grid_kwh": 0,
+            "completed_net_grid_kwh": 0,
             "uncovered_base_usage_kwh": 0,
             "uncovered_base_usage_cost": 0,
             "total_cost": 0,
             "planned_total_cost": 0,
             "planned_charge_cost": 0,
+            "planned_discharge_revenue": 0,
             "net_planned_charge_kwh": 0,
             "net_planned_discharge_kwh": 0,
             "effective_base_usage_kwh": 0,
@@ -2730,6 +2778,10 @@ class WindowCalculationEngine:
             "chrono_charge_kwh": 0,
             "chrono_discharge_kwh": 0,
             "chrono_uncovered_base_kwh": 0,
+            "grid_kwh_estimated_today": 0,
+            "battery_state_current": 0,
+            "battery_state_end_of_day": 0,
+            "battery_state_end_of_day_value": 0,
             "limit_discharge_to_buffer": False,
             "skipped_discharge_windows": [],
             "discharge_windows_limited": False,

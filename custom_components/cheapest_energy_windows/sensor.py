@@ -45,6 +45,10 @@ from .const import (
     ATTR_COMPLETED_DISCHARGE_REVENUE,
     ATTR_COMPLETED_BASE_USAGE_COST,
     ATTR_COMPLETED_BASE_USAGE_BATTERY,
+    ATTR_COMPLETED_CHARGE_KWH,
+    ATTR_COMPLETED_DISCHARGE_KWH,
+    ATTR_COMPLETED_BASE_GRID_KWH,
+    ATTR_COMPLETED_NET_GRID_KWH,
     ATTR_TOTAL_COST,
     ATTR_PLANNED_TOTAL_COST,
     ATTR_PLANNED_CHARGE_COST,
@@ -75,6 +79,7 @@ from .const import (
     ATTR_GRID_KWH_ESTIMATED_TOMORROW,
     ATTR_BATTERY_STATE_CURRENT,
     ATTR_BATTERY_STATE_END_OF_DAY,
+    ATTR_BATTERY_STATE_END_OF_DAY_VALUE,
     ATTR_BATTERY_STATE_END_OF_TOMORROW,
     DEFAULT_PRICE_COUNTRY,
 )
@@ -367,6 +372,10 @@ class CEWTodaySensor(CEWBaseSensor):
             ATTR_COMPLETED_DISCHARGE_REVENUE: result.get("completed_discharge_revenue", 0.0),
             ATTR_COMPLETED_BASE_USAGE_COST: result.get("completed_base_usage_cost", 0.0),
             ATTR_COMPLETED_BASE_USAGE_BATTERY: result.get("completed_base_usage_battery", 0.0),
+            ATTR_COMPLETED_CHARGE_KWH: result.get("completed_charge_kwh", 0.0),
+            ATTR_COMPLETED_DISCHARGE_KWH: result.get("completed_discharge_kwh", 0.0),
+            ATTR_COMPLETED_BASE_GRID_KWH: result.get("completed_base_grid_kwh", 0.0),
+            ATTR_COMPLETED_NET_GRID_KWH: result.get("completed_net_grid_kwh", 0.0),
             ATTR_TOTAL_COST: result.get("total_cost", 0.0),
             ATTR_PLANNED_TOTAL_COST: result.get("planned_total_cost", 0.0),
             ATTR_PLANNED_CHARGE_COST: result.get("planned_charge_cost", 0.0),
@@ -445,6 +454,7 @@ class CEWTodaySensor(CEWBaseSensor):
             ATTR_GRID_KWH_ESTIMATED_TODAY: result.get("grid_kwh_estimated_today", 0.0),
             ATTR_BATTERY_STATE_CURRENT: result.get("battery_state_current", 0.0),
             ATTR_BATTERY_STATE_END_OF_DAY: result.get("battery_state_end_of_day", 0.0),
+            ATTR_BATTERY_STATE_END_OF_DAY_VALUE: result.get("battery_state_end_of_day_value", 0.0),
         }
 
 
