@@ -2372,6 +2372,12 @@ class WindowCalculationEngine:
 
             planned_total_cost = round(planned_charge_cost + planned_base_usage_cost - planned_discharge_revenue, 3)
 
+            # Recalculate uncovered cost after chrono filtering (battery_covers_limited fallback to grid)
+            if limit_savings_enabled and usable_kwh < base_usage_kwh:
+                uncovered_kwh = base_usage_kwh - usable_kwh
+                uncovered_cost = uncovered_kwh * day_avg_price
+                planned_total_cost = round(planned_total_cost + uncovered_cost, 3)
+
             _LOGGER.debug(
                 f"Planned costs recalculated from filtered windows: "
                 f"charge_cost={planned_charge_cost:.3f}, discharge_revenue={planned_discharge_revenue:.3f}, "
