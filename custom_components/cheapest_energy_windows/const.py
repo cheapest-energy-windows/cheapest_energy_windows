@@ -27,6 +27,12 @@ CONF_BASE_USAGE_IDLE_STRATEGY: Final = "base_usage_idle_strategy"
 CONF_BASE_USAGE_DISCHARGE_STRATEGY: Final = "base_usage_discharge_strategy"
 CONF_BASE_USAGE_AGGRESSIVE_STRATEGY: Final = "base_usage_aggressive_strategy"
 
+# Buffer/chronological calculation configuration keys
+CONF_BATTERY_BUFFER_KWH: Final = "battery_buffer_kwh"
+CONF_BATTERY_BUFFER_ENERGY_SENSOR: Final = "battery_buffer_energy_sensor"
+CONF_BATTERY_CAPACITY: Final = "battery_capacity"
+CONF_LIMIT_DISCHARGE_TO_BUFFER: Final = "limit_discharge_to_buffer"
+
 # Unified price country configuration key
 CONF_PRICE_COUNTRY: Final = "price_country"
 
@@ -83,6 +89,12 @@ DEFAULT_BASE_USAGE_CHARGE_STRATEGY: Final = "grid_covers_both"
 DEFAULT_BASE_USAGE_IDLE_STRATEGY: Final = "battery_covers_limited"
 DEFAULT_BASE_USAGE_DISCHARGE_STRATEGY: Final = "subtract_base"
 DEFAULT_BASE_USAGE_AGGRESSIVE_STRATEGY: Final = "same_as_discharge"
+
+# Buffer/chronological calculation defaults
+DEFAULT_BATTERY_BUFFER_KWH: Final = 0.0
+DEFAULT_BATTERY_CAPACITY: Final = 10.0
+DEFAULT_LIMIT_DISCHARGE_TO_BUFFER: Final = False
+DEFAULT_USE_BATTERY_BUFFER_SENSOR: Final = False
 
 
 # Default price country (used as fallback)
@@ -181,6 +193,14 @@ ATTR_TIME_OVERRIDE_ACTIVE: Final = "time_override_active"
 ATTR_CURRENT_SELL_PRICE: Final = "current_sell_price"
 ATTR_SELL_PRICE_COUNTRY: Final = "sell_price_country"
 
+# Grid and battery state tracking attributes (v1.2.0+)
+ATTR_GRID_KWH_CURRENT_WINDOW: Final = "grid_kwh_current_window"
+ATTR_GRID_KWH_ESTIMATED_TODAY: Final = "grid_kwh_estimated_today"
+ATTR_GRID_KWH_ESTIMATED_TOMORROW: Final = "grid_kwh_estimated_tomorrow"
+ATTR_BATTERY_STATE_CURRENT: Final = "battery_state_current"
+ATTR_BATTERY_STATE_END_OF_DAY: Final = "battery_state_end_of_day"
+ATTR_BATTERY_STATE_END_OF_TOMORROW: Final = "battery_state_end_of_tomorrow"
+
 # Service names
 SERVICE_ROTATE_SETTINGS: Final = "rotate_tomorrow_settings"
 
@@ -253,6 +273,14 @@ CALCULATION_AFFECTING_KEYS: Final = {
     "calculation_window_enabled",
     "calculation_window_start",
     "calculation_window_end",
+
+    # Buffer/chronological calculation settings
+    "battery_buffer_kwh",
+    "battery_buffer_kwh_tomorrow",
+    "battery_available_energy_sensor",
+    "use_battery_buffer_sensor",
+    "battery_capacity",
+    "limit_discharge_to_buffer",
 
     # Tomorrow settings
     "tomorrow_settings_enabled",

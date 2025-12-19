@@ -40,6 +40,9 @@ from .const import (
     DEFAULT_TAX,
     DEFAULT_ADDITIONAL_COST,
     DEFAULT_PRICE_COUNTRY,
+    # Buffer/chronological calculation defaults
+    DEFAULT_BATTERY_BUFFER_KWH,
+    DEFAULT_BATTERY_CAPACITY,
 )
 from .formulas import get_formula, is_param_active
 
@@ -148,6 +151,17 @@ async def async_setup_entry(
             -0.5, 1.0, DEFAULT_MIN_SELL_PRICE, 0.01, "EUR/kWh",
             "mdi:cash-lock", NumberMode.BOX
         ),
+        # Buffer/chronological calculation entities
+        CEWNumber(
+            hass, config_entry, "battery_buffer_kwh", "Battery Buffer Energy",
+            0, 100, DEFAULT_BATTERY_BUFFER_KWH, 0.1, "kWh",
+            "mdi:battery-plus", NumberMode.BOX
+        ),
+        CEWNumber(
+            hass, config_entry, "battery_capacity", "Battery Capacity",
+            0.1, 200, DEFAULT_BATTERY_CAPACITY, 0.1, "kWh",
+            "mdi:battery", NumberMode.BOX
+        ),
         # Sell formula parameters (same structure as buy for Belgium/Other)
         # Formula: SELL = (B × spot − A)
         CEWFormulaParamNumber(
@@ -192,11 +206,12 @@ async def async_setup_entry(
         ("min_profit_discharge_aggressive_tomorrow", "Min Profit Discharge Aggressive Tomorrow", DEFAULT_MIN_PROFIT_DISCHARGE_AGGRESSIVE, 300, "%"),
         ("min_price_difference_tomorrow", "Min Price Difference Tomorrow", DEFAULT_MIN_PRICE_DIFFERENCE, 0.5, "EUR/kWh"),
         ("price_override_threshold_tomorrow", "Price Override Threshold Tomorrow", DEFAULT_PRICE_OVERRIDE_THRESHOLD, 0.5, "EUR/kWh"),
+        ("battery_buffer_kwh_tomorrow", "Battery Buffer Energy Tomorrow", DEFAULT_BATTERY_BUFFER_KWH, 100, "kWh"),
     ]
 
     for key, name, default, max_val, unit in tomorrow_configs:
         min_val = 1 if "percentile" in key else -100 if "min_profit" in key else 0 if "windows" in key else 0
-        step = 1 if "%" in unit or "windows" in unit else 0.001
+        step = 1 if "%" in unit or "windows" in unit else 0.1 if "kWh" in unit else 0.001
         numbers.append(
             CEWNumber(
                 hass, config_entry, key, name,

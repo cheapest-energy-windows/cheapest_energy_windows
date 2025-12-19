@@ -246,6 +246,11 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             DEFAULT_CALCULATION_WINDOW_END,
             DEFAULT_BATTERY_MIN_SOC_DISCHARGE,
             DEFAULT_BATTERY_MIN_SOC_AGGRESSIVE_DISCHARGE,
+            # Buffer/chronological calculation defaults
+            DEFAULT_BATTERY_BUFFER_KWH,
+            DEFAULT_BATTERY_CAPACITY,
+            DEFAULT_USE_BATTERY_BUFFER_SENSOR,
+            DEFAULT_LIMIT_DISCHARGE_TO_BUFFER,
         )
 
         options = self.config_entry.options
@@ -329,6 +334,16 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             "use_min_sell_price": bool(options.get("use_min_sell_price", DEFAULT_USE_MIN_SELL_PRICE)),
             "min_sell_price": float(options.get("min_sell_price", DEFAULT_MIN_SELL_PRICE)),
             "min_sell_price_bypass_spread": bool(options.get("min_sell_price_bypass_spread", DEFAULT_MIN_SELL_PRICE_BYPASS_SPREAD)),
+
+            # Buffer/chronological calculation settings
+            "battery_buffer_kwh": float(options.get("battery_buffer_kwh", DEFAULT_BATTERY_BUFFER_KWH)),
+            "battery_buffer_kwh_tomorrow": float(options.get("battery_buffer_kwh_tomorrow", DEFAULT_BATTERY_BUFFER_KWH)),
+            "battery_capacity": float(options.get("battery_capacity", DEFAULT_BATTERY_CAPACITY)),
+            "use_battery_buffer_sensor": bool(options.get("use_battery_buffer_sensor", DEFAULT_USE_BATTERY_BUFFER_SENSOR)),
+            "limit_discharge_to_buffer": bool(options.get("limit_discharge_to_buffer", DEFAULT_LIMIT_DISCHARGE_TO_BUFFER)),
+            "battery_available_energy_sensor": options.get("battery_available_energy_sensor", ""),
+            "min_price_diff_enabled": bool(options.get("min_price_diff_enabled", True)),
+            "min_price_diff_enabled_tomorrow": bool(options.get("min_price_diff_enabled_tomorrow", True)),
 
             # Time values
             "time_override_start": options.get("time_override_start", DEFAULT_TIME_OVERRIDE_START),

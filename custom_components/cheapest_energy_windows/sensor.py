@@ -70,6 +70,12 @@ from .const import (
     ATTR_TIME_OVERRIDE_ACTIVE,
     ATTR_CURRENT_SELL_PRICE,
     ATTR_SELL_PRICE_COUNTRY,
+    # Grid and battery state tracking (v1.2.0+)
+    ATTR_GRID_KWH_ESTIMATED_TODAY,
+    ATTR_GRID_KWH_ESTIMATED_TOMORROW,
+    ATTR_BATTERY_STATE_CURRENT,
+    ATTR_BATTERY_STATE_END_OF_DAY,
+    ATTR_BATTERY_STATE_END_OF_TOMORROW,
     DEFAULT_PRICE_COUNTRY,
 )
 from .coordinator import CEWCoordinator
@@ -290,7 +296,7 @@ class CEWTodaySensor(CEWBaseSensor):
             _LOGGER.debug("Calculating windows...")
 
             result = self._calculation_engine.calculate_windows(
-                raw_today, config, is_tomorrow=False
+                raw_today, config, is_tomorrow=False, hass=self.coordinator.hass
             )
 
             calculated_state = result.get("state", STATE_OFF)
@@ -422,6 +428,23 @@ class CEWTodaySensor(CEWBaseSensor):
             "base_usage_kwh": result.get("base_usage_kwh", 0),
             "base_usage_day_cost": result.get("base_usage_day_cost", 0),
             "window_duration_hours": result.get("window_duration_hours", 0.25),
+            # === CHRONOLOGICAL BUFFER TRACKING ===
+            "buffer_energy_kwh": result.get("buffer_energy_kwh", 0),
+            "final_battery_state_kwh": result.get("final_battery_state_kwh", 0),
+            "buffer_delta_kwh": result.get("buffer_delta_kwh", 0),
+            "battery_capacity_kwh": result.get("battery_capacity_kwh", 100.0),
+            "chrono_charge_kwh": result.get("chrono_charge_kwh", 0),
+            "chrono_discharge_kwh": result.get("chrono_discharge_kwh", 0),
+            "chrono_uncovered_base_kwh": result.get("chrono_uncovered_base_kwh", 0),
+            "limit_discharge_to_buffer": result.get("limit_discharge_to_buffer", False),
+            "skipped_discharge_windows": result.get("skipped_discharge_windows", []),
+            "discharge_windows_limited": result.get("discharge_windows_limited", False),
+            "feasibility_issues": result.get("feasibility_issues", []),
+            "has_feasibility_issues": result.get("has_feasibility_issues", False),
+            # Grid and battery state tracking (v1.2.0+)
+            ATTR_GRID_KWH_ESTIMATED_TODAY: result.get("grid_kwh_estimated_today", 0.0),
+            ATTR_BATTERY_STATE_CURRENT: result.get("battery_state_current", 0.0),
+            ATTR_BATTERY_STATE_END_OF_DAY: result.get("battery_state_end_of_day", 0.0),
         }
 
 
@@ -490,7 +513,7 @@ class CEWTomorrowSensor(CEWBaseSensor):
         if tomorrow_valid and raw_tomorrow:
             # Calculate tomorrow's windows
             result = self._calculation_engine.calculate_windows(
-                raw_tomorrow, config, is_tomorrow=True
+                raw_tomorrow, config, is_tomorrow=True, hass=self.coordinator.hass
             )
 
             # Get calculated state from result (like today sensor does)
@@ -600,6 +623,22 @@ class CEWTomorrowSensor(CEWBaseSensor):
             "base_usage_kwh": result.get("base_usage_kwh", 0),
             "base_usage_day_cost": result.get("base_usage_day_cost", 0),
             "window_duration_hours": result.get("window_duration_hours", 0.25),
+            # === CHRONOLOGICAL BUFFER TRACKING ===
+            "buffer_energy_kwh": result.get("buffer_energy_kwh", 0),
+            "final_battery_state_kwh": result.get("final_battery_state_kwh", 0),
+            "buffer_delta_kwh": result.get("buffer_delta_kwh", 0),
+            "battery_capacity_kwh": result.get("battery_capacity_kwh", 100.0),
+            "chrono_charge_kwh": result.get("chrono_charge_kwh", 0),
+            "chrono_discharge_kwh": result.get("chrono_discharge_kwh", 0),
+            "chrono_uncovered_base_kwh": result.get("chrono_uncovered_base_kwh", 0),
+            "limit_discharge_to_buffer": result.get("limit_discharge_to_buffer", False),
+            "skipped_discharge_windows": result.get("skipped_discharge_windows", []),
+            "discharge_windows_limited": result.get("discharge_windows_limited", False),
+            "feasibility_issues": result.get("feasibility_issues", []),
+            "has_feasibility_issues": result.get("has_feasibility_issues", False),
+            # Grid and battery state tracking (v1.2.0+) - tomorrow specific
+            ATTR_GRID_KWH_ESTIMATED_TOMORROW: result.get("grid_kwh_estimated_today", 0.0),  # Reuse today's field
+            ATTR_BATTERY_STATE_END_OF_TOMORROW: result.get("battery_state_end_of_day", 0.0),  # Reuse today's field
         }
 
 
