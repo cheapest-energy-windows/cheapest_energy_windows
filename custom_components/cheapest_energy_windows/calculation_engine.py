@@ -210,6 +210,23 @@ class WindowCalculationEngine:
             min_price_diff
         )
 
+        # Also get ALL candidates that pass profit threshold (for capacity-first selection)
+        # Chrono simulation will use all candidates to determine feasibility based on battery capacity
+        # After chrono, we select the cheapest N from feasible windows
+        all_charge_candidates = self._find_charge_windows(
+            prices_for_charge_calc,
+            num_charge_windows,  # Not used when return_all=True
+            percentile_threshold,
+            min_profit_charge,
+            rte_loss,
+            min_price_diff,
+            return_all=True
+        )
+        _LOGGER.debug(
+            f"Capacity-first selection: {len(charge_windows)} limited windows, "
+            f"{len(all_charge_candidates)} total candidates passing profit threshold"
+        )
+
         # Get sell price configuration
         use_min_sell = config.get("use_min_sell_price", DEFAULT_USE_MIN_SELL_PRICE)
         bypass_spread = config.get("min_sell_price_bypass_spread", DEFAULT_MIN_SELL_PRICE_BYPASS_SPREAD)
@@ -286,7 +303,8 @@ class WindowCalculationEngine:
             current_state,
             config,
             is_tomorrow,
-            hass
+            hass,
+            all_charge_candidates  # Pass all candidates for capacity-first selection
         )
 
         return result
@@ -517,7 +535,8 @@ class WindowCalculationEngine:
         percentile_threshold: float,
         min_profit: float,
         rte_loss: float,
-        min_price_diff: float
+        min_price_diff: float,
+        return_all: bool = False
     ) -> List[Dict[str, Any]]:
         """Find cheapest windows for charging.
 
@@ -528,8 +547,12 @@ class WindowCalculationEngine:
         v1.2.0: Uses profit-based threshold (profit = spread - RTE_loss)
         - Buy-buy spread: if we buy now vs. buy later, how much do we save?
         - RTE loss applies because energy stored now loses efficiency
+
+        Args:
+            return_all: If True, return ALL candidates that pass the profit threshold,
+                       ignoring num_windows limit. Used for capacity-first selection.
         """
-        if not prices or num_windows <= 0:
+        if not prices or (num_windows <= 0 and not return_all):
             return []
 
         # Convert to numpy array for efficient operations
@@ -561,18 +584,17 @@ class WindowCalculationEngine:
         expensive_max = np.max(expensive_prices) if len(expensive_prices) > 0 else np.max(price_array)
 
         for candidate in candidates:
-            if len(selected) >= num_windows:
+            # Only enforce num_windows limit if not returning all candidates
+            if not return_all and len(selected) >= num_windows:
                 break
 
-            # Test spread with this window (using running average)
-            test_prices = [s["price"] for s in selected] + [candidate["price"]]
-            cheap_avg = np.mean(test_prices)
-
-            # Calculate spread percentage and profit (buy-buy spread)
-            # profit = spread - RTE_loss
-            if cheap_avg > 0:
-                spread_pct = ((expensive_avg - cheap_avg) / cheap_avg) * 100
-                profit_pct = spread_pct - rte_loss
+            # Calculate spread using this candidate's individual price (not running average)
+            # This ensures each window is judged on its own merit, preventing the paradox
+            # where increasing max windows can result in fewer selected windows
+            # RTE does NOT affect window selection - only affects buffer size
+            if candidate["price"] > 0:
+                spread_pct = ((expensive_avg - candidate["price"]) / candidate["price"]) * 100
+                profit_pct = spread_pct  # RTE removed - does not affect window selection
                 price_diff = expensive_max - candidate["price"]  # Per-window: max expensive price minus this charge price
 
                 if profit_pct >= min_profit and price_diff >= min_price_diff:
@@ -673,12 +695,12 @@ class WindowCalculationEngine:
                 break
 
             # Calculate spread and profit: (avg_sell - avg_buy) / avg_buy * 100
-            # profit = spread - RTE_loss (can be negative when unprofitable)
+            # RTE does NOT affect window selection - only affects buffer size
             # Note: min_price_diff only applies to charge windows (buy-buy comparison)
             # For discharge, profit threshold is sufficient
             if cheap_avg > 0:
                 spread_pct = ((expensive_avg - cheap_avg) / cheap_avg) * 100
-                profit_pct = spread_pct - rte_loss
+                profit_pct = spread_pct  # RTE removed - does not affect window selection
 
                 if profit_pct >= min_profit:
                     selected.append(candidate)
@@ -725,10 +747,10 @@ class WindowCalculationEngine:
         for window in discharge_windows:
             if cheap_avg > 0:
                 # Use SELL price for spread/profit calculation (discharge = selling)
-                # Note: min_price_diff only applies to charge windows (buy-buy comparison)
+                # RTE does NOT affect window selection - only affects buffer size
                 sell_price = window.get("sell_price", window["price"])
                 spread_pct = ((sell_price - cheap_avg) / cheap_avg) * 100
-                profit_pct = spread_pct - rte_loss
+                profit_pct = spread_pct  # RTE removed - does not affect window selection
 
                 if profit_pct >= min_profit:
                     candidates.append(window)
@@ -1334,9 +1356,8 @@ class WindowCalculationEngine:
                 desired_charge = charge_power * duration_hours
                 base_demand = base_usage * duration_hours
                 available_capacity = max(0, battery_capacity - battery_state)  # Usable kWh space left
-                # Convert available capacity to max grid draw (accounting for RTE losses)
-                # To store X kWh usable, we need to draw X/RTE kWh from grid
-                max_grid_draw = available_capacity / battery_rte if battery_rte > 0 else available_capacity
+                # RTE does NOT affect charging - only affects buffer size display
+                max_grid_draw = available_capacity  # No RTE division - grid draw = stored energy
                 actual_charge = min(desired_charge, max_grid_draw)  # Grid draw in kWh
 
                 # Check if charge window is feasible (can charge at least 10% of desired)
@@ -1344,8 +1365,9 @@ class WindowCalculationEngine:
                 if actual_charge >= desired_charge * 0.1:
                     feasible_charge_windows.append(period)
 
-                    # Apply charge with RTE loss, then subtract base usage
-                    usable_charge = actual_charge * battery_rte
+                    # RTE DOES affect battery state - physical reality of charging losses
+                    # actual_charge = grid draw (for costs), usable_charge = what battery stores
+                    usable_charge = actual_charge * battery_rte  # Battery stores less than grid draw
 
                     if charge_strategy == "grid_covers_both":
                         # Grid provides both charge power AND base usage
@@ -1373,7 +1395,7 @@ class WindowCalculationEngine:
 
                     _LOGGER.debug(
                         f"CHARGE @ {period['timestamp']}: grid_draw={actual_charge:.2f} kWh, "
-                        f"usable={usable_charge:.2f} kWh (RTE {battery_rte:.0%}), "
+                        f"stored={usable_charge:.2f} kWh, "
                         f"capacity_left={available_capacity:.2f} kWh → battery={battery_state:.2f} kWh"
                     )
                 else:
@@ -1552,9 +1574,15 @@ class WindowCalculationEngine:
         current_state: str,
         config: Dict[str, Any],
         is_tomorrow: bool,
-        hass: Any = None
+        hass: Any = None,
+        all_charge_candidates: List[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
-        """Build the result dictionary with all attributes."""
+        """Build the result dictionary with all attributes.
+
+        Args:
+            all_charge_candidates: All windows passing profit threshold (for capacity-first selection).
+                                   If provided, chrono uses these for feasibility, then selects cheapest N.
+        """
         now = dt_util.now()
         current_time = now.replace(second=0, microsecond=0)
         current_price = self._get_current_price(prices, current_time)
@@ -1821,8 +1849,9 @@ class WindowCalculationEngine:
         # Calculate effective base usage (limit to usable energy if toggle is on)
         battery_rte_pct = config.get("battery_rte", 85)
         battery_rte_decimal = battery_rte_pct / 100
-        # usable_kwh = energy available for base usage = charged (after RTE) - discharged
-        usable_kwh = max(0, (net_planned_charge_kwh * battery_rte_decimal) - net_planned_discharge_kwh)
+        # usable_kwh = energy available for base usage = charged - discharged
+        # Note: RTE is NOT applied here - it only affects battery state simulation, not cost calculations
+        usable_kwh = max(0, net_planned_charge_kwh - net_planned_discharge_kwh)
         if limit_savings_enabled:
             effective_base_usage_kwh = min(base_usage_kwh, usable_kwh)
         else:
@@ -1907,7 +1936,8 @@ class WindowCalculationEngine:
         effective_discharge_power = (discharge_power - base_usage) if discharge_strategy == "subtract_base" else discharge_power
 
         charged_kwh = len(actual_charge) * window_duration_hours * effective_charge_power
-        usable_kwh = charged_kwh * battery_rte_decimal
+        # Note: RTE is NOT applied here - it only affects battery state simulation, not cost calculations
+        usable_kwh = charged_kwh  # No RTE penalty on cost calculations
         discharged_kwh = len(actual_discharge) * window_duration_hours * effective_discharge_power
         remaining_kwh = usable_kwh - discharged_kwh
 
@@ -1933,7 +1963,8 @@ class WindowCalculationEngine:
         # Net post-discharge metrics (battery arbitrage value)
         # Gross values for Battery line matching
         gross_charged_kwh = len(actual_charge) * window_duration_hours * charge_power
-        gross_usable_kwh = gross_charged_kwh * battery_rte_decimal
+        # Note: RTE is NOT applied here - it only affects battery state simulation, not cost/display calculations
+        gross_usable_kwh = gross_charged_kwh  # No RTE penalty
         gross_discharged_kwh = len(actual_discharge) * window_duration_hours * discharge_power
         actual_remaining_kwh = gross_usable_kwh - gross_discharged_kwh
 
@@ -1960,6 +1991,30 @@ class WindowCalculationEngine:
         limit_discharge = config.get("limit_discharge_to_buffer", False)
         battery_capacity = config.get("battery_capacity", 100.0)
 
+        # For capacity-first selection: use ALL charge candidates for chrono simulation
+        # This ensures chrono can determine feasibility for all candidates, not just limited N
+        # After chrono, we select the cheapest N from feasible windows
+        suffix = "_tomorrow" if is_tomorrow and config.get("tomorrow_settings_enabled", False) else ""
+        num_charge_windows = int(config.get(f"charging_windows{suffix}", 4))
+
+        if all_charge_candidates and len(all_charge_candidates) > len(actual_charge):
+            # Apply overrides to ALL candidates (same logic as actual_charge)
+            all_actual_charge, _ = self._calculate_actual_windows(
+                prices,
+                all_charge_candidates,  # Use all candidates
+                discharge_windows,
+                aggressive_windows,
+                config,
+                is_tomorrow
+            )
+            charge_for_chrono = all_actual_charge
+            _LOGGER.debug(
+                f"Capacity-first: using {len(all_actual_charge)} candidates for chrono "
+                f"(vs {len(actual_charge)} limited), will select cheapest {num_charge_windows}"
+            )
+        else:
+            charge_for_chrono = actual_charge
+
         _LOGGER.debug(
             f"Chronological calc: buffer_energy={buffer_energy:.2f} kWh, "
             f"limit_discharge={limit_discharge}, battery_capacity={battery_capacity:.1f} kWh, "
@@ -1969,7 +2024,7 @@ class WindowCalculationEngine:
         # Build chronological timeline and simulate battery state
         chrono_timeline = self._build_chronological_timeline(
             all_prices,  # Use all_prices for full day coverage
-            actual_charge,
+            charge_for_chrono,  # Use all candidates for capacity-first selection
             actual_discharge,
             [w for w in actual_discharge if w.get("state") == STATE_DISCHARGE_AGGRESSIVE],
             config
@@ -2052,15 +2107,44 @@ class WindowCalculationEngine:
         original_charge_count = len(actual_charge)
         feasible_charge = chrono_result.get("feasible_charge_windows", [])
         skipped_charge = chrono_result.get("skipped_charge_windows", [])
-        if skipped_charge:
+
+        # CAPACITY-FIRST SELECTION: From all feasible windows, select the cheapest N
+        # This ensures that increasing max windows never DECREASES elected windows
+        # Feasibility is determined by battery capacity (chrono), selection by price
+        if all_charge_candidates and len(feasible_charge) > num_charge_windows:
+            # Sort feasible windows by price (cheapest first)
+            feasible_charge_sorted = sorted(feasible_charge, key=lambda x: x["price"])
+            # Keep only the cheapest num_charge_windows
+            feasible_charge = feasible_charge_sorted[:num_charge_windows]
+            _LOGGER.info(
+                f"Capacity-first selection: {len(chrono_result.get('feasible_charge_windows', []))} feasible → "
+                f"{len(feasible_charge)} cheapest selected (max={num_charge_windows})"
+            )
+
+        if skipped_charge or (all_charge_candidates and len(all_charge_candidates) > len(charge_windows)):
             actual_charge = feasible_charge
             # REBUILD grouped windows with filtered charge windows (for dashboard display)
             grouped_charge_windows = self._group_consecutive_windows(
                 actual_charge, avg_expensive_sell, is_discharge=False
             )
+            # RECALCULATE completed_charge from filtered windows (was calculated before filtering)
+            completed_charge = sum(
+                1 for w in actual_charge
+                if w["timestamp"] + timedelta(minutes=w["duration"]) <= current_time
+            )
+            # RECALCULATE completed_charge_cost from filtered windows
+            completed_charge_cost = 0
+            for w in actual_charge:
+                if w["timestamp"] + timedelta(minutes=w["duration"]) <= current_time:
+                    duration_hours = w["duration"] / 60
+                    if charge_strategy == "grid_covers_both":
+                        completed_charge_cost += w["price"] * duration_hours * (charge_power + base_usage)
+                    else:  # battery_covers_base
+                        completed_charge_cost += w["price"] * duration_hours * charge_power
             _LOGGER.info(
                 f"Charge windows filtered: original={original_charge_count}, "
-                f"feasible={len(actual_charge)}, skipped={len(skipped_charge)} (battery full)"
+                f"feasible={len(actual_charge)}, skipped={len(skipped_charge)} (battery full), "
+                f"completed={completed_charge}"
             )
             for skipped in skipped_charge:
                 _LOGGER.debug(f"  Skipped charge: {skipped['timestamp']} - {skipped['reason']}")
@@ -2080,20 +2164,172 @@ class WindowCalculationEngine:
                 actual_discharge, avg_cheap_buy, is_discharge=True
             )
 
+            # RECALCULATE completed_discharge from filtered windows (was calculated before filtering)
+            completed_discharge = sum(
+                1 for w in actual_discharge
+                if w["timestamp"] + timedelta(minutes=w["duration"]) <= current_time
+            )
+            # RECALCULATE completed_discharge_revenue from filtered windows
+            completed_discharge_revenue = 0
+            for w in actual_discharge:
+                if w["timestamp"] + timedelta(minutes=w["duration"]) <= current_time:
+                    duration_hours = w["duration"] / 60
+                    # Calculate sell price for this window
+                    price_data = price_lookup.get(w["timestamp"], {})
+                    raw_price = price_data.get("raw_price", w["price"])
+                    sell_price = self._calculate_sell_price(
+                        raw_price, w["price"], sell_country, sell_param_a, sell_param_b
+                    )
+                    # Determine which strategy to use based on window state
+                    if w.get("state") == STATE_DISCHARGE_AGGRESSIVE:
+                        strategy = aggressive_strategy if aggressive_strategy != "same_as_discharge" else discharge_strategy
+                    else:
+                        strategy = discharge_strategy
+                    if strategy == "already_included":
+                        completed_discharge_revenue += sell_price * duration_hours * discharge_power
+                    else:  # subtract_base
+                        net_export = max(0, discharge_power - base_usage)
+                        completed_discharge_revenue += sell_price * duration_hours * net_export
+
             _LOGGER.info(
                 f"Conservative mode ACTIVE: buffer={buffer_energy:.2f} kWh, "
                 f"original={original_discharge_count} windows, "
                 f"feasible={len(actual_discharge)} windows, "
                 f"skipped={len(chrono_result['skipped_discharge_windows'])} windows, "
+                f"completed={completed_discharge}, "
                 f"final_battery={chrono_result['final_battery_state']:.2f} kWh"
             )
             if chrono_result['skipped_discharge_windows']:
                 for skipped in chrono_result['skipped_discharge_windows']:
                     _LOGGER.debug(f"  Skipped discharge: {skipped['timestamp']} - {skipped['reason']}")
 
+        # ALWAYS recalculate metrics using chrono_result as single source of truth
+        # The chrono simulation correctly tracks battery capacity and RTE
+        # Initial calculations (before chrono) use bulk formulas that ignore capacity limits
+        windows_were_filtered = skipped_charge or (limit_discharge and chrono_result.get('skipped_discharge_windows'))
+        if chrono_result:  # Always use chrono_result when available
+            # Use chrono_result as single source of truth for ALL kWh values
+            # This ensures values respect battery capacity and RTE correctly
+            gross_charged_kwh = chrono_result.get("actual_charge_kwh", 0)  # Actual grid draw (capped by battery)
+            gross_usable_kwh = gross_charged_kwh  # For display purposes
+            gross_discharged_kwh = chrono_result.get("actual_discharge_kwh", 0)  # Actual grid export
+            actual_remaining_kwh = gross_usable_kwh - gross_discharged_kwh
+
+            # Recalculate charge cost and discharge revenue for net metrics
+            total_charge_cost = sum(w["price"] for w in actual_charge) * window_duration_hours * effective_charge_power if actual_charge else 0
+            discharge_sell_prices_sum = 0
+            for w in actual_discharge:
+                if "sell_price" in w:
+                    discharge_sell_prices_sum += w["sell_price"]
+                else:
+                    raw = price_lookup.get(w["timestamp"], {}).get("raw_price", w["price"])
+                    discharge_sell_prices_sum += self._calculate_sell_price(raw, w["price"], sell_country, sell_param_a, sell_param_b)
+            discharge_revenue = discharge_sell_prices_sum * window_duration_hours * effective_discharge_power
+
+            # Recalculate remaining and margin metrics
+            remaining_kwh = gross_usable_kwh - gross_discharged_kwh
+            net_post_discharge_eur_kwh = ((total_charge_cost - discharge_revenue) / remaining_kwh) if remaining_kwh > 0 else 0
+            battery_margin_eur_kwh = day_avg_price - net_post_discharge_eur_kwh
+            battery_arbitrage_value = actual_remaining_kwh * battery_margin_eur_kwh if actual_remaining_kwh > 0 else 0
+
+            # Recalculate net planned values from filtered windows (used by dashboard "Total Net")
+            net_planned_charge_kwh = 0
+            for w in actual_charge:
+                duration_hours = w["duration"] / 60
+                if charge_strategy == "battery_covers_base":
+                    net_planned_charge_kwh += duration_hours * max(0, charge_power - base_usage)
+                else:  # grid_covers_both
+                    net_planned_charge_kwh += duration_hours * charge_power
+            net_planned_charge_kwh = round(net_planned_charge_kwh, 3)
+
+            net_planned_discharge_kwh = 0
+            for w in actual_discharge:
+                duration_hours = w["duration"] / 60
+                # Determine which strategy to use based on window state
+                if w.get("state") == STATE_DISCHARGE_AGGRESSIVE:
+                    strategy = aggressive_strategy if aggressive_strategy != "same_as_discharge" else discharge_strategy
+                else:
+                    strategy = discharge_strategy
+                if strategy == "already_included":
+                    net_planned_discharge_kwh += duration_hours * discharge_power
+                else:  # subtract_base
+                    net_planned_discharge_kwh += duration_hours * max(0, discharge_power - base_usage)
+            net_planned_discharge_kwh = round(net_planned_discharge_kwh, 3)
+
+            # Recalculate dependent values
+            # Note: RTE is NOT applied here - it only affects battery state simulation, not cost calculations
+            usable_kwh = max(0, net_planned_charge_kwh - net_planned_discharge_kwh)
+            if limit_savings_enabled:
+                effective_base_usage_kwh = min(base_usage_kwh, usable_kwh)
+
+            # Use accurate kWh values from chronological simulation
+            # (chrono_result tracks actual grid draw/export accounting for feasibility)
+            charged_kwh = chrono_result.get("actual_charge_kwh", 0)  # Grid draw (no RTE)
+            discharged_kwh = chrono_result.get("actual_discharge_kwh", 0)  # Grid export
+            uncovered_base = chrono_result.get("uncovered_base_kwh", 0)  # Grid covered base when battery empty
+
+            # net_grid_kwh = grid import - grid export
+            # grid_kwh_total already includes charge + uncovered base
+            net_grid_kwh = chrono_result.get("grid_kwh_total", 0) - discharged_kwh
+
+            # For remaining calculations
+            usable_kwh_calc = charged_kwh
+            remaining_kwh = usable_kwh_calc - discharged_kwh
+
+            # Recalculate planned costs from filtered windows
+            # (planned_charge_cost, planned_discharge_revenue were calculated from SELECTED windows
+            # but now actual_charge/actual_discharge are FILTERED to feasible windows)
+            planned_charge_cost = 0
+            for w in actual_charge:
+                duration_hours = w["duration"] / 60
+                if charge_strategy == "grid_covers_both":
+                    planned_charge_cost += w["price"] * duration_hours * (charge_power + base_usage)
+                else:  # battery_covers_base
+                    planned_charge_cost += w["price"] * duration_hours * charge_power
+
+            planned_discharge_revenue = 0
+            for w in actual_discharge:
+                duration_hours = w["duration"] / 60
+                price_data = price_lookup.get(w["timestamp"], {})
+                raw_price = price_data.get("raw_price", w["price"])
+                sell_price = self._calculate_sell_price(
+                    raw_price, w["price"], sell_country, sell_param_a, sell_param_b
+                )
+                if w.get("state") == STATE_DISCHARGE_AGGRESSIVE:
+                    strategy = aggressive_strategy if aggressive_strategy != "same_as_discharge" else discharge_strategy
+                else:
+                    strategy = discharge_strategy
+                if strategy == "already_included":
+                    planned_discharge_revenue += sell_price * duration_hours * discharge_power
+                else:  # subtract_base
+                    net_export = max(0, discharge_power - base_usage)
+                    planned_discharge_revenue += sell_price * duration_hours * net_export
+
+            planned_total_cost = round(planned_charge_cost + planned_base_usage_cost - planned_discharge_revenue, 3)
+
+            _LOGGER.debug(
+                f"Planned costs recalculated from filtered windows: "
+                f"charge_cost={planned_charge_cost:.3f}, discharge_revenue={planned_discharge_revenue:.3f}, "
+                f"total_cost={planned_total_cost:.3f}"
+            )
+
+            # Recalculate savings
+            baseline_cost = net_grid_kwh * day_avg_price
+            estimated_savings = baseline_cost - planned_total_cost
+            if net_grid_kwh >= base_usage_kwh and net_grid_kwh > 0:
+                true_savings = (estimated_savings / net_grid_kwh) * base_usage_kwh
+            else:
+                true_savings = estimated_savings
+
+            _LOGGER.debug(
+                f"Gross metrics recalculated: charge={gross_charged_kwh:.2f}, usable={gross_usable_kwh:.2f}, "
+                f"discharge={gross_discharged_kwh:.2f}, remaining={actual_remaining_kwh:.2f}, "
+                f"net_charge={net_planned_charge_kwh:.2f}, net_discharge={net_planned_discharge_kwh:.2f}, "
+                f"net_grid={net_grid_kwh:.2f}"
+            )
+
         # Re-determine current state if any windows were filtered (charge or discharge)
         # If current hour was a window that got filtered, state should become IDLE
-        windows_were_filtered = skipped_charge or (limit_discharge and chrono_result.get('skipped_discharge_windows'))
         if windows_were_filtered:
             current_state = self._determine_current_state(
                 prices,
