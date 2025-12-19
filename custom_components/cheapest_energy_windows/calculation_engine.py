@@ -2203,6 +2203,71 @@ class WindowCalculationEngine:
                 for skipped in chrono_result['skipped_discharge_windows']:
                     _LOGGER.debug(f"  Skipped discharge: {skipped['timestamp']} - {skipped['reason']}")
 
+        # RE-RUN chrono with ELECTED windows after capacity-first selection
+        # The first chrono run used ALL candidates to determine feasibility
+        # Now we run again with only the elected windows to get correct trajectory
+        if all_charge_candidates and len(all_charge_candidates) > len(charge_windows):
+            # Rebuild timeline with ELECTED windows only (not all candidates)
+            elected_timeline = self._build_chronological_timeline(
+                all_prices,
+                actual_charge,  # ELECTED windows, not all candidates
+                actual_discharge,
+                [w for w in actual_discharge if w.get("state") == STATE_DISCHARGE_AGGRESSIVE],
+                config
+            )
+            # Apply same future-only filter if using sensor
+            if using_sensor_for_today:
+                now = dt_util.now()
+                elected_timeline = [
+                    entry for entry in elected_timeline
+                    if entry["timestamp"] + timedelta(minutes=entry["duration"]) > now
+                ]
+            # Re-run chrono to get correct trajectory for elected windows
+            elected_chrono_result = self._simulate_chronological_costs(
+                elected_timeline, config, buffer_energy, limit_discharge
+            )
+            # Update trajectory and battery state values from elected run
+            chrono_result["battery_trajectory"] = elected_chrono_result["battery_trajectory"]
+            chrono_result["final_battery_state"] = elected_chrono_result["final_battery_state"]
+            chrono_result["actual_charge_kwh"] = elected_chrono_result["actual_charge_kwh"]
+            chrono_result["actual_discharge_kwh"] = elected_chrono_result["actual_discharge_kwh"]
+            chrono_result["grid_kwh_total"] = elected_chrono_result["grid_kwh_total"]
+            chrono_result["uncovered_base_kwh"] = elected_chrono_result["uncovered_base_kwh"]
+            chrono_result["planned_total_cost"] = elected_chrono_result["planned_total_cost"]
+            chrono_result["planned_charge_cost"] = elected_chrono_result["planned_charge_cost"]
+            chrono_result["planned_discharge_revenue"] = elected_chrono_result["planned_discharge_revenue"]
+            chrono_result["planned_base_usage_cost"] = elected_chrono_result["planned_base_usage_cost"]
+
+            # Re-lookup current battery state from the new trajectory
+            current_battery_state = buffer_energy
+            if not is_tomorrow and use_sensor and sensor_entity and hass:
+                try:
+                    sensor_state = hass.states.get(sensor_entity)
+                    if sensor_state and sensor_state.state not in ("unknown", "unavailable", None):
+                        current_battery_state = float(sensor_state.state)
+                except (ValueError, TypeError):
+                    pass
+            if current_battery_state == buffer_energy:
+                battery_trajectory = elected_chrono_result.get("battery_trajectory", [])
+                if battery_trajectory and not is_tomorrow:
+                    now = dt_util.now()
+                    for entry in battery_trajectory:
+                        entry_ts = entry["timestamp"]
+                        if isinstance(entry_ts, str):
+                            entry_ts = dt_util.parse_datetime(entry_ts)
+                        if entry_ts and entry_ts <= now:
+                            current_battery_state = entry.get("battery_after", current_battery_state)
+                        else:
+                            break
+
+            final_battery_state = elected_chrono_result["final_battery_state"]
+            buffer_delta = final_battery_state - buffer_energy
+            _LOGGER.info(
+                f"Re-ran chrono with {len(actual_charge)} elected windows: "
+                f"battery_state_current={current_battery_state:.2f} kWh, "
+                f"final={final_battery_state:.2f} kWh"
+            )
+
         # ALWAYS recalculate metrics using chrono_result as single source of truth
         # The chrono simulation correctly tracks battery capacity and RTE
         # Initial calculations (before chrono) use bulk formulas that ignore capacity limits
