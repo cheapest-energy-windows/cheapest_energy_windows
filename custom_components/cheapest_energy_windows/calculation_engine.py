@@ -2527,9 +2527,9 @@ class WindowCalculationEngine:
                     net_export = max(0, discharge_power - base_usage)
                     planned_discharge_revenue += sell_price * duration_hours * net_export
 
-            # Include solar export revenue from chrono simulation
+            # Include solar export revenue from chrono simulation (future) AND completed (past)
             solar_export_revenue = chrono_result.get("solar_export_revenue", 0.0)
-            planned_total_cost = round(planned_charge_cost + planned_base_usage_cost - planned_discharge_revenue - solar_export_revenue, 3)
+            planned_total_cost = round(planned_charge_cost + planned_base_usage_cost - planned_discharge_revenue - solar_export_revenue - completed_solar_export_revenue, 3)
 
             # Recalculate uncovered cost after chrono filtering (battery_covers_limited fallback to grid)
             if limit_savings_enabled and usable_kwh < base_usage_kwh:
