@@ -19,7 +19,6 @@ from .const import (
     CONF_BASE_USAGE_CHARGE_STRATEGY,
     CONF_BASE_USAGE_IDLE_STRATEGY,
     CONF_BASE_USAGE_DISCHARGE_STRATEGY,
-    CONF_BASE_USAGE_AGGRESSIVE_STRATEGY,
     CONF_PRICE_COUNTRY,
     CONF_BUY_FORMULA_PARAM_A,
     CONF_BUY_FORMULA_PARAM_B,
@@ -42,7 +41,6 @@ from .const import (
     DEFAULT_BASE_USAGE_CHARGE_STRATEGY,
     DEFAULT_BASE_USAGE_IDLE_STRATEGY,
     DEFAULT_BASE_USAGE_DISCHARGE_STRATEGY,
-    DEFAULT_BASE_USAGE_AGGRESSIVE_STRATEGY,
     DEFAULT_PRICE_COUNTRY,
     DEFAULT_BUY_FORMULA_PARAM_A,
     DEFAULT_BUY_FORMULA_PARAM_B,
@@ -57,7 +55,6 @@ from .const import (
     BASE_USAGE_CHARGE_OPTIONS,
     BASE_USAGE_IDLE_OPTIONS,
     BASE_USAGE_DISCHARGE_OPTIONS,
-    BASE_USAGE_AGGRESSIVE_OPTIONS,
     DEFAULT_CHARGE_POWER,
     DEFAULT_DISCHARGE_POWER,
     DEFAULT_BATTERY_RTE,
@@ -67,7 +64,6 @@ from .const import (
     # Profit thresholds (v1.2.0+)
     DEFAULT_MIN_PROFIT_CHARGE,
     DEFAULT_MIN_PROFIT_DISCHARGE,
-    DEFAULT_MIN_PROFIT_DISCHARGE_AGGRESSIVE,
     DEFAULT_MIN_PRICE_DIFFERENCE,
     DEFAULT_PRICE_OVERRIDE_THRESHOLD,
     PRICING_15_MINUTES,
@@ -478,17 +474,6 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         translation_key="base_usage_discharge_strategy",
                     )
                 ),
-                vol.Optional(CONF_BASE_USAGE_AGGRESSIVE_STRATEGY, default=DEFAULT_BASE_USAGE_AGGRESSIVE_STRATEGY): selector.SelectSelector(
-                    selector.SelectSelectorConfig(
-                        options=[
-                            {"label": "Same as discharge strategy", "value": "same_as_discharge"},
-                            {"label": "House first, export remainder", "value": "subtract_base"},
-                            {"label": "Export full discharge power", "value": "already_included"},
-                        ],
-                        mode=selector.SelectSelectorMode.DROPDOWN,
-                        translation_key="base_usage_aggressive_strategy",
-                    )
-                ),
             }),
             description_placeholders={
                 "info": "📊 **What is Base Usage?**\n"
@@ -624,13 +609,6 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         mode=selector.NumberSelectorMode.BOX,
                     )
                 ),
-                vol.Required("min_profit_discharge_aggressive", default=DEFAULT_MIN_PROFIT_DISCHARGE_AGGRESSIVE): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=-100,
-                        max=300,
-                        mode=selector.NumberSelectorMode.BOX,
-                    )
-                ),
                 vol.Optional("min_price_difference", default=DEFAULT_MIN_PRICE_DIFFERENCE): selector.NumberSelector(
                     selector.NumberSelectorConfig(
                         min=0,
@@ -735,7 +713,6 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 "battery_idle_action": user_input.get("battery_idle_action", "not_configured"),
                 "battery_charge_action": user_input.get("battery_charge_action", "not_configured"),
                 "battery_discharge_action": user_input.get("battery_discharge_action", "not_configured"),
-                "battery_aggressive_discharge_action": user_input.get("battery_aggressive_discharge_action", "not_configured"),
                 "battery_off_action": user_input.get("battery_off_action", "not_configured"),
             }
             self.data.update(battery_ops)
@@ -757,12 +734,6 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     )
                 ),
                 vol.Optional("battery_discharge_action"): selector.EntitySelector(
-                    selector.EntitySelectorConfig(
-                        domain=["automation", "script", "scene"],
-                        multiple=False,
-                    )
-                ),
-                vol.Optional("battery_aggressive_discharge_action"): selector.EntitySelector(
                     selector.EntitySelectorConfig(
                         domain=["automation", "script", "scene"],
                         multiple=False,

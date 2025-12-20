@@ -14,12 +14,10 @@ from .const import (
     PRICING_1_HOUR,
     MODE_CHARGE,
     MODE_DISCHARGE,
-    MODE_DISCHARGE_AGGRESSIVE,
     MODE_IDLE,
     MODE_OFF,
     STATE_CHARGE,
     STATE_DISCHARGE,
-    STATE_DISCHARGE_AGGRESSIVE,
     STATE_IDLE,
     STATE_OFF,
     DEFAULT_PRICE_COUNTRY,
@@ -83,7 +81,6 @@ class WindowCalculationEngine:
         # Profit thresholds (v1.2.0+): profit = spread - RTE_loss
         min_profit_charge = config.get(f"min_profit_charge{suffix}", 10)
         min_profit_discharge = config.get(f"min_profit_discharge{suffix}", 10)
-        min_profit_discharge_aggressive = config.get(f"min_profit_discharge_aggressive{suffix}", 10)
         min_price_diff_enabled = config.get(f"min_price_diff_enabled{suffix}", True)
         min_price_diff = config.get(f"min_price_difference{suffix}", 0.05) if min_price_diff_enabled else float('-inf')
         # Calculate RTE loss for profit checks
@@ -184,8 +181,8 @@ class WindowCalculationEngine:
                     prices_for_discharge_calc = discharge_filtered
                     _LOGGER.debug(f"Charge mode: {len(charge_override_prices)} prices for charging, {len(discharge_filtered)} for discharge")
 
-                # For discharge modes, only discharge windows should be in override period
-                elif override_mode in [MODE_DISCHARGE, MODE_DISCHARGE_AGGRESSIVE]:
+                # For discharge mode, only discharge windows should be in override period
+                elif override_mode == MODE_DISCHARGE:
                     # Charge windows: exclude override period
                     charge_filtered = []
                     for price_data in processed_prices:
@@ -254,27 +251,6 @@ class WindowCalculationEngine:
             config
         )
 
-        # Apply same bypass logic to aggressive profit threshold
-        effective_min_profit_aggressive = float('-inf') if bypass_spread else min_profit_discharge_aggressive
-
-        aggressive_windows = self._find_aggressive_discharge_windows(
-            prices_for_discharge_calc,  # Use filtered prices for consistency
-            charge_windows,
-            discharge_windows,
-            num_discharge_windows,
-            percentile_threshold,
-            effective_min_profit_aggressive,
-            rte_loss,
-            effective_min_price_diff_discharge
-        )
-
-        # Apply minimum sell price filter to aggressive windows too
-        aggressive_windows = self._filter_discharge_by_min_sell_price(
-            aggressive_windows,
-            processed_prices,
-            config
-        )
-
         # Debug output when calculation window is enabled
         if calc_window_enabled:
             charge_times = [w["timestamp"].strftime("%H:%M") for w in charge_windows]
@@ -287,7 +263,6 @@ class WindowCalculationEngine:
             processed_prices,
             charge_windows,
             discharge_windows,
-            aggressive_windows,
             config,
             arbitrage_avg,
             is_tomorrow
@@ -299,7 +274,6 @@ class WindowCalculationEngine:
             all_prices,
             charge_windows,
             discharge_windows,
-            aggressive_windows,
             current_state,
             config,
             is_tomorrow,
@@ -707,56 +681,6 @@ class WindowCalculationEngine:
 
         return selected
 
-    def _find_aggressive_discharge_windows(
-        self,
-        prices: List[Dict[str, Any]],
-        charge_windows: List[Dict[str, Any]],
-        discharge_windows: List[Dict[str, Any]],
-        num_windows: int,
-        percentile_threshold: float,
-        min_profit: float,
-        rte_loss: float,
-        min_price_diff: float
-    ) -> List[Dict[str, Any]]:
-        """Find windows for aggressive discharge (peak SELL prices).
-
-        Filters discharge windows by aggressive profit requirement.
-        Uses SELL prices for spread comparison (discharge = selling to grid).
-        Per-window price_diff check: window["sell_price"] - cheap_min >= threshold
-
-        v1.2.0: Uses profit-based threshold (profit = spread - RTE_loss)
-        - Higher threshold for aggressive discharge (e.g., drain battery to lower SOC)
-        """
-        if not prices or num_windows <= 0:
-            return []
-
-        # Use discharge windows as base, filter by aggressive profit threshold
-        candidates = []
-
-        if charge_windows:
-            cheap_avg = np.mean([w["price"] for w in charge_windows])  # Buy prices
-            cheap_min = min(w["price"] for w in charge_windows)
-        else:
-            # No charge windows - use bottom percentile_threshold% buy prices as reference
-            price_array = np.array([p["price"] for p in prices])
-            cheap_threshold = np.percentile(price_array, percentile_threshold)
-            cheap_prices = price_array[price_array <= cheap_threshold]
-            cheap_avg = np.mean(cheap_prices) if len(cheap_prices) > 0 else np.min(price_array)
-            cheap_min = np.min(cheap_prices) if len(cheap_prices) > 0 else np.min(price_array)
-
-        for window in discharge_windows:
-            if cheap_avg > 0:
-                # Use SELL price for spread/profit calculation (discharge = selling)
-                # RTE does NOT affect window selection - only affects buffer size
-                sell_price = window.get("sell_price", window["price"])
-                spread_pct = ((sell_price - cheap_avg) / cheap_avg) * 100
-                profit_pct = spread_pct  # RTE removed - does not affect window selection
-
-                if profit_pct >= min_profit:
-                    candidates.append(window)
-
-        return candidates
-
     def _calculate_arbitrage_avg(
         self,
         prices: List[Dict[str, Any]],
@@ -810,7 +734,6 @@ class WindowCalculationEngine:
         prices: List[Dict[str, Any]],
         charge_windows: List[Dict[str, Any]],
         discharge_windows: List[Dict[str, Any]],
-        aggressive_windows: List[Dict[str, Any]],
         config: Dict[str, Any],
         arbitrage_avg: float = 0.0,
         is_tomorrow: bool = False
@@ -845,10 +768,6 @@ class WindowCalculationEngine:
                 return STATE_CHARGE
 
         # Check scheduled windows
-        for window in aggressive_windows:
-            if self._is_window_active(window, current_time):
-                return STATE_DISCHARGE_AGGRESSIVE
-
         for window in discharge_windows:
             if self._is_window_active(window, current_time):
                 return STATE_DISCHARGE
@@ -1068,7 +987,6 @@ class WindowCalculationEngine:
             MODE_IDLE: STATE_IDLE,
             MODE_CHARGE: STATE_CHARGE,
             MODE_DISCHARGE: STATE_DISCHARGE,
-            MODE_DISCHARGE_AGGRESSIVE: STATE_DISCHARGE_AGGRESSIVE,
             MODE_OFF: STATE_OFF,
         }
         return mode_map.get(mode, STATE_IDLE)
@@ -1078,7 +996,6 @@ class WindowCalculationEngine:
         prices: List[Dict[str, Any]],
         charge_windows: List[Dict[str, Any]],
         discharge_windows: List[Dict[str, Any]],
-        aggressive_windows: List[Dict[str, Any]],
         config: Dict[str, Any],
         is_tomorrow: bool = False
     ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
@@ -1095,7 +1012,6 @@ class WindowCalculationEngine:
             prices: List of processed price data
             charge_windows: Calculated charge windows
             discharge_windows: Calculated discharge windows
-            aggressive_windows: Calculated aggressive discharge windows
             config: Configuration dictionary
             is_tomorrow: Whether calculating for tomorrow (affects config key suffix)
 
@@ -1110,7 +1026,7 @@ class WindowCalculationEngine:
         price_override_enabled = config.get(f"price_override_enabled{suffix}", False)
 
         if not time_override_enabled and not price_override_enabled:
-            # No overrides, return calculated windows as-is (don't combine normal + aggressive)
+            # No overrides, return calculated windows as-is
             return list(charge_windows), list(discharge_windows)
 
         # Get override configuration (using suffix for tomorrow settings)
@@ -1161,16 +1077,10 @@ class WindowCalculationEngine:
                 state = STATE_CHARGE
             else:
                 # Check calculated windows
-                for window in aggressive_windows:
+                for window in discharge_windows:
                     if self._is_window_active(window, timestamp):
-                        state = STATE_DISCHARGE_AGGRESSIVE
+                        state = STATE_DISCHARGE
                         break
-
-                if state == STATE_IDLE:
-                    for window in discharge_windows:
-                        if self._is_window_active(window, timestamp):
-                            state = STATE_DISCHARGE
-                            break
 
                 if state == STATE_IDLE:
                     for window in charge_windows:
@@ -1187,7 +1097,7 @@ class WindowCalculationEngine:
 
         # Extract actual charge and discharge windows from timeline
         new_actual_charge = [w for w in timeline if w["state"] == STATE_CHARGE]
-        new_actual_discharge = [w for w in timeline if w["state"] in [STATE_DISCHARGE, STATE_DISCHARGE_AGGRESSIVE]]
+        new_actual_discharge = [w for w in timeline if w["state"] == STATE_DISCHARGE]
 
         return new_actual_charge, new_actual_discharge
 
@@ -1232,7 +1142,6 @@ class WindowCalculationEngine:
         prices: List[Dict[str, Any]],
         charge_windows: List[Dict[str, Any]],
         discharge_windows: List[Dict[str, Any]],
-        aggressive_windows: List[Dict[str, Any]],
         config: Dict[str, Any]
     ) -> List[Dict[str, Any]]:
         """Build time-ordered list of all periods with their window types.
@@ -1241,7 +1150,6 @@ class WindowCalculationEngine:
             prices: List of all price periods
             charge_windows: Selected charge windows
             discharge_windows: Selected discharge windows
-            aggressive_windows: Selected aggressive discharge windows
             config: Configuration dictionary
 
         Returns:
@@ -1255,7 +1163,6 @@ class WindowCalculationEngine:
         # Create lookup sets for O(1) window type detection
         charge_timestamps = {w["timestamp"] for w in charge_windows}
         discharge_timestamps = {w["timestamp"] for w in discharge_windows}
-        aggressive_timestamps = {w["timestamp"] for w in aggressive_windows}
 
         timeline = []
         for price_data in sorted(prices, key=lambda x: x["timestamp"]):
@@ -1263,8 +1170,6 @@ class WindowCalculationEngine:
 
             if ts in charge_timestamps:
                 window_type = "charge"
-            elif ts in aggressive_timestamps:
-                window_type = "aggressive"
             elif ts in discharge_timestamps:
                 window_type = "discharge"
             else:
@@ -1315,7 +1220,6 @@ class WindowCalculationEngine:
         charge_strategy = config.get("base_usage_charge_strategy", "grid_covers_both")
         discharge_strategy = config.get("base_usage_discharge_strategy", "subtract_base")
         idle_strategy = config.get("base_usage_idle_strategy", "grid_covers")
-        aggressive_strategy = config.get("base_usage_aggressive_strategy", "same_as_discharge")
 
         # Initialize state
         battery_state = buffer_energy
@@ -1329,7 +1233,6 @@ class WindowCalculationEngine:
         feasibility_issues = []
         skipped_discharge_windows = []
         feasible_discharge_windows = []
-        feasible_aggressive_windows = []
         feasible_charge_windows = []
         skipped_charge_windows = []
 
@@ -1410,12 +1313,9 @@ class WindowCalculationEngine:
                         f"capacity={battery_capacity:.2f} kWh, space={available_capacity:.2f} kWh"
                     )
 
-            elif window_type in ("discharge", "aggressive"):
-                # Determine which strategy to use (needed early for drain calculation)
-                if window_type == "aggressive":
-                    strategy = aggressive_strategy if aggressive_strategy != "same_as_discharge" else discharge_strategy
-                else:
-                    strategy = discharge_strategy
+            elif window_type == "discharge":
+                # Use discharge strategy for all discharge windows
+                strategy = discharge_strategy
 
                 # Calculate discharge parameters based on strategy
                 base_demand = base_usage * duration_hours
@@ -1489,10 +1389,7 @@ class WindowCalculationEngine:
                         f"actual_export={actual_net_export:.2f}"
                     )
                     if battery_state >= total_drain_needed:
-                        if window_type == "discharge":
-                            feasible_discharge_windows.append(period)
-                        else:
-                            feasible_aggressive_windows.append(period)
+                        feasible_discharge_windows.append(period)
                         battery_state -= total_actual_drain
                         actual_discharge_kwh += actual_net_export
 
@@ -1565,7 +1462,6 @@ class WindowCalculationEngine:
             f"discharged={actual_discharge_kwh:.2f} kWh, final_battery={battery_state:.2f} kWh, "
             f"feasible_charge={len(feasible_charge_windows)}, skipped_charge={len(skipped_charge_windows)}, "
             f"feasible_discharge={len(feasible_discharge_windows)}, "
-            f"feasible_aggressive={len(feasible_aggressive_windows)}, "
             f"skipped_discharge={len(skipped_discharge_windows)}"
         )
 
@@ -1583,7 +1479,6 @@ class WindowCalculationEngine:
             "grid_kwh_total": round(grid_kwh_total, 3),
             "skipped_discharge_windows": skipped_discharge_windows,
             "feasible_discharge_windows": feasible_discharge_windows,
-            "feasible_aggressive_windows": feasible_aggressive_windows,
             "feasible_charge_windows": feasible_charge_windows,
             "skipped_charge_windows": skipped_charge_windows,
         }
@@ -1594,7 +1489,6 @@ class WindowCalculationEngine:
         all_prices: List[Dict[str, Any]],
         charge_windows: List[Dict[str, Any]],
         discharge_windows: List[Dict[str, Any]],
-        aggressive_windows: List[Dict[str, Any]],
         current_state: str,
         config: Dict[str, Any],
         is_tomorrow: bool,
@@ -1676,7 +1570,6 @@ class WindowCalculationEngine:
             prices,
             charge_windows,
             discharge_windows,
-            aggressive_windows,
             config,
             is_tomorrow
         )
@@ -1700,7 +1593,6 @@ class WindowCalculationEngine:
         charge_strategy = config.get("base_usage_charge_strategy", "grid_covers_both")
         idle_strategy = config.get("base_usage_idle_strategy", "grid_covers")
         discharge_strategy = config.get("base_usage_discharge_strategy", "subtract_base")
-        aggressive_strategy = config.get("base_usage_aggressive_strategy", "same_as_discharge")
 
         # Get buffer energy early - needed for usable_kwh calculations
         buffer_energy = self._get_buffer_energy(config, is_tomorrow, hass)
@@ -1737,8 +1629,7 @@ class WindowCalculationEngine:
                     completed_charge_kwh += duration_hours * charge_power
                     completed_base_usage_battery += duration_hours * base_usage
 
-        # DISCHARGE/AGGRESSIVE windows: Apply discharge/aggressive strategies
-        # Separate by state for strategy application
+        # DISCHARGE windows: Apply discharge strategy
         for w in actual_discharge:
             if w["timestamp"] + timedelta(minutes=w["duration"]) <= current_time:
                 duration_hours = w["duration"] / 60
@@ -1750,18 +1641,7 @@ class WindowCalculationEngine:
                     raw_price, w["price"], sell_country, sell_param_a, sell_param_b
                 )
 
-                # Determine which strategy to use based on window state
-                if w.get("state") == STATE_DISCHARGE_AGGRESSIVE:
-                    # Aggressive discharge window
-                    if aggressive_strategy == "same_as_discharge":
-                        strategy = discharge_strategy
-                    else:
-                        strategy = aggressive_strategy
-                else:
-                    # Regular discharge window
-                    strategy = discharge_strategy
-
-                if strategy == "already_included":
+                if discharge_strategy == "already_included":
                     # Full discharge power generates revenue at SELL price
                     completed_discharge_revenue += sell_price * duration_hours * discharge_power
                     completed_discharge_kwh += duration_hours * discharge_power
@@ -1820,13 +1700,7 @@ class WindowCalculationEngine:
                 raw_price, w["price"], sell_country, sell_param_a, sell_param_b
             )
 
-            # Determine strategy based on state
-            if w.get("state") == STATE_DISCHARGE_AGGRESSIVE:
-                strategy = aggressive_strategy if aggressive_strategy != "same_as_discharge" else discharge_strategy
-            else:
-                strategy = discharge_strategy
-
-            if strategy == "already_included":
+            if discharge_strategy == "already_included":
                 planned_discharge_revenue += sell_price * duration_hours * discharge_power
             else:  # subtract_base
                 net_export = max(0, discharge_power - base_usage)
@@ -1868,13 +1742,8 @@ class WindowCalculationEngine:
         net_planned_discharge_kwh = 0
         for w in actual_discharge:
             duration_hours = w["duration"] / 60
-            # Determine which strategy to use based on window state
-            if w.get("state") == STATE_DISCHARGE_AGGRESSIVE:
-                strategy = aggressive_strategy if aggressive_strategy != "same_as_discharge" else discharge_strategy
-            else:
-                strategy = discharge_strategy
 
-            if strategy == "already_included":
+            if discharge_strategy == "already_included":
                 # Full discharge power goes to grid
                 net_planned_discharge_kwh += duration_hours * discharge_power
             else:  # subtract_base
@@ -1935,7 +1804,6 @@ class WindowCalculationEngine:
         # Get profit thresholds from config
         min_profit_charge = config.get(f"min_profit_charge{suffix}", 10)
         min_profit_discharge = config.get(f"min_profit_discharge{suffix}", 10)
-        min_profit_discharge_aggressive = config.get(f"min_profit_discharge_aggressive{suffix}", 10)
 
         # === DASHBOARD HELPER ATTRIBUTES ===
         # These reduce repetitive calculations in the dashboard
@@ -2040,7 +1908,6 @@ class WindowCalculationEngine:
                 prices,
                 all_charge_candidates,  # Use all candidates
                 discharge_windows,
-                aggressive_windows,
                 config,
                 is_tomorrow
             )
@@ -2063,7 +1930,6 @@ class WindowCalculationEngine:
             all_prices,  # Use all_prices for full day coverage
             charge_for_chrono,  # Use all candidates for capacity-first selection
             actual_discharge,
-            [w for w in actual_discharge if w.get("state") == STATE_DISCHARGE_AGGRESSIVE],
             config
         )
 
@@ -2094,7 +1960,7 @@ class WindowCalculationEngine:
 
         # Debug: Log timeline composition before simulation
         charge_count = sum(1 for p in chrono_timeline if p["window_type"] == "charge")
-        discharge_count = sum(1 for p in chrono_timeline if p["window_type"] in ("discharge", "aggressive"))
+        discharge_count = sum(1 for p in chrono_timeline if p["window_type"] == "discharge")
         idle_count = sum(1 for p in chrono_timeline if p["window_type"] == "idle")
         _LOGGER.info(
             f"Timeline before simulation: {len(chrono_timeline)} windows "
@@ -2189,12 +2055,7 @@ class WindowCalculationEngine:
         # When conservative discharge mode is enabled, replace discharge windows with only feasible ones
         if limit_discharge:
             original_discharge_count = len(actual_discharge)
-            feasible_regular = chrono_result["feasible_discharge_windows"]
-            feasible_aggressive = chrono_result.get("feasible_aggressive_windows", [])
-            # Combine both regular and aggressive feasible windows for actual_discharge
-            actual_discharge = feasible_regular + feasible_aggressive
-            # Update aggressive_windows to only include feasible aggressive ones
-            aggressive_windows = feasible_aggressive
+            actual_discharge = chrono_result["feasible_discharge_windows"]
 
             # REBUILD grouped windows with filtered discharge windows (for dashboard display)
             grouped_discharge_windows = self._group_consecutive_windows(
@@ -2217,12 +2078,7 @@ class WindowCalculationEngine:
                     sell_price = self._calculate_sell_price(
                         raw_price, w["price"], sell_country, sell_param_a, sell_param_b
                     )
-                    # Determine which strategy to use based on window state
-                    if w.get("state") == STATE_DISCHARGE_AGGRESSIVE:
-                        strategy = aggressive_strategy if aggressive_strategy != "same_as_discharge" else discharge_strategy
-                    else:
-                        strategy = discharge_strategy
-                    if strategy == "already_included":
+                    if discharge_strategy == "already_included":
                         completed_discharge_revenue += sell_price * duration_hours * discharge_power
                     else:  # subtract_base
                         net_export = max(0, discharge_power - base_usage)
@@ -2249,7 +2105,6 @@ class WindowCalculationEngine:
                 all_prices,
                 actual_charge,  # ELECTED windows, not all candidates
                 actual_discharge,
-                [w for w in actual_discharge if w.get("state") == STATE_DISCHARGE_AGGRESSIVE],
                 config
             )
             # Apply same future-only filter if using sensor
@@ -2347,12 +2202,7 @@ class WindowCalculationEngine:
             net_planned_discharge_kwh = 0
             for w in actual_discharge:
                 duration_hours = w["duration"] / 60
-                # Determine which strategy to use based on window state
-                if w.get("state") == STATE_DISCHARGE_AGGRESSIVE:
-                    strategy = aggressive_strategy if aggressive_strategy != "same_as_discharge" else discharge_strategy
-                else:
-                    strategy = discharge_strategy
-                if strategy == "already_included":
+                if discharge_strategy == "already_included":
                     net_planned_discharge_kwh += duration_hours * discharge_power
                 else:  # subtract_base
                     net_planned_discharge_kwh += duration_hours * max(0, discharge_power - base_usage)
@@ -2397,11 +2247,7 @@ class WindowCalculationEngine:
                 sell_price = self._calculate_sell_price(
                     raw_price, w["price"], sell_country, sell_param_a, sell_param_b
                 )
-                if w.get("state") == STATE_DISCHARGE_AGGRESSIVE:
-                    strategy = aggressive_strategy if aggressive_strategy != "same_as_discharge" else discharge_strategy
-                else:
-                    strategy = discharge_strategy
-                if strategy == "already_included":
+                if discharge_strategy == "already_included":
                     planned_discharge_revenue += sell_price * duration_hours * discharge_power
                 else:  # subtract_base
                     net_export = max(0, discharge_power - base_usage)
@@ -2445,7 +2291,6 @@ class WindowCalculationEngine:
                 prices,
                 actual_charge,  # Use filtered charge windows
                 actual_discharge,  # Use filtered discharge windows
-                aggressive_windows,  # Use filtered aggressive windows
                 config,
                 0.0,  # arbitrage_avg not needed for state check
                 is_tomorrow
@@ -2459,9 +2304,6 @@ class WindowCalculationEngine:
             "expensive_times": [w["timestamp"].isoformat() for w in discharge_windows],
             "expensive_prices": [float(w["price"]) for w in discharge_windows],
             "expensive_sell_prices": [float(get_sell_price_for_window(w)) for w in discharge_windows],
-            "expensive_times_aggressive": [w["timestamp"].isoformat() for w in aggressive_windows],
-            "expensive_prices_aggressive": [float(w["price"]) for w in aggressive_windows],
-            "expensive_sell_prices_aggressive": [float(get_sell_price_for_window(w)) for w in aggressive_windows],
             "actual_charge_times": [w["timestamp"].isoformat() for w in actual_charge],
             "actual_charge_prices": [float(w["price"]) for w in actual_charge],
             "actual_discharge_times": [w["timestamp"].isoformat() for w in actual_discharge],
@@ -2495,7 +2337,6 @@ class WindowCalculationEngine:
             "discharge_profit_pct": round(discharge_profit_pct, 1),  # Buy-sell profit for discharge
             "charge_profit_met": bool(charge_profit_pct >= min_profit_charge),
             "discharge_profit_met": bool(discharge_profit_pct >= min_profit_discharge),
-            "aggressive_profit_met": bool(discharge_profit_pct >= min_profit_discharge_aggressive),
             # Legacy spread attributes (deprecated, kept for backwards compatibility)
             "min_spread_required": config.get("min_profit_charge", 10),  # Map to new name
             "spread_percentage": round(arbitrage_avg, 1),  # For operational spread check (sell vs buy)
@@ -2504,7 +2345,6 @@ class WindowCalculationEngine:
             "arbitrage_avg": round(arbitrage_avg, 1),  # Sell vs buy (arbitrage margin)
             "actual_spread_avg": round(spread_avg, 1),  # For backwards compatibility
             "discharge_spread_met": bool(discharge_profit_pct >= min_profit_discharge),  # Map to profit check
-            "aggressive_discharge_spread_met": bool(discharge_profit_pct >= min_profit_discharge_aggressive),  # Map to profit check
             "avg_cheap_price": round(avg_cheap, 5),
             "avg_expensive_price": round(avg_expensive, 5),
             "current_price": round(current_price, 5) if current_price else 0,
@@ -2687,9 +2527,6 @@ class WindowCalculationEngine:
             "expensive_times": [],
             "expensive_prices": [],
             "expensive_sell_prices": [],
-            "expensive_times_aggressive": [],
-            "expensive_prices_aggressive": [],
-            "expensive_sell_prices_aggressive": [],
             "actual_charge_times": [],
             "actual_charge_prices": [],
             "actual_discharge_times": [],
@@ -2722,7 +2559,6 @@ class WindowCalculationEngine:
             "discharge_profit_pct": 0,
             "charge_profit_met": False,
             "discharge_profit_met": False,
-            "aggressive_profit_met": False,
             # Legacy spread attributes (deprecated)
             "min_spread_required": 0,
             "spread_percentage": 0,
@@ -2731,7 +2567,6 @@ class WindowCalculationEngine:
             "arbitrage_avg": 0,
             "actual_spread_avg": 0,
             "discharge_spread_met": False,
-            "aggressive_discharge_spread_met": False,
             "avg_cheap_price": 0,
             "avg_expensive_price": 0,
             "current_price": 0,

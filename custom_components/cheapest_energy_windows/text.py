@@ -123,15 +123,6 @@ async def async_setup_entry(
         CEWText(
             hass,
             config_entry,
-            "battery_aggressive_discharge_action",
-            "Battery Aggressive Discharge Action",
-            config_entry.options.get("battery_aggressive_discharge_action", "not_configured"),
-            "mdi:robot",
-            r"^(automation\.|script\.|scene\.)[a-z0-9_]+$|^not_configured$"
-        ),
-        CEWText(
-            hass,
-            config_entry,
             "battery_off_action",
             "Battery Off Action",
             config_entry.options.get("battery_off_action", "not_configured"),

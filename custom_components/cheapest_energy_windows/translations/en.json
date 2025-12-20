@@ -80,15 +80,13 @@
           "base_usage": "Household Base Load (Watts)",
           "base_usage_charge_strategy": "During Charging",
           "base_usage_idle_strategy": "During Idle",
-          "base_usage_discharge_strategy": "During Discharge",
-          "base_usage_aggressive_strategy": "During Aggressive Discharge"
+          "base_usage_discharge_strategy": "During Discharge"
         },
         "data_description": {
           "base_usage": "Average constant power consumption (lights, appliances, standby devices)",
           "base_usage_charge_strategy": "How base load is handled while battery charges",
           "base_usage_idle_strategy": "How base load is handled when battery is idle",
-          "base_usage_discharge_strategy": "How base load affects discharge calculations",
-          "base_usage_aggressive_strategy": "How base load affects aggressive discharge calculations"
+          "base_usage_discharge_strategy": "How base load affects discharge calculations"
         }
       },
       "power": {
@@ -115,7 +113,6 @@
           "percentile_threshold": "Percentile Threshold % (1-50, lower = stricter)",
           "min_spread": "Min Spread Charge % (price difference needed)",
           "min_spread_discharge": "Min Spread Discharge % (price difference needed)",
-          "aggressive_discharge_spread": "Aggressive Spread % (for peak discharge)",
           "min_price_difference": "Min Price Difference (EUR/kWh, optional)",
           "price_override_enabled": "Enable Price Override",
           "price_override_threshold": "Price Override Threshold (EUR/kWh)"
@@ -127,7 +124,6 @@
           "percentile_threshold": "Percentile threshold for cheapest X% (charging) and most expensive X% (discharging) prices",
           "min_spread": "Minimum price spread % required to activate charging (0-200%)",
           "min_spread_discharge": "Minimum spread % required for normal discharge (0-200%)",
-          "aggressive_discharge_spread": "Spread % required for aggressive peak discharge (0-300%)",
           "min_price_difference": "Absolute minimum price difference in EUR/kWh to activate charging (0-0.5)",
           "price_override_enabled": "Always charge when price drops below threshold, ignoring spread/window requirements",
           "price_override_threshold": "Price threshold in EUR/kWh - charge immediately when spot price is below this value (0-0.5)"
@@ -160,14 +156,12 @@
           "battery_idle_action": "Idle Mode Action",
           "battery_charge_action": "Charge Mode Action",
           "battery_discharge_action": "Discharge Mode Action",
-          "battery_aggressive_discharge_action": "Aggressive Discharge Mode Action",
           "battery_off_action": "Off Mode Action"
         },
         "data_description": {
           "battery_idle_action": "Select automation/script for idle mode. Example: Set battery to follow grid (Smart Matching)",
           "battery_charge_action": "Select automation/script for charge mode. Example: Enable battery charging from grid at max power",
           "battery_discharge_action": "Select automation/script for discharge mode. Example: Enable battery discharge to grid at normal power",
-          "battery_aggressive_discharge_action": "Select automation/script for aggressive discharge. Example: Enable maximum discharge power during peak prices",
           "battery_off_action": "Select automation/script for off mode. Example: Set battery to manual mode when automation is disabled"
         }
       },
@@ -217,7 +211,6 @@
         "state": {
           "charge": "Charge",
           "discharge": "Discharge",
-          "discharge_aggressive": "Peak Discharge",
           "idle": "Idle",
           "off": "Off"
         }
@@ -249,14 +242,6 @@
       "base_usage_discharge_strategy": {
         "name": "Base Usage: During Discharge",
         "state": {
-          "subtract_base": "House first, export remainder",
-          "already_included": "Export full discharge power"
-        }
-      },
-      "base_usage_aggressive_strategy": {
-        "name": "Base Usage: During Aggressive Discharge",
-        "state": {
-          "same_as_discharge": "Same as discharge strategy",
           "subtract_base": "House first, export remainder",
           "already_included": "Export full discharge power"
         }
@@ -313,13 +298,6 @@
     },
     "base_usage_discharge_strategy": {
       "options": {
-        "subtract_base": "House first, export remainder",
-        "already_included": "Export full discharge power"
-      }
-    },
-    "base_usage_aggressive_strategy": {
-      "options": {
-        "same_as_discharge": "Same as discharge strategy",
         "subtract_base": "House first, export remainder",
         "already_included": "Export full discharge power"
       }

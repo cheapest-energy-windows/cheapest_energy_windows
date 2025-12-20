@@ -22,14 +22,12 @@ from .const import (
     # Profit thresholds (v1.2.0+)
     DEFAULT_MIN_PROFIT_CHARGE,
     DEFAULT_MIN_PROFIT_DISCHARGE,
-    DEFAULT_MIN_PROFIT_DISCHARGE_AGGRESSIVE,
     DEFAULT_MIN_PRICE_DIFFERENCE,
     DEFAULT_BASE_USAGE,
     DEFAULT_BATTERY_RTE,
     DEFAULT_CHARGE_POWER,
     DEFAULT_DISCHARGE_POWER,
-    DEFAULT_BATTERY_MIN_SOC_DISCHARGE,
-    DEFAULT_BATTERY_MIN_SOC_AGGRESSIVE_DISCHARGE,
+    DEFAULT_DISCHARGE_BUFFER_LIMIT_KWH,
     DEFAULT_PRICE_OVERRIDE_THRESHOLD,
     DEFAULT_MIN_SELL_PRICE,
     DEFAULT_SELL_FORMULA_PARAM_A,
@@ -87,11 +85,6 @@ async def async_setup_entry(
             "mdi:percent-circle", NumberMode.BOX
         ),
         CEWNumber(
-            hass, config_entry, "min_profit_discharge_aggressive", "Min Profit Discharge Aggressive",
-            -100, 300, DEFAULT_MIN_PROFIT_DISCHARGE_AGGRESSIVE, 1, "%",
-            "mdi:percent-circle", NumberMode.BOX
-        ),
-        CEWNumber(
             hass, config_entry, "min_price_difference", "Min Price Difference",
             0, 0.5, DEFAULT_MIN_PRICE_DIFFERENCE, 0.001, "EUR/kWh",
             "mdi:cash-minus", NumberMode.BOX
@@ -135,16 +128,10 @@ async def async_setup_entry(
             "mdi:cash-lock", NumberMode.BOX
         ),
         CEWNumber(
-            hass, config_entry, "battery_min_soc_discharge",
-            "Battery Min SOC Discharge",
-            0, 100, DEFAULT_BATTERY_MIN_SOC_DISCHARGE, 1, "%",
-            "mdi:battery-low", NumberMode.BOX
-        ),
-        CEWNumber(
-            hass, config_entry, "battery_min_soc_aggressive_discharge",
-            "Battery Min SOC Aggressive Discharge",
-            0, 100, DEFAULT_BATTERY_MIN_SOC_AGGRESSIVE_DISCHARGE, 1, "%",
-            "mdi:battery-alert", NumberMode.BOX
+            hass, config_entry, "discharge_buffer_limit_kwh",
+            "Discharge Buffer Limit",
+            0, 100, DEFAULT_DISCHARGE_BUFFER_LIMIT_KWH, 0.1, "kWh",
+            "mdi:battery-lock", NumberMode.BOX
         ),
         CEWNumber(
             hass, config_entry, "min_sell_price", "Minimum Sell Price",
@@ -203,7 +190,6 @@ async def async_setup_entry(
         # Profit thresholds (v1.2.0+)
         ("min_profit_charge_tomorrow", "Min Profit Charge Tomorrow", DEFAULT_MIN_PROFIT_CHARGE, 200, "%"),
         ("min_profit_discharge_tomorrow", "Min Profit Discharge Tomorrow", DEFAULT_MIN_PROFIT_DISCHARGE, 200, "%"),
-        ("min_profit_discharge_aggressive_tomorrow", "Min Profit Discharge Aggressive Tomorrow", DEFAULT_MIN_PROFIT_DISCHARGE_AGGRESSIVE, 300, "%"),
         ("min_price_difference_tomorrow", "Min Price Difference Tomorrow", DEFAULT_MIN_PRICE_DIFFERENCE, 0.5, "EUR/kWh"),
         ("price_override_threshold_tomorrow", "Price Override Threshold Tomorrow", DEFAULT_PRICE_OVERRIDE_THRESHOLD, 0.5, "EUR/kWh"),
         ("battery_buffer_kwh_tomorrow", "Battery Buffer Energy Tomorrow", DEFAULT_BATTERY_BUFFER_KWH, 100, "kWh"),

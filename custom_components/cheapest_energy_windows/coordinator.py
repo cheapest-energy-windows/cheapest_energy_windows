@@ -21,7 +21,6 @@ from .const import (
     DEFAULT_BASE_USAGE_CHARGE_STRATEGY,
     DEFAULT_BASE_USAGE_IDLE_STRATEGY,
     DEFAULT_BASE_USAGE_DISCHARGE_STRATEGY,
-    DEFAULT_BASE_USAGE_AGGRESSIVE_STRATEGY,
     DEFAULT_PRICE_COUNTRY,
     DEFAULT_SELL_FORMULA_PARAM_A,
     DEFAULT_SELL_FORMULA_PARAM_B,
@@ -232,7 +231,6 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             # Profit thresholds (v1.2.0+)
             DEFAULT_MIN_PROFIT_CHARGE,
             DEFAULT_MIN_PROFIT_DISCHARGE,
-            DEFAULT_MIN_PROFIT_DISCHARGE_AGGRESSIVE,
             DEFAULT_MIN_PRICE_DIFFERENCE,
             DEFAULT_BATTERY_RTE,
             DEFAULT_CHARGE_POWER,
@@ -244,8 +242,7 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             DEFAULT_TIME_OVERRIDE_END,
             DEFAULT_CALCULATION_WINDOW_START,
             DEFAULT_CALCULATION_WINDOW_END,
-            DEFAULT_BATTERY_MIN_SOC_DISCHARGE,
-            DEFAULT_BATTERY_MIN_SOC_AGGRESSIVE_DISCHARGE,
+            DEFAULT_DISCHARGE_BUFFER_LIMIT_KWH,
             # Buffer/chronological calculation defaults
             DEFAULT_BATTERY_BUFFER_KWH,
             DEFAULT_BATTERY_CAPACITY,
@@ -266,7 +263,6 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             # Profit thresholds (v1.2.0+)
             "min_profit_charge": float(options.get("min_profit_charge", DEFAULT_MIN_PROFIT_CHARGE)),
             "min_profit_discharge": float(options.get("min_profit_discharge", DEFAULT_MIN_PROFIT_DISCHARGE)),
-            "min_profit_discharge_aggressive": float(options.get("min_profit_discharge_aggressive", DEFAULT_MIN_PROFIT_DISCHARGE_AGGRESSIVE)),
             "min_price_difference": float(options.get("min_price_difference", DEFAULT_MIN_PRICE_DIFFERENCE)),
             "battery_rte": float(options.get("battery_rte", DEFAULT_BATTERY_RTE)),
             "charge_power": float(options.get("charge_power", DEFAULT_CHARGE_POWER)),
@@ -275,10 +271,8 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             "base_usage_charge_strategy": options.get("base_usage_charge_strategy", DEFAULT_BASE_USAGE_CHARGE_STRATEGY),
             "base_usage_idle_strategy": options.get("base_usage_idle_strategy", DEFAULT_BASE_USAGE_IDLE_STRATEGY),
             "base_usage_discharge_strategy": options.get("base_usage_discharge_strategy", DEFAULT_BASE_USAGE_DISCHARGE_STRATEGY),
-            "base_usage_aggressive_strategy": options.get("base_usage_aggressive_strategy", DEFAULT_BASE_USAGE_AGGRESSIVE_STRATEGY),
             "price_override_threshold": float(options.get("price_override_threshold", DEFAULT_PRICE_OVERRIDE_THRESHOLD)),
-            "battery_min_soc_discharge": float(options.get("battery_min_soc_discharge", DEFAULT_BATTERY_MIN_SOC_DISCHARGE)),
-            "battery_min_soc_aggressive_discharge": float(options.get("battery_min_soc_aggressive_discharge", DEFAULT_BATTERY_MIN_SOC_AGGRESSIVE_DISCHARGE)),
+            "discharge_buffer_limit_kwh": float(options.get("discharge_buffer_limit_kwh", DEFAULT_DISCHARGE_BUFFER_LIMIT_KWH)),
 
             # Tomorrow's configuration
             "charging_windows_tomorrow": float(options.get("charging_windows_tomorrow", DEFAULT_CHARGING_WINDOWS)),
@@ -287,7 +281,6 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             # Profit thresholds tomorrow (v1.2.0+)
             "min_profit_charge_tomorrow": float(options.get("min_profit_charge_tomorrow", DEFAULT_MIN_PROFIT_CHARGE)),
             "min_profit_discharge_tomorrow": float(options.get("min_profit_discharge_tomorrow", DEFAULT_MIN_PROFIT_DISCHARGE)),
-            "min_profit_discharge_aggressive_tomorrow": float(options.get("min_profit_discharge_aggressive_tomorrow", DEFAULT_MIN_PROFIT_DISCHARGE_AGGRESSIVE)),
             "min_price_difference_tomorrow": float(options.get("min_price_difference_tomorrow", DEFAULT_MIN_PRICE_DIFFERENCE)),
             "price_override_threshold_tomorrow": float(options.get("price_override_threshold_tomorrow", DEFAULT_PRICE_OVERRIDE_THRESHOLD)),
 
@@ -307,7 +300,6 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             "notify_automation_disabled": bool(options.get("notify_automation_disabled", False)),
             "notify_charging": bool(options.get("notify_charging", True)),
             "notify_discharge": bool(options.get("notify_discharge", True)),
-            "notify_discharge_aggressive": bool(options.get("notify_discharge_aggressive", True)),
             "notify_idle": bool(options.get("notify_idle", False)),
 
             # String values (selects)

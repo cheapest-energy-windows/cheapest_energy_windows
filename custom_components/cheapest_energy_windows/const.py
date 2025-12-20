@@ -25,7 +25,6 @@ CONF_BASE_USAGE: Final = "base_usage"
 CONF_BASE_USAGE_CHARGE_STRATEGY: Final = "base_usage_charge_strategy"
 CONF_BASE_USAGE_IDLE_STRATEGY: Final = "base_usage_idle_strategy"
 CONF_BASE_USAGE_DISCHARGE_STRATEGY: Final = "base_usage_discharge_strategy"
-CONF_BASE_USAGE_AGGRESSIVE_STRATEGY: Final = "base_usage_aggressive_strategy"
 
 # Buffer/chronological calculation configuration keys
 CONF_BATTERY_BUFFER_KWH: Final = "battery_buffer_kwh"
@@ -51,7 +50,6 @@ CONF_BUY_FORMULA_PARAM_B: Final = "buy_formula_param_b"
 # Profit = Spread - RTE_Loss, where RTE_Loss = 100 - battery_rte
 CONF_MIN_PROFIT_CHARGE: Final = "min_profit_charge"
 CONF_MIN_PROFIT_DISCHARGE: Final = "min_profit_discharge"
-CONF_MIN_PROFIT_DISCHARGE_AGGRESSIVE: Final = "min_profit_discharge_aggressive"
 
 # Default values
 DEFAULT_PRICE_SENSOR: Final = ""
@@ -64,20 +62,17 @@ DEFAULT_PERCENTILE_THRESHOLD: Final = 25
 # Profit thresholds (profit = spread - RTE_loss, default 10%)
 DEFAULT_MIN_PROFIT_CHARGE: Final = 10
 DEFAULT_MIN_PROFIT_DISCHARGE: Final = 10
-DEFAULT_MIN_PROFIT_DISCHARGE_AGGRESSIVE: Final = 10
 
 # Legacy spread defaults (deprecated, kept for migration)
 DEFAULT_MIN_SPREAD: Final = 30
 DEFAULT_MIN_SPREAD_DISCHARGE: Final = 30
-DEFAULT_AGGRESSIVE_DISCHARGE_SPREAD: Final = 60
 DEFAULT_MIN_PRICE_DIFFERENCE: Final = 0.05
 DEFAULT_PRICE_OVERRIDE_THRESHOLD: Final = 0.15
 DEFAULT_BATTERY_RTE: Final = 85
 DEFAULT_CHARGE_POWER: Final = 800
 DEFAULT_DISCHARGE_POWER: Final = 800
 DEFAULT_BATTERY_SYSTEM_NAME: Final = "My Battery System"
-DEFAULT_BATTERY_MIN_SOC_DISCHARGE: Final = 20
-DEFAULT_BATTERY_MIN_SOC_AGGRESSIVE_DISCHARGE: Final = 30
+DEFAULT_DISCHARGE_BUFFER_LIMIT_KWH: Final = 0.0
 DEFAULT_QUIET_START: Final = "22:00:00"
 DEFAULT_QUIET_END: Final = "07:00:00"
 DEFAULT_TIME_OVERRIDE_START: Final = "00:00:00"
@@ -88,7 +83,6 @@ DEFAULT_BASE_USAGE: Final = 500
 DEFAULT_BASE_USAGE_CHARGE_STRATEGY: Final = "grid_covers_both"
 DEFAULT_BASE_USAGE_IDLE_STRATEGY: Final = "battery_covers_limited"
 DEFAULT_BASE_USAGE_DISCHARGE_STRATEGY: Final = "subtract_base"
-DEFAULT_BASE_USAGE_AGGRESSIVE_STRATEGY: Final = "same_as_discharge"
 
 # Buffer/chronological calculation defaults
 DEFAULT_BATTERY_BUFFER_KWH: Final = 0.0
@@ -119,7 +113,6 @@ DEFAULT_SELL_FORMULA_PARAM_B: Final = 1.0    # Multiplier (B)
 BASE_USAGE_CHARGE_OPTIONS: Final = ["grid_covers_both", "battery_covers_base"]
 BASE_USAGE_IDLE_OPTIONS: Final = ["grid_covers", "battery_covers"]
 BASE_USAGE_DISCHARGE_OPTIONS: Final = ["already_included", "subtract_base"]
-BASE_USAGE_AGGRESSIVE_OPTIONS: Final = ["same_as_discharge", "already_included", "subtract_base"]
 
 # Update intervals
 UPDATE_INTERVAL: Final = timedelta(seconds=10)
@@ -127,7 +120,6 @@ UPDATE_INTERVAL: Final = timedelta(seconds=10)
 # Sensor states
 STATE_CHARGE: Final = "charge"
 STATE_DISCHARGE: Final = "discharge"
-STATE_DISCHARGE_AGGRESSIVE: Final = "discharge_aggressive"
 STATE_IDLE: Final = "idle"
 STATE_OFF: Final = "off"
 STATE_AVAILABLE: Final = "available"
@@ -137,11 +129,10 @@ STATE_UNAVAILABLE: Final = "unavailable"
 MODE_IDLE: Final = "idle"
 MODE_CHARGE: Final = "charge"
 MODE_DISCHARGE: Final = "discharge"
-MODE_DISCHARGE_AGGRESSIVE: Final = "discharge_aggressive"
 MODE_OFF: Final = "off"
 
 # Time override modes list
-TIME_OVERRIDE_MODES: Final = [MODE_IDLE, MODE_CHARGE, MODE_DISCHARGE, MODE_DISCHARGE_AGGRESSIVE, MODE_OFF]
+TIME_OVERRIDE_MODES: Final = [MODE_IDLE, MODE_CHARGE, MODE_DISCHARGE, MODE_OFF]
 
 # Pricing window duration options
 PRICING_15_MINUTES: Final = "15_minutes"
@@ -153,8 +144,6 @@ ATTR_CHEAPEST_TIMES: Final = "cheapest_times"
 ATTR_CHEAPEST_PRICES: Final = "cheapest_prices"
 ATTR_EXPENSIVE_TIMES: Final = "expensive_times"
 ATTR_EXPENSIVE_PRICES: Final = "expensive_prices"
-ATTR_EXPENSIVE_TIMES_AGGRESSIVE: Final = "expensive_times_aggressive"
-ATTR_EXPENSIVE_PRICES_AGGRESSIVE: Final = "expensive_prices_aggressive"
 ATTR_ACTUAL_CHARGE_TIMES: Final = "actual_charge_times"
 ATTR_ACTUAL_CHARGE_PRICES: Final = "actual_charge_prices"
 ATTR_ACTUAL_DISCHARGE_TIMES: Final = "actual_discharge_times"
@@ -178,7 +167,6 @@ ATTR_CHARGE_PROFIT_PCT: Final = "charge_profit_pct"
 ATTR_DISCHARGE_PROFIT_PCT: Final = "discharge_profit_pct"
 ATTR_CHARGE_PROFIT_MET: Final = "charge_profit_met"
 ATTR_DISCHARGE_PROFIT_MET: Final = "discharge_profit_met"
-ATTR_AGGRESSIVE_PROFIT_MET: Final = "aggressive_profit_met"
 
 # Legacy spread attributes (deprecated, kept for backwards compatibility)
 ATTR_MIN_SPREAD_REQUIRED: Final = "min_spread_required"
@@ -188,7 +176,6 @@ ATTR_SPREAD_AVG: Final = "spread_avg"
 ATTR_ARBITRAGE_AVG: Final = "arbitrage_avg"
 ATTR_ACTUAL_SPREAD_AVG: Final = "actual_spread_avg"
 ATTR_DISCHARGE_SPREAD_MET: Final = "discharge_spread_met"
-ATTR_AGGRESSIVE_DISCHARGE_SPREAD_MET: Final = "aggressive_discharge_spread_met"
 ATTR_AVG_CHEAP_PRICE: Final = "avg_cheap_price"
 ATTR_AVG_EXPENSIVE_PRICE: Final = "avg_expensive_price"
 ATTR_CURRENT_PRICE: Final = "current_price"
@@ -229,12 +216,10 @@ CALCULATION_AFFECTING_KEYS: Final = {
     # Profit thresholds (v1.2.0+)
     "min_profit_charge",
     "min_profit_discharge",
-    "min_profit_discharge_aggressive",
 
     # Legacy spread settings (deprecated, but still trigger refresh for migration)
     "min_spread",
     "min_spread_discharge",
-    "aggressive_discharge_spread",
 
     # Unified price country
     "price_country",
@@ -255,14 +240,11 @@ CALCULATION_AFFECTING_KEYS: Final = {
     "base_usage_charge_strategy",
     "base_usage_idle_strategy",
     "base_usage_discharge_strategy",
-    "base_usage_aggressive_strategy",
 
     # Battery settings
     "battery_rte",
     "charge_power",
     "discharge_power",
-    "battery_min_soc_discharge",
-    "battery_min_soc_aggressive_discharge",
 
     # Price overrides
     "price_override_enabled",
@@ -286,6 +268,7 @@ CALCULATION_AFFECTING_KEYS: Final = {
     "use_battery_buffer_sensor",
     "battery_capacity",
     "limit_discharge_to_buffer",
+    "discharge_buffer_limit_kwh",
 
     # Tomorrow settings
     "tomorrow_settings_enabled",
@@ -294,7 +277,6 @@ CALCULATION_AFFECTING_KEYS: Final = {
     "percentile_threshold_tomorrow",
     "min_spread_tomorrow",
     "min_spread_discharge_tomorrow",
-    "aggressive_discharge_spread_tomorrow",
     "min_price_difference_tomorrow",
     "min_price_diff_enabled_tomorrow",
     "price_override_enabled_tomorrow",
@@ -315,12 +297,10 @@ CALCULATION_AFFECTING_KEYS: Final = {
     # Tomorrow profit thresholds (v1.2.0+)
     "min_profit_charge_tomorrow",
     "min_profit_discharge_tomorrow",
-    "min_profit_discharge_aggressive_tomorrow",
 
     # Legacy tomorrow spread settings (deprecated)
     "min_spread_tomorrow",
     "min_spread_discharge_tomorrow",
-    "aggressive_discharge_spread_tomorrow",
 
 }
 
@@ -336,7 +316,6 @@ NON_CALCULATION_KEYS: Final = {
     "notify_automation_disabled",
     "notify_charging",
     "notify_discharge",
-    "notify_discharge_aggressive",
     "notify_idle",
     "notify_off",
 
