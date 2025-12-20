@@ -54,6 +54,8 @@ async def async_setup_entry(
         # Buffer/chronological calculation toggles
         ("use_battery_buffer_sensor", "Use Battery Buffer Sensor", False, "mdi:connection"),
         ("limit_discharge_to_buffer", "Limit Discharge to Buffer", False, "mdi:battery-lock"),
+        # Solar production toggles
+        ("use_solar_forecast", "Use Solar Forecast", True, "mdi:solar-power"),
         # Note: Arbitrage Protection removed in v1.2.0
         # Profit thresholds now naturally control window qualification
     ]

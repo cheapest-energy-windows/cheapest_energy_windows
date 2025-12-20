@@ -16,6 +16,8 @@ from .const import (
     PREFIX,
     VERSION,
     DEFAULT_PRICE_COUNTRY,
+    DEFAULT_SOLAR_PRIORITY_STRATEGY,
+    SOLAR_PRIORITY_OPTIONS,
 )
 from .formulas import get_country_options, get_formula
 
@@ -49,8 +51,8 @@ async def async_setup_entry(
         ("base_usage_idle_strategy", "Base Usage: During Idle", ["battery_covers_limited", "battery_covers", "grid_covers"], "battery_covers_limited", "mdi:home-lightning-bolt"),
         ("base_usage_discharge_strategy", "Base Usage: During Discharge", ["already_included", "subtract_base"], "subtract_base", "mdi:battery-arrow-down"),
         ("price_country", "Price Formula", country_display_names, default_country_display, "mdi:map-marker"),
-        # Note: Arbitrage Protection removed in v1.2.0
-        # Profit thresholds now naturally control window qualification
+        # Solar production priority strategy
+        ("solar_priority_strategy", "Solar Priority", ["base_then_grid", "base_then_battery"], DEFAULT_SOLAR_PRIORITY_STRATEGY, "mdi:solar-power-variant"),
     ]
 
     for key, name, options, default, icon in select_configs:
@@ -87,7 +89,7 @@ class CEWSelect(SelectEntity):
         self._attr_has_entity_name = False
 
         # Set translation key to enable HA's native option translations
-        if key.startswith("base_usage_"):
+        if key.startswith("base_usage_") or key == "solar_priority_strategy":
             self._attr_translation_key = key
 
         # Load value from config entry options, with fallback to data for backwards compatibility

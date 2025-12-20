@@ -248,6 +248,11 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             DEFAULT_BATTERY_CAPACITY,
             DEFAULT_USE_BATTERY_BUFFER_SENSOR,
             DEFAULT_LIMIT_DISCHARGE_TO_BUFFER,
+            # Solar production defaults
+            DEFAULT_SOLAR_WINDOW_START,
+            DEFAULT_SOLAR_WINDOW_END,
+            DEFAULT_SOLAR_PRIORITY_STRATEGY,
+            DEFAULT_EXPECTED_SOLAR_KWH,
         )
 
         options = self.config_entry.options
@@ -336,6 +341,13 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             "battery_available_energy_sensor": options.get("battery_available_energy_sensor", ""),
             "min_price_diff_enabled": bool(options.get("min_price_diff_enabled", True)),
             "min_price_diff_enabled_tomorrow": bool(options.get("min_price_diff_enabled_tomorrow", True)),
+
+            # Solar production settings
+            "solar_window_start": options.get("solar_window_start", DEFAULT_SOLAR_WINDOW_START),
+            "solar_window_end": options.get("solar_window_end", DEFAULT_SOLAR_WINDOW_END),
+            "solar_priority_strategy": options.get("solar_priority_strategy", DEFAULT_SOLAR_PRIORITY_STRATEGY),
+            "expected_solar_kwh": float(options.get("expected_solar_kwh", DEFAULT_EXPECTED_SOLAR_KWH)),
+            "expected_solar_kwh_tomorrow": float(options.get("expected_solar_kwh_tomorrow", DEFAULT_EXPECTED_SOLAR_KWH)),
 
             # Time values
             "time_override_start": options.get("time_override_start", DEFAULT_TIME_OVERRIDE_START),

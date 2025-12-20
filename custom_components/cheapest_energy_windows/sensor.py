@@ -40,6 +40,7 @@ from .const import (
     ATTR_COMPLETED_DISCHARGE_WINDOWS,
     ATTR_COMPLETED_CHARGE_COST,
     ATTR_COMPLETED_DISCHARGE_REVENUE,
+    ATTR_COMPLETED_SOLAR_EXPORT_REVENUE,
     ATTR_COMPLETED_BASE_USAGE_COST,
     ATTR_COMPLETED_BASE_USAGE_BATTERY,
     ATTR_COMPLETED_CHARGE_KWH,
@@ -362,6 +363,7 @@ class CEWTodaySensor(CEWBaseSensor):
             ATTR_COMPLETED_DISCHARGE_WINDOWS: result.get("completed_discharge_windows", 0),
             ATTR_COMPLETED_CHARGE_COST: result.get("completed_charge_cost", 0.0),
             ATTR_COMPLETED_DISCHARGE_REVENUE: result.get("completed_discharge_revenue", 0.0),
+            ATTR_COMPLETED_SOLAR_EXPORT_REVENUE: result.get("completed_solar_export_revenue", 0.0),
             ATTR_COMPLETED_BASE_USAGE_COST: result.get("completed_base_usage_cost", 0.0),
             ATTR_COMPLETED_BASE_USAGE_BATTERY: result.get("completed_base_usage_battery", 0.0),
             ATTR_COMPLETED_CHARGE_KWH: result.get("completed_charge_kwh", 0.0),
@@ -446,6 +448,14 @@ class CEWTodaySensor(CEWBaseSensor):
             ATTR_BATTERY_STATE_CURRENT: result.get("battery_state_current", 0.0),
             ATTR_BATTERY_STATE_END_OF_DAY: result.get("battery_state_end_of_day", 0.0),
             ATTR_BATTERY_STATE_END_OF_DAY_VALUE: result.get("battery_state_end_of_day_value", 0.0),
+            # Solar integration metrics
+            "solar_to_battery_kwh": result.get("solar_to_battery_kwh", 0.0),
+            "solar_offset_base_kwh": result.get("solar_offset_base_kwh", 0.0),
+            "solar_exported_kwh": result.get("solar_exported_kwh", 0.0),
+            "solar_export_revenue": result.get("solar_export_revenue", 0.0),
+            "solar_total_contribution_kwh": result.get("solar_total_contribution_kwh", 0.0),
+            "grid_savings_from_solar": result.get("grid_savings_from_solar", 0.0),
+            "expected_solar_kwh": result.get("expected_solar_kwh", 0.0),
         }
 
 
@@ -638,6 +648,14 @@ class CEWTomorrowSensor(CEWBaseSensor):
             # Grid and battery state tracking (v1.2.0+) - tomorrow specific
             ATTR_GRID_KWH_ESTIMATED_TOMORROW: result.get("grid_kwh_estimated_today", 0.0),  # Reuse today's field
             ATTR_BATTERY_STATE_END_OF_TOMORROW: result.get("battery_state_end_of_day", 0.0),  # Reuse today's field
+            # Solar integration metrics
+            "solar_to_battery_kwh": result.get("solar_to_battery_kwh", 0.0),
+            "solar_offset_base_kwh": result.get("solar_offset_base_kwh", 0.0),
+            "solar_exported_kwh": result.get("solar_exported_kwh", 0.0),
+            "solar_export_revenue": result.get("solar_export_revenue", 0.0),
+            "solar_total_contribution_kwh": result.get("solar_total_contribution_kwh", 0.0),
+            "grid_savings_from_solar": result.get("grid_savings_from_solar", 0.0),
+            "expected_solar_kwh": result.get("expected_solar_kwh", 0.0),
         }
 
 

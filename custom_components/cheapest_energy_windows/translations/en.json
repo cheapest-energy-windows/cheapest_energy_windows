@@ -246,6 +246,13 @@
           "already_included": "Export full discharge power"
         }
       },
+      "solar_priority_strategy": {
+        "name": "Solar Priority",
+        "state": {
+          "base_then_grid": "House first, export excess",
+          "base_then_battery": "House first, charge battery"
+        }
+      },
       "price_country": {
         "name": "Price Formula",
         "state": {

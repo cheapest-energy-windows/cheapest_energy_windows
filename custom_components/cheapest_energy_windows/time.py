@@ -21,6 +21,8 @@ from .const import (
     DEFAULT_TIME_OVERRIDE_END,
     DEFAULT_CALCULATION_WINDOW_START,
     DEFAULT_CALCULATION_WINDOW_END,
+    DEFAULT_SOLAR_WINDOW_START,
+    DEFAULT_SOLAR_WINDOW_END,
 )
 
 _LOGGER = logging.getLogger(LOGGER_NAME)
@@ -47,6 +49,9 @@ async def async_setup_entry(
         ("calculation_window_end_tomorrow", "Calculation Window End Tomorrow", DEFAULT_CALCULATION_WINDOW_END, "mdi:window-open-variant"),
         ("quiet_hours_start", "Quiet Hours Start", DEFAULT_QUIET_START, "mdi:volume-off"),
         ("quiet_hours_end", "Quiet Hours End", DEFAULT_QUIET_END, "mdi:volume-high"),
+        # Solar production window
+        ("solar_window_start", "Solar Window Start", DEFAULT_SOLAR_WINDOW_START, "mdi:weather-sunset-up"),
+        ("solar_window_end", "Solar Window End", DEFAULT_SOLAR_WINDOW_END, "mdi:weather-sunset-down"),
     ]
 
     for key, name, default, icon in time_configs:

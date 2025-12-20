@@ -90,6 +90,22 @@ DEFAULT_BATTERY_CAPACITY: Final = 10.0
 DEFAULT_LIMIT_DISCHARGE_TO_BUFFER: Final = False
 DEFAULT_USE_BATTERY_BUFFER_SENSOR: Final = False
 
+# Solar production integration defaults
+CONF_SOLAR_WINDOW_START: Final = "solar_window_start"
+CONF_SOLAR_WINDOW_END: Final = "solar_window_end"
+CONF_SOLAR_PRIORITY_STRATEGY: Final = "solar_priority_strategy"
+CONF_EXPECTED_SOLAR_KWH: Final = "expected_solar_kwh"
+
+DEFAULT_SOLAR_WINDOW_START: Final = "09:00:00"
+DEFAULT_SOLAR_WINDOW_END: Final = "19:00:00"
+DEFAULT_SOLAR_PRIORITY_STRATEGY: Final = "base_then_grid"
+DEFAULT_EXPECTED_SOLAR_KWH: Final = 0.0
+
+# Solar strategy options
+SOLAR_STRATEGY_BASE_THEN_GRID: Final = "base_then_grid"
+SOLAR_STRATEGY_BASE_THEN_BATTERY: Final = "base_then_battery"
+SOLAR_PRIORITY_OPTIONS: Final = [SOLAR_STRATEGY_BASE_THEN_GRID, SOLAR_STRATEGY_BASE_THEN_BATTERY]
+
 
 # Default price country (used as fallback)
 # Country formulas are now defined in the formulas/ subpackage
@@ -152,6 +168,7 @@ ATTR_COMPLETED_CHARGE_WINDOWS: Final = "completed_charge_windows"
 ATTR_COMPLETED_DISCHARGE_WINDOWS: Final = "completed_discharge_windows"
 ATTR_COMPLETED_CHARGE_COST: Final = "completed_charge_cost"
 ATTR_COMPLETED_DISCHARGE_REVENUE: Final = "completed_discharge_revenue"
+ATTR_COMPLETED_SOLAR_EXPORT_REVENUE: Final = "completed_solar_export_revenue"
 ATTR_COMPLETED_BASE_USAGE_COST: Final = "completed_base_usage_cost"
 ATTR_COMPLETED_BASE_USAGE_BATTERY: Final = "completed_base_usage_battery"
 ATTR_COMPLETED_CHARGE_KWH: Final = "completed_charge_kwh"
@@ -269,6 +286,14 @@ CALCULATION_AFFECTING_KEYS: Final = {
     "battery_capacity",
     "limit_discharge_to_buffer",
     "discharge_buffer_limit_kwh",
+
+    # Solar production settings
+    "solar_window_start",
+    "solar_window_end",
+    "solar_priority_strategy",
+    "expected_solar_kwh",
+    "expected_solar_kwh_tomorrow",
+    "use_solar_forecast",
 
     # Tomorrow settings
     "tomorrow_settings_enabled",

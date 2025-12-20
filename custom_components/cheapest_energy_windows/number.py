@@ -41,6 +41,8 @@ from .const import (
     # Buffer/chronological calculation defaults
     DEFAULT_BATTERY_BUFFER_KWH,
     DEFAULT_BATTERY_CAPACITY,
+    # Solar production
+    DEFAULT_EXPECTED_SOLAR_KWH,
 )
 from .formulas import get_formula, is_param_active
 
@@ -148,6 +150,17 @@ async def async_setup_entry(
             hass, config_entry, "battery_capacity", "Battery Capacity",
             0.1, 200, DEFAULT_BATTERY_CAPACITY, 0.1, "kWh",
             "mdi:battery", NumberMode.BOX
+        ),
+        # Solar production entities
+        CEWNumber(
+            hass, config_entry, "expected_solar_kwh", "Expected Solar Today",
+            0, 100, DEFAULT_EXPECTED_SOLAR_KWH, 0.1, "kWh",
+            "mdi:solar-power", NumberMode.BOX
+        ),
+        CEWNumber(
+            hass, config_entry, "expected_solar_kwh_tomorrow", "Expected Solar Tomorrow",
+            0, 100, DEFAULT_EXPECTED_SOLAR_KWH, 0.1, "kWh",
+            "mdi:solar-power", NumberMode.BOX
         ),
         # Sell formula parameters (same structure as buy for Belgium/Other)
         # Formula: SELL = (B × spot − A)
