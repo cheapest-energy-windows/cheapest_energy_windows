@@ -1702,6 +1702,9 @@ class WindowCalculationEngine:
         discharge_strategy = config.get("base_usage_discharge_strategy", "subtract_base")
         aggressive_strategy = config.get("base_usage_aggressive_strategy", "same_as_discharge")
 
+        # Get buffer energy early - needed for usable_kwh calculations
+        buffer_energy = self._get_buffer_energy(config, is_tomorrow, hass)
+
         # Get sell price config for revenue calculations
         sell_country = config.get("price_country", DEFAULT_PRICE_COUNTRY)
         sell_param_a = config.get("sell_formula_param_a", DEFAULT_SELL_FORMULA_PARAM_A)
@@ -1882,9 +1885,9 @@ class WindowCalculationEngine:
         # Calculate effective base usage (limit to usable energy if toggle is on)
         battery_rte_pct = config.get("battery_rte", 85)
         battery_rte_decimal = battery_rte_pct / 100
-        # usable_kwh = energy available for base usage = charged - discharged
+        # usable_kwh = energy available for base usage = buffer + charged - discharged
         # Note: RTE is NOT applied here - it only affects battery state simulation, not cost calculations
-        usable_kwh = max(0, net_planned_charge_kwh - net_planned_discharge_kwh)
+        usable_kwh = max(0, buffer_energy + net_planned_charge_kwh - net_planned_discharge_kwh)
         if limit_savings_enabled:
             effective_base_usage_kwh = min(base_usage_kwh, usable_kwh)
         else:
@@ -2357,7 +2360,7 @@ class WindowCalculationEngine:
 
             # Recalculate dependent values
             # Note: RTE is NOT applied here - it only affects battery state simulation, not cost calculations
-            usable_kwh = max(0, net_planned_charge_kwh - net_planned_discharge_kwh)
+            usable_kwh = max(0, buffer_energy + net_planned_charge_kwh - net_planned_discharge_kwh)
             if limit_savings_enabled:
                 effective_base_usage_kwh = min(base_usage_kwh, usable_kwh)
 

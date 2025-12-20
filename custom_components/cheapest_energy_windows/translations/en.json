@@ -241,7 +241,7 @@
       "base_usage_idle_strategy": {
         "name": "Base Usage: During Idle",
         "state": {
-          "battery_covers_limited": "Battery powers house, limited to charged",
+          "battery_covers_limited": "Battery powers house, limited to buffer",
           "battery_covers": "Battery powers house",
           "grid_covers": "Grid powers house"
         }
@@ -306,7 +306,7 @@
     },
     "base_usage_idle_strategy": {
       "options": {
-        "battery_covers_limited": "Battery powers house, limited to charged",
+        "battery_covers_limited": "Battery powers house, limited to buffer",
         "grid_covers": "Grid powers house",
         "battery_covers": "Battery powers house"
       }
