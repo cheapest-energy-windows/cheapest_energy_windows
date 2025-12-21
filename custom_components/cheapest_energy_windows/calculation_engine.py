@@ -1678,9 +1678,10 @@ class WindowCalculationEngine:
                 # Handle excess solar based on strategy
                 if solar_remaining > 0:
                     if solar_priority == "base_then_battery":
-                        # Charge battery with excess solar
+                        # Charge battery with excess solar (limited by charge rate)
                         available_capacity = max(0, battery_capacity - battery_state)
-                        solar_to_batt = min(solar_remaining, available_capacity)
+                        max_charge_this_period = charge_power * duration_hours
+                        solar_to_batt = min(solar_remaining, available_capacity, max_charge_this_period)
                         if solar_to_batt > 0:
                             battery_state += solar_to_batt * battery_rte
                             solar_to_battery_kwh += solar_to_batt
