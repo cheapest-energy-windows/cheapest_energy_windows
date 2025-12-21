@@ -348,6 +348,7 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             "solar_priority_strategy": options.get("solar_priority_strategy", DEFAULT_SOLAR_PRIORITY_STRATEGY),
             "expected_solar_kwh": float(options.get("expected_solar_kwh", DEFAULT_EXPECTED_SOLAR_KWH)),
             "expected_solar_kwh_tomorrow": float(options.get("expected_solar_kwh_tomorrow", DEFAULT_EXPECTED_SOLAR_KWH)),
+            "use_solar_forecast": bool(options.get("use_solar_forecast", True)),
 
             # Time values
             "time_override_start": options.get("time_override_start", DEFAULT_TIME_OVERRIDE_START),
