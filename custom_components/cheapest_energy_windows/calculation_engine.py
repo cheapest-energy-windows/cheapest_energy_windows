@@ -1915,6 +1915,11 @@ class WindowCalculationEngine:
         charge_timestamps = {w["timestamp"] for w in actual_charge}
         discharge_timestamps = {w["timestamp"] for w in actual_discharge}
 
+        # Track remaining battery for base usage
+        # Use buffer_energy which already accounts for sensor reading (from _get_buffer_energy)
+        # This tracks battery draining during idle periods
+        remaining_battery_for_base = buffer_energy
+
         # Use all_prices (not filtered by calculation window) for base usage calculations
         # Base usage should cover full 24h regardless of calculation window
         for price_data in all_prices:
@@ -1930,16 +1935,23 @@ class WindowCalculationEngine:
                         completed_base_usage_cost += price_data["price"] * duration_hours * base_usage
                         completed_base_grid_kwh += duration_hours * base_usage
                     else:  # battery_covers or battery_covers_limited
-                        # Battery provides base usage, but only if battery actually has capacity
-                        # Check if buffer_energy > 0 OR battery sensor is configured and available
-                        use_sensor = config.get("use_battery_buffer_sensor", False)
-                        sensor_entity = config.get("battery_available_energy_sensor", "")
-                        has_battery_capacity = buffer_energy > 0.01 or (use_sensor and sensor_entity)
+                        # Battery provides base usage, tracking battery draining
+                        base_kwh_needed = duration_hours * base_usage
 
-                        if has_battery_capacity:
-                            completed_base_usage_battery += duration_hours * base_usage
+                        if remaining_battery_for_base >= base_kwh_needed:
+                            # Battery can cover full period
+                            completed_base_usage_battery += base_kwh_needed
+                            remaining_battery_for_base -= base_kwh_needed
+                        elif remaining_battery_for_base > 0:
+                            # Battery covers partial, grid covers rest
+                            completed_base_usage_battery += remaining_battery_for_base
+                            grid_kwh = base_kwh_needed - remaining_battery_for_base
+                            grid_hours = grid_kwh / base_usage
+                            completed_base_usage_cost += price_data["price"] * grid_hours * base_usage
+                            completed_base_grid_kwh += grid_kwh
+                            remaining_battery_for_base = 0
                         else:
-                            # No battery available, grid must cover base usage
+                            # Battery empty, grid covers all
                             completed_base_usage_cost += price_data["price"] * duration_hours * base_usage
                             completed_base_grid_kwh += duration_hours * base_usage
 
@@ -2109,7 +2121,8 @@ class WindowCalculationEngine:
 
         charged_kwh = len(actual_charge) * window_duration_hours * effective_charge_power
         # Note: RTE is NOT applied here - it only affects battery state simulation, not cost calculations
-        usable_kwh = charged_kwh  # No RTE penalty on cost calculations
+        # Include starting buffer in usable energy for base usage coverage
+        usable_kwh = charged_kwh + buffer_energy
         discharged_kwh = len(actual_discharge) * window_duration_hours * effective_discharge_power
         remaining_kwh = usable_kwh - discharged_kwh
 
@@ -2537,9 +2550,12 @@ class WindowCalculationEngine:
                     net_export = max(0, discharge_power - base_usage)
                     planned_discharge_revenue += sell_price * duration_hours * net_export
 
-            # Include solar export revenue from chrono simulation (future) AND completed (past)
+            # Include solar benefits from chrono simulation
+            # solar_export_revenue: Revenue from selling excess solar to grid
+            # grid_savings_from_solar: Avoided grid costs from solar covering base usage
             solar_export_revenue = chrono_result.get("solar_export_revenue", 0.0)
-            planned_total_cost = round(planned_charge_cost + planned_base_usage_cost - planned_discharge_revenue - solar_export_revenue - completed_solar_export_revenue, 3)
+            grid_savings_from_solar = chrono_result.get("grid_savings_from_solar", 0.0)
+            planned_total_cost = round(planned_charge_cost + planned_base_usage_cost - planned_discharge_revenue - solar_export_revenue - completed_solar_export_revenue - grid_savings_from_solar, 3)
 
             # Recalculate uncovered cost after chrono filtering (battery_covers_limited fallback to grid)
             if limit_savings_enabled and usable_kwh < base_usage_kwh:
@@ -2609,7 +2625,7 @@ class WindowCalculationEngine:
             "completed_net_grid_kwh": round(completed_charge_kwh + completed_base_grid_kwh - completed_discharge_kwh, 3),
             "uncovered_base_usage_kwh": round(uncovered_kwh, 3),
             "uncovered_base_usage_cost": round(uncovered_cost, 3),
-            "total_cost": round(completed_charge_cost + completed_base_usage_cost + completed_uncovered_cost - completed_discharge_revenue - completed_solar_export_revenue, 3),
+            "total_cost": round(completed_charge_cost + completed_base_usage_cost - completed_discharge_revenue - completed_solar_export_revenue, 3),
             "planned_total_cost": planned_total_cost,
             "planned_charge_cost": round(planned_charge_cost, 3),
             "planned_discharge_revenue": round(planned_discharge_revenue, 3),
