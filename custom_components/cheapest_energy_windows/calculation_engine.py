@@ -2677,6 +2677,8 @@ class WindowCalculationEngine:
             "discharge_profit_pct": round(discharge_profit_pct, 1),  # Buy-sell profit for discharge
             "charge_profit_met": bool(charge_profit_pct >= min_profit_charge),
             "discharge_profit_met": bool(discharge_profit_pct >= min_profit_discharge),
+            "spread_avg": round(spread_avg, 1),  # Buy price spread (%)
+            "arbitrage_avg": round(arbitrage_avg, 1),  # Sell price spread (%)
             "avg_cheap_price": round(avg_cheap, 5),
             "avg_expensive_price": round(avg_expensive, 5),
             "current_price": round(current_price, 5) if current_price else 0,
@@ -2902,6 +2904,8 @@ class WindowCalculationEngine:
             "discharge_profit_pct": 0,
             "charge_profit_met": False,
             "discharge_profit_met": False,
+            "spread_avg": 0,
+            "arbitrage_avg": 0,
             "avg_cheap_price": 0,
             "avg_expensive_price": 0,
             "current_price": 0,

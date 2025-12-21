@@ -36,9 +36,7 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Cheapest Energy Windows from a config entry."""
-    _LOGGER.info("="*60)
-    _LOGGER.info("INTEGRATION SETUP START")
-    _LOGGER.info("="*60)
+    _LOGGER.info("Setting up Cheapest Energy Windows integration")
 
     # Store domain data
     hass.data.setdefault(DOMAIN, {})
@@ -54,9 +52,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         sw_version=VERSION,
     )
 
-    # No entity creation needed - platforms will create their own entities
-    _LOGGER.info("Setting up Cheapest Energy Windows integration")
-
     # Set up the coordinator for data fetching
     coordinator = CEWCoordinator(hass, entry)
 
@@ -66,14 +61,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     }
 
     # Set up platforms FIRST so entities exist
-    _LOGGER.info(f"Setting up platforms: {PLATFORMS}")
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-    _LOGGER.info("All platforms set up successfully")
 
     # NOW do the first coordinator refresh after entities exist
-    _LOGGER.info("Triggering first coordinator refresh")
     await coordinator.async_config_entry_first_refresh()
-    _LOGGER.info("First coordinator refresh complete")
 
     # Set up services
     await async_setup_services(hass)
@@ -99,12 +90,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Register update listener
     entry.async_on_unload(entry.add_update_listener(async_update_options))
 
-    _LOGGER.info("="*60)
-    _LOGGER.info("INTEGRATION SETUP COMPLETE")
-    _LOGGER.info("="*60)
-
-    # Migration from YAML no longer needed - entities are created automatically
-
+    _LOGGER.info("Integration setup complete")
     return True
 
 
@@ -138,6 +124,30 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             _LOGGER.info("Services unregistered successfully")
 
     return unload_ok
+
+
+async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Reload the config entry - ensures module cache is cleared."""
+    import sys
+
+    _LOGGER.info("Reloading Cheapest Energy Windows integration")
+
+    # Clear formula registry cache before unload
+    from .formulas import clear_registry
+    clear_registry()
+
+    # Clear cached modules from sys.modules to pick up code changes
+    modules_to_remove = [
+        key for key in list(sys.modules.keys())
+        if key.startswith("custom_components.cheapest_energy_windows")
+    ]
+    for mod in modules_to_remove:
+        sys.modules.pop(mod, None)
+    _LOGGER.info(f"Cleared {len(modules_to_remove)} cached modules")
+
+    # Standard reload: unload + setup
+    await async_unload_entry(hass, entry)
+    await async_setup_entry(hass, entry)
 
 
 async def async_update_options(hass: HomeAssistant, entry: ConfigEntry) -> None:

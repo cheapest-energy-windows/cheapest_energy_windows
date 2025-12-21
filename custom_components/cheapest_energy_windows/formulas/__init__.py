@@ -82,6 +82,13 @@ def discover_formulas() -> Dict[str, CountryFormula]:
     return _registry
 
 
+def clear_registry() -> None:
+    """Clear the formula registry cache for reload support."""
+    global _registry, _discovered
+    _registry = {}
+    _discovered = False
+
+
 def get_formula(country_id: str) -> Optional[CountryFormula]:
     """Get a formula by country ID.
 
@@ -168,6 +175,7 @@ __all__ = [
     "FormulaParam",
     "ParamType",
     "discover_formulas",
+    "clear_registry",
     "get_formula",
     "get_all_formulas",
     "get_country_options",
