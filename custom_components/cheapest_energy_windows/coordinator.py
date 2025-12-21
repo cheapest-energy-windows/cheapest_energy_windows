@@ -75,47 +75,26 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 
     async def _async_update_data(self) -> Dict[str, Any]:
         """Fetch data from price sensor."""
-        _LOGGER.info("="*60)
-        _LOGGER.info("COORDINATOR UPDATE START")
-        _LOGGER.info("="*60)
-
         try:
             # Always use the proxy sensor which normalizes different price sensor formats
-            # The proxy sensor handles both Nord Pool and ENTSO-E formats
             price_sensor = "sensor.cew_price_sensor_proxy"
-            _LOGGER.info(f"Using proxy price sensor: {price_sensor}")
-
-            # Get the price sensor state
             price_state = self.hass.states.get(price_sensor)
-            _LOGGER.info(f"Price sensor state exists: {price_state is not None}")
 
             if not price_state:
-                _LOGGER.warning(f"Price sensor {price_sensor} not found, returning empty data")
-                _LOGGER.info(f"Available sensors: {[e for e in self.hass.states.async_entity_ids() if 'nordpool' in e or 'price' in e]}")
+                _LOGGER.warning(f"Price sensor {price_sensor} not found")
                 return await self._empty_data(f"Price sensor {price_sensor} not found")
-
-            _LOGGER.info(f"Price sensor state: {price_state.state}")
-            _LOGGER.info(f"Price sensor attributes keys: {list(price_state.attributes.keys())}")
 
             # Extract price data
             raw_today = price_state.attributes.get("raw_today", [])
             raw_tomorrow = price_state.attributes.get("raw_tomorrow", [])
             tomorrow_valid = price_state.attributes.get("tomorrow_valid", False)
 
-            _LOGGER.info(f"Raw today count: {len(raw_today)}")
-            _LOGGER.info(f"Raw tomorrow count: {len(raw_tomorrow)}")
-            _LOGGER.info(f"Tomorrow valid: {tomorrow_valid}")
-
             if not raw_today:
                 _LOGGER.warning("No price data available for today")
-                _LOGGER.info(f"raw_today value: {raw_today}")
                 return await self._empty_data("No price data available")
 
             # Get configuration from config entry options (Layer 1: no race conditions)
             config = await self._get_configuration()
-            _LOGGER.debug(f"Config keys loaded: {list(config.keys())}")
-            _LOGGER.debug(f"Automation enabled: {config.get('automation_enabled', 'NOT SET')}")
-            _LOGGER.debug(f"Charging windows: {config.get('charging_windows', 'NOT SET')}")
 
             # Layer 2: Detect what changed
             now = dt_util.now()
@@ -152,32 +131,27 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             current_config_hash = _config_hash(config)
             previous_config_hash = self._previous_config_hash
 
-            _LOGGER.debug(f"Today hash: {current_today_hash} vs {previous_today_hash}")
-            _LOGGER.debug(f"Tomorrow hash: {current_tomorrow_hash} vs {previous_tomorrow_hash}")
-            _LOGGER.debug(f"Config hash: {current_config_hash} vs {previous_config_hash}")
-
             # Check if this is the first load (no previous data)
             if not previous_today_hash and not previous_tomorrow_hash:
-                # First load after restart/reload - treat as initialization, not a real update
+                # First load after restart/reload - treat as initialization
                 is_first_load = True
                 config_changed = True  # Treat as config change to avoid state transitions
                 self._last_config_update = now
                 self._persistent_state["last_config_update"] = now
-                _LOGGER.info("FIRST LOAD - Initializing without triggering state changes")
+                _LOGGER.info("Coordinator: First load - initializing")
             elif current_today_hash != previous_today_hash or current_tomorrow_hash != previous_tomorrow_hash:
                 price_data_changed = True
                 self._last_price_update = now
                 self._persistent_state["last_price_update"] = now
-                _LOGGER.info("PRICE DATA CHANGED - This is a real update")
+                _LOGGER.info("Coordinator: Price data changed")
             elif previous_config_hash and current_config_hash != previous_config_hash:
                 config_changed = True
                 self._last_config_update = now
                 self._persistent_state["last_config_update"] = now
-                _LOGGER.info("CONFIG CHANGED - User updated settings")
+                _LOGGER.info("Coordinator: Config changed")
             else:
                 # Nothing changed - this is a scheduled update for time-based state changes
                 scheduled_update = True
-                _LOGGER.info("SCHEDULED UPDATE - No price or config changes")
 
             # Store current price data and config hash for next comparison
             self._previous_raw_today = raw_today.copy() if raw_today else []
@@ -188,7 +162,7 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             self._persistent_state["previous_config_hash"] = current_config_hash
 
             # Process the data with metadata
-            data = {
+            return {
                 "price_sensor": price_sensor,
                 "raw_today": raw_today,
                 "raw_tomorrow": raw_tomorrow,
@@ -204,16 +178,8 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 "last_config_update": self._last_config_update,
             }
 
-            _LOGGER.info(f"Data structure keys: {list(data.keys())}")
-            _LOGGER.info(f"Price data changed: {price_data_changed}")
-            _LOGGER.info(f"Config changed: {config_changed}")
-            _LOGGER.info("COORDINATOR UPDATE SUCCESS")
-            _LOGGER.info("="*60)
-            return data
-
         except Exception as e:
-            _LOGGER.error(f"COORDINATOR UPDATE FAILED: {e}", exc_info=True)
-            _LOGGER.info("="*60)
+            _LOGGER.error(f"Coordinator update failed: {e}", exc_info=True)
             raise UpdateFailed(f"Error fetching data: {e}") from e
 
 
@@ -256,8 +222,6 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         )
 
         options = self.config_entry.options
-
-        _LOGGER.debug(f"Building config from options. calculation_window_enabled raw value: {options.get('calculation_window_enabled', 'NOT SET')}")
 
         # Number values with defaults
         config = {
@@ -367,8 +331,6 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 
     async def async_request_refresh(self) -> None:
         """Request an immediate coordinator refresh."""
-        _LOGGER.debug("Refresh requested, executing immediately")
-        # Call the parent's async_refresh() to fetch new data and update sensors
         await super(CEWCoordinator, self).async_refresh()
 
     def get_config_value(self, key: str, default: Any = None) -> Any:

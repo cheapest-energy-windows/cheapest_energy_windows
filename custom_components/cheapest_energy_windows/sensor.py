@@ -51,13 +51,6 @@ from .const import (
     ATTR_PLANNED_TOTAL_COST,
     ATTR_PLANNED_CHARGE_COST,
     ATTR_NUM_WINDOWS,
-    ATTR_MIN_SPREAD_REQUIRED,
-    ATTR_SPREAD_PERCENTAGE,
-    ATTR_SPREAD_MET,
-    ATTR_SPREAD_AVG,
-    ATTR_ARBITRAGE_AVG,
-    ATTR_ACTUAL_SPREAD_AVG,
-    ATTR_DISCHARGE_SPREAD_MET,
     # Profit-based attributes (v1.2.0+)
     ATTR_CHARGE_PROFIT_PCT,
     ATTR_DISCHARGE_PROFIT_PCT,
@@ -209,29 +202,18 @@ class CEWTodaySensor(CEWBaseSensor):
     @callback
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
-        _LOGGER.debug("-"*60)
-        _LOGGER.debug(f"SENSOR UPDATE: {self._sensor_type}")
-        _LOGGER.debug(f"Coordinator data exists: {self.coordinator.data is not None}")
-
         if not self.coordinator.data:
-            # No coordinator data - maintain previous state if we have one
-            # This prevents brief unavailable states during updates
             if self._previous_state is not None:
-                _LOGGER.debug("No coordinator data, maintaining previous state")
-                # Use previous values and skip write - sensor already has correct state
                 return
-            else:
-                _LOGGER.debug("No coordinator data and no previous state, defaulting to OFF")
-                new_state = STATE_OFF
-                new_attributes = {}
-                self._attr_native_value = new_state
-                self._attr_extra_state_attributes = new_attributes
-                self._previous_state = new_state
-                self._previous_attributes = new_attributes.copy() if new_attributes else None
-                self.async_write_ha_state()
-                return
+            new_state = STATE_OFF
+            new_attributes = {}
+            self._attr_native_value = new_state
+            self._attr_extra_state_attributes = new_attributes
+            self._previous_state = new_state
+            self._previous_attributes = new_attributes.copy() if new_attributes else None
+            self.async_write_ha_state()
+            return
 
-        # Layer 3: Check what changed
         price_data_changed = self.coordinator.data.get("price_data_changed", True)
         config_changed = self.coordinator.data.get("config_changed", False)
         is_first_load = self.coordinator.data.get("is_first_load", False)
@@ -240,90 +222,38 @@ class CEWTodaySensor(CEWBaseSensor):
         config = self.coordinator.data.get("config", {})
         current_automation_enabled = config.get("automation_enabled", True)
 
-        # Check if calculation-affecting config changed
         current_calc_config_hash = self._calc_config_hash(config, is_tomorrow=False)
         calc_config_changed = (
             self._previous_calc_config_hash is None or
             self._previous_calc_config_hash != current_calc_config_hash
         )
 
-        _LOGGER.debug(f"Price data changed: {price_data_changed}")
-        _LOGGER.debug(f"Config changed: {config_changed}")
-        _LOGGER.debug(f"Is first load: {is_first_load}")
-        _LOGGER.debug(f"Scheduled update: {scheduled_update}")
-        _LOGGER.debug(f"Automation enabled: {current_automation_enabled} (was: {self._previous_automation_enabled})")
-        _LOGGER.debug(f"Calc config hash: {current_calc_config_hash} (was: {self._previous_calc_config_hash})")
-        _LOGGER.debug(f"Calc config changed: {calc_config_changed}")
-
-        # Check if automation_enabled changed - this requires recalculation
-        # Only detect change if we have a previous value (not on very first load)
-        automation_enabled_changed = (
-            self._previous_automation_enabled is not None and
-            self._previous_automation_enabled != current_automation_enabled
-        )
-
-        # Only skip recalculation for non-calculation config changes
-        # Always recalculate for:
-        # - First load
-        # - Price data changed
-        # - Calculation config changed
-        # - Scheduled updates (needed for time-based state changes)
+        # Skip recalculation for non-calculation config changes
         if config_changed and not price_data_changed and not is_first_load and not calc_config_changed and not scheduled_update:
-            # Non-calculation config change (notifications, etc.) - maintain current state
-            _LOGGER.debug("Non-calculation config change, skipping recalculation to prevent spurious state changes")
             return
 
         if calc_config_changed:
-            _LOGGER.info(f"Calculation config changed, forcing recalculation")
+            _LOGGER.info("Today: Calculation config changed, recalculating")
 
-        if scheduled_update:
-            _LOGGER.debug("Scheduled update - recalculating for time-based state changes")
-
-        # On first load, we need to calculate to set initial state even though it's a config change
-        if is_first_load:
-            _LOGGER.debug("First load - calculating initial state")
-
-
-        # Price data changed OR first run - proceed with recalculation
         raw_today = self.coordinator.data.get("raw_today", [])
 
-        _LOGGER.debug(f"Raw today length: {len(raw_today)}")
-        _LOGGER.debug(f"Config keys: {len(list(config.keys()))} items")
-        _LOGGER.debug(f"Automation enabled: {config.get('automation_enabled')}")
-
-        # Calculate windows and state
         if raw_today:
-            _LOGGER.debug("Calculating windows...")
-
             result = self._calculation_engine.calculate_windows(
                 raw_today, config, is_tomorrow=False, hass=self.coordinator.hass
             )
-
-            calculated_state = result.get("state", STATE_OFF)
-            _LOGGER.debug(f"Calculated state: {calculated_state}")
-            _LOGGER.debug(f"Charge windows: {len(result.get('cheapest_times', []))}")
-            _LOGGER.debug(f"Discharge windows: {len(result.get('expensive_times', []))}")
-
-            new_state = calculated_state
+            new_state = result.get("state", STATE_OFF)
             new_attributes = self._build_attributes(result)
         else:
-            # No data available
             automation_enabled = config.get("automation_enabled", True)
-            state = STATE_OFF if not automation_enabled else STATE_IDLE
-            _LOGGER.debug(f"No raw_today data, setting state to: {state}")
-
-            new_state = state
+            new_state = STATE_OFF if not automation_enabled else STATE_IDLE
             new_attributes = self._build_attributes({})
 
-        # Only update if state or attributes have changed
         state_changed = new_state != self._previous_state
         attributes_changed = new_attributes != self._previous_attributes
 
         if state_changed or attributes_changed:
             if state_changed:
-                _LOGGER.info(f"State changed: {self._previous_state} → {new_state}")
-            else:
-                _LOGGER.debug("Attributes changed, updating sensor")
+                _LOGGER.info(f"Today: {self._previous_state} → {new_state}")
 
             self._attr_native_value = new_state
             self._attr_extra_state_attributes = new_attributes
@@ -333,13 +263,8 @@ class CEWTodaySensor(CEWBaseSensor):
             self._previous_calc_config_hash = current_calc_config_hash
             self._persistent_sensor_state["previous_automation_enabled"] = current_automation_enabled
             self._persistent_sensor_state["previous_calc_config_hash"] = current_calc_config_hash
-
-            _LOGGER.debug(f"Final state: {self._attr_native_value}")
-            _LOGGER.debug("-"*60)
             self.async_write_ha_state()
         else:
-            _LOGGER.debug("No changes detected, maintaining current state")
-            # Still update tracking even if state didn't change
             self._previous_automation_enabled = current_automation_enabled
             self._previous_calc_config_hash = current_calc_config_hash
             self._persistent_sensor_state["previous_automation_enabled"] = current_automation_enabled
@@ -381,14 +306,6 @@ class CEWTodaySensor(CEWBaseSensor):
             ATTR_DISCHARGE_PROFIT_PCT: result.get("discharge_profit_pct", 0.0),
             ATTR_CHARGE_PROFIT_MET: result.get("charge_profit_met", False),
             ATTR_DISCHARGE_PROFIT_MET: result.get("discharge_profit_met", False),
-            # Legacy spread attributes (deprecated, kept for backwards compatibility)
-            ATTR_MIN_SPREAD_REQUIRED: result.get("min_spread_required", 0.0),
-            ATTR_SPREAD_PERCENTAGE: result.get("spread_percentage", 0.0),
-            ATTR_SPREAD_MET: result.get("spread_met", False),
-            ATTR_SPREAD_AVG: result.get("spread_avg", 0.0),
-            ATTR_ARBITRAGE_AVG: result.get("arbitrage_avg", 0.0),
-            ATTR_ACTUAL_SPREAD_AVG: result.get("actual_spread_avg", 0.0),
-            ATTR_DISCHARGE_SPREAD_MET: result.get("discharge_spread_met", False),
             ATTR_AVG_CHEAP_PRICE: result.get("avg_cheap_price", 0.0),
             ATTR_AVG_EXPENSIVE_PRICE: result.get("avg_expensive_price", 0.0),
             ATTR_CURRENT_PRICE: result.get("current_price", 0.0),
@@ -583,13 +500,6 @@ class CEWTomorrowSensor(CEWBaseSensor):
             ATTR_DISCHARGE_PROFIT_PCT: result.get("discharge_profit_pct", 0.0),
             ATTR_CHARGE_PROFIT_MET: result.get("charge_profit_met", False),
             ATTR_DISCHARGE_PROFIT_MET: result.get("discharge_profit_met", False),
-            # Legacy spread attributes (deprecated, kept for backwards compatibility)
-            ATTR_MIN_SPREAD_REQUIRED: result.get("min_spread_required", 0.0),
-            ATTR_SPREAD_PERCENTAGE: result.get("spread_percentage", 0.0),
-            ATTR_SPREAD_MET: result.get("spread_met", False),
-            ATTR_SPREAD_AVG: result.get("spread_avg", 0.0),
-            ATTR_ARBITRAGE_AVG: result.get("arbitrage_avg", 0.0),
-            ATTR_ACTUAL_SPREAD_AVG: result.get("actual_spread_avg", 0.0),
             ATTR_AVG_CHEAP_PRICE: result.get("avg_cheap_price", 0.0),
             ATTR_AVG_EXPENSIVE_PRICE: result.get("avg_expensive_price", 0.0),
             ATTR_CURRENT_SELL_PRICE: result.get("current_sell_price", 0.0),

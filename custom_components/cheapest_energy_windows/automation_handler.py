@@ -1,20 +1,14 @@
 """Automation handler for Cheapest Energy Windows."""
 from __future__ import annotations
 
-from datetime import datetime, time
 import logging
-from typing import Optional
 
-from homeassistant.const import STATE_ON
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.event import async_track_state_change_event
 
 from .const import (
-    DOMAIN,
     LOGGER_NAME,
     PREFIX,
-    STATE_IDLE,
-    STATE_OFF,
 )
 
 _LOGGER = logging.getLogger(LOGGER_NAME)
@@ -34,8 +28,6 @@ class AutomationHandler:
         """Initialize the automation handler."""
         self.hass = hass
         self._state_listener = None
-        self._last_state = None
-        self._last_meaningful_state = None  # Track last non-unavailable state
 
     async def async_setup(self) -> None:
         """Set up automation handlers."""
@@ -72,11 +64,6 @@ class AutomationHandler:
             # Skip if state hasn't actually changed
             if old_state_value == new_state.state:
                 return
-
-            # Track state changes for debugging
-            self._last_state = new_state.state
-            if new_state.state != "unavailable":
-                self._last_meaningful_state = new_state.state
 
             # Log the state change
             _LOGGER.debug(

@@ -109,7 +109,7 @@ action:
 
                         Charge power: {{ states('number.cew_charge_power') }}W
 
-                        Spread: {{ state_attr('sensor.cew_today', 'spread_avg') | float(0) | round(1) }}%
+                        Profit: {{ state_attr('sensor.cew_today', 'charge_profit_pct') | float(0) | round(1) }}%
             default: []
 
           # Execute linked automation/script/scene if configured
@@ -252,7 +252,7 @@ action:
 
                         Discharge power: {{ states('number.cew_discharge_power') }}W
 
-                        Spread: {{ state_attr('sensor.cew_today', 'spread_avg') | float(0) | round(1) }}%
+                        Profit: {{ state_attr('sensor.cew_today', 'charge_profit_pct') | float(0) | round(1) }}%
             default: []
 
           # Execute linked automation/script/scene if configured
@@ -309,7 +309,7 @@ action:
                       message: >-
                         Current price: €{{ state_attr('sensor.cew_today', 'current_price') | float(0) | round(5) }}/kWh
 
-                        Spread: {{ state_attr('sensor.cew_today', 'spread_avg') | float(0) | round(1) }}%
+                        Profit: {{ state_attr('sensor.cew_today', 'charge_profit_pct') | float(0) | round(1) }}%
             default: []
 
           # Execute linked automation/script/scene if configured
@@ -516,7 +516,7 @@ action:
 #    - Current price: {{ state_attr('sensor.cew_today', 'current_price') }}
 #    - Charge power: {{ states('number.cew_charge_power') }}
 #    - Discharge power: {{ states('number.cew_discharge_power') }}
-#    - Spread: {{ state_attr('sensor.cew_today', 'spread_avg') }}
+#    - Profit: {{ state_attr('sensor.cew_today', 'charge_profit_pct') }}
 #    - Window times: {{ state_attr('sensor.cew_today', 'cheapest_times') }}
 #
 ###############################################################################

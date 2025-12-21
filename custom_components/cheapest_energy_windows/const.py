@@ -63,9 +63,6 @@ DEFAULT_PERCENTILE_THRESHOLD: Final = 25
 DEFAULT_MIN_PROFIT_CHARGE: Final = 10
 DEFAULT_MIN_PROFIT_DISCHARGE: Final = 10
 
-# Legacy spread defaults (deprecated, kept for migration)
-DEFAULT_MIN_SPREAD: Final = 30
-DEFAULT_MIN_SPREAD_DISCHARGE: Final = 30
 DEFAULT_MIN_PRICE_DIFFERENCE: Final = 0.05
 DEFAULT_PRICE_OVERRIDE_THRESHOLD: Final = 0.15
 DEFAULT_BATTERY_RTE: Final = 85
@@ -185,14 +182,6 @@ ATTR_DISCHARGE_PROFIT_PCT: Final = "discharge_profit_pct"
 ATTR_CHARGE_PROFIT_MET: Final = "charge_profit_met"
 ATTR_DISCHARGE_PROFIT_MET: Final = "discharge_profit_met"
 
-# Legacy spread attributes (deprecated, kept for backwards compatibility)
-ATTR_MIN_SPREAD_REQUIRED: Final = "min_spread_required"
-ATTR_SPREAD_PERCENTAGE: Final = "spread_percentage"
-ATTR_SPREAD_MET: Final = "spread_met"
-ATTR_SPREAD_AVG: Final = "spread_avg"
-ATTR_ARBITRAGE_AVG: Final = "arbitrage_avg"
-ATTR_ACTUAL_SPREAD_AVG: Final = "actual_spread_avg"
-ATTR_DISCHARGE_SPREAD_MET: Final = "discharge_spread_met"
 ATTR_AVG_CHEAP_PRICE: Final = "avg_cheap_price"
 ATTR_AVG_EXPENSIVE_PRICE: Final = "avg_expensive_price"
 ATTR_CURRENT_PRICE: Final = "current_price"
@@ -233,10 +222,6 @@ CALCULATION_AFFECTING_KEYS: Final = {
     # Profit thresholds (v1.2.0+)
     "min_profit_charge",
     "min_profit_discharge",
-
-    # Legacy spread settings (deprecated, but still trigger refresh for migration)
-    "min_spread",
-    "min_spread_discharge",
 
     # Unified price country
     "price_country",
@@ -300,8 +285,6 @@ CALCULATION_AFFECTING_KEYS: Final = {
     "charging_windows_tomorrow",
     "expensive_windows_tomorrow",
     "percentile_threshold_tomorrow",
-    "min_spread_tomorrow",
-    "min_spread_discharge_tomorrow",
     "min_price_difference_tomorrow",
     "min_price_diff_enabled_tomorrow",
     "price_override_enabled_tomorrow",
@@ -322,10 +305,6 @@ CALCULATION_AFFECTING_KEYS: Final = {
     # Tomorrow profit thresholds (v1.2.0+)
     "min_profit_charge_tomorrow",
     "min_profit_discharge_tomorrow",
-
-    # Legacy tomorrow spread settings (deprecated)
-    "min_spread_tomorrow",
-    "min_spread_discharge_tomorrow",
 
 }
 

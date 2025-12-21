@@ -2677,14 +2677,6 @@ class WindowCalculationEngine:
             "discharge_profit_pct": round(discharge_profit_pct, 1),  # Buy-sell profit for discharge
             "charge_profit_met": bool(charge_profit_pct >= min_profit_charge),
             "discharge_profit_met": bool(discharge_profit_pct >= min_profit_discharge),
-            # Legacy spread attributes (deprecated, kept for backwards compatibility)
-            "min_spread_required": config.get("min_profit_charge", 10),  # Map to new name
-            "spread_percentage": round(arbitrage_avg, 1),  # For operational spread check (sell vs buy)
-            "spread_met": bool(charge_profit_pct >= min_profit_charge),  # Map to profit check
-            "spread_avg": round(spread_avg, 1),  # Buy vs buy (price volatility)
-            "arbitrage_avg": round(arbitrage_avg, 1),  # Sell vs buy (arbitrage margin)
-            "actual_spread_avg": round(spread_avg, 1),  # For backwards compatibility
-            "discharge_spread_met": bool(discharge_profit_pct >= min_profit_discharge),  # Map to profit check
             "avg_cheap_price": round(avg_cheap, 5),
             "avg_expensive_price": round(avg_expensive, 5),
             "current_price": round(current_price, 5) if current_price else 0,
@@ -2910,14 +2902,6 @@ class WindowCalculationEngine:
             "discharge_profit_pct": 0,
             "charge_profit_met": False,
             "discharge_profit_met": False,
-            # Legacy spread attributes (deprecated)
-            "min_spread_required": 0,
-            "spread_percentage": 0,
-            "spread_met": False,
-            "spread_avg": 0,
-            "arbitrage_avg": 0,
-            "actual_spread_avg": 0,
-            "discharge_spread_met": False,
             "avg_cheap_price": 0,
             "avg_expensive_price": 0,
             "current_price": 0,
