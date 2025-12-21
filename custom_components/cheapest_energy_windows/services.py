@@ -287,7 +287,6 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             ("min_spread_tomorrow", "min_spread"),
             ("min_spread_discharge_tomorrow", "min_spread_discharge"),
             ("aggressive_discharge_spread_tomorrow", "aggressive_discharge_spread"),
-            ("min_price_difference_tomorrow", "min_price_difference"),
             # Price override
             ("price_override_threshold_tomorrow", "price_override_threshold"),
         ]

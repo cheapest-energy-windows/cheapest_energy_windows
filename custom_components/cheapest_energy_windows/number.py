@@ -203,7 +203,6 @@ async def async_setup_entry(
         # Profit thresholds (v1.2.0+)
         ("min_profit_charge_tomorrow", "Min Profit Charge Tomorrow", DEFAULT_MIN_PROFIT_CHARGE, 200, "%"),
         ("min_profit_discharge_tomorrow", "Min Profit Discharge Tomorrow", DEFAULT_MIN_PROFIT_DISCHARGE, 200, "%"),
-        ("min_price_difference_tomorrow", "Min Price Difference Tomorrow", DEFAULT_MIN_PRICE_DIFFERENCE, 0.5, "EUR/kWh"),
         ("price_override_threshold_tomorrow", "Price Override Threshold Tomorrow", DEFAULT_PRICE_OVERRIDE_THRESHOLD, 0.5, "EUR/kWh"),
         ("battery_buffer_kwh_tomorrow", "Battery Buffer Energy Tomorrow", DEFAULT_BATTERY_BUFFER_KWH, 100, "kWh"),
     ]

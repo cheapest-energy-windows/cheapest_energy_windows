@@ -285,7 +285,6 @@ CALCULATION_AFFECTING_KEYS: Final = {
     "charging_windows_tomorrow",
     "expensive_windows_tomorrow",
     "percentile_threshold_tomorrow",
-    "min_price_difference_tomorrow",
     "price_override_enabled_tomorrow",
     "price_override_threshold_tomorrow",
     "time_override_enabled_tomorrow",
