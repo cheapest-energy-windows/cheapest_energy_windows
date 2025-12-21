@@ -243,6 +243,12 @@ class CEWTodaySensor(CEWBaseSensor):
             )
             new_state = result.get("state", STATE_OFF)
             new_attributes = self._build_attributes(result)
+
+            # Store today's projected end-of-day battery state for tomorrow's calculation
+            if config.get("use_projected_buffer_tomorrow", False):
+                today_end_state = result.get("battery_state_end_of_day", 0.0)
+                self.coordinator.data["_projected_buffer_tomorrow"] = today_end_state
+                _LOGGER.debug(f"Stored projected buffer for tomorrow: {today_end_state} kWh")
         else:
             automation_enabled = config.get("automation_enabled", True)
             new_state = STATE_OFF if not automation_enabled else STATE_IDLE
@@ -441,6 +447,14 @@ class CEWTomorrowSensor(CEWBaseSensor):
         raw_tomorrow = self.coordinator.data.get("raw_tomorrow", [])
 
         if tomorrow_valid and raw_tomorrow:
+            # Use today's projected end-of-day as tomorrow's starting buffer (if enabled)
+            if config.get("use_projected_buffer_tomorrow", False):
+                projected = self.coordinator.data.get("_projected_buffer_tomorrow")
+                if projected is not None:
+                    config = config.copy()  # Don't mutate original
+                    config["_projected_buffer_tomorrow"] = projected
+                    _LOGGER.debug(f"Tomorrow using projected buffer from today: {projected} kWh")
+
             # Calculate tomorrow's windows
             result = self._calculation_engine.calculate_windows(
                 raw_tomorrow, config, is_tomorrow=True, hass=self.coordinator.hass

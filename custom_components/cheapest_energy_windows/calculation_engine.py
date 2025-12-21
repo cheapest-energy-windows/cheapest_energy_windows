@@ -1119,6 +1119,12 @@ class WindowCalculationEngine:
         Returns:
             Buffer energy in kWh
         """
+        # For tomorrow: check if projected buffer from today's calculation is available
+        if is_tomorrow:
+            projected = config.get("_projected_buffer_tomorrow")
+            if projected is not None:
+                return float(projected)
+
         use_sensor = config.get("use_battery_buffer_sensor", False)
         sensor_entity = config.get("battery_available_energy_sensor", "")
 

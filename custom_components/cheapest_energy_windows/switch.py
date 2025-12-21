@@ -53,6 +53,7 @@ async def async_setup_entry(
         # Buffer/chronological calculation toggles
         ("use_battery_buffer_sensor", "Use Battery Buffer Sensor", False, "mdi:connection"),
         ("limit_discharge_to_buffer", "Limit Discharge to Buffer", False, "mdi:battery-lock"),
+        ("use_projected_buffer_tomorrow", "Use Projected Buffer Tomorrow", False, "mdi:battery-arrow-up"),
         # Solar production toggles
         ("use_solar_forecast", "Use Solar Forecast", True, "mdi:solar-power"),
         # Note: Arbitrage Protection removed in v1.2.0

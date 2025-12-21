@@ -301,6 +301,7 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             "battery_capacity": float(options.get("battery_capacity", DEFAULT_BATTERY_CAPACITY)),
             "use_battery_buffer_sensor": bool(options.get("use_battery_buffer_sensor", DEFAULT_USE_BATTERY_BUFFER_SENSOR)),
             "limit_discharge_to_buffer": bool(options.get("limit_discharge_to_buffer", DEFAULT_LIMIT_DISCHARGE_TO_BUFFER)),
+            "use_projected_buffer_tomorrow": bool(options.get("use_projected_buffer_tomorrow", False)),
             "battery_available_energy_sensor": options.get("battery_available_energy_sensor", ""),
             "min_price_diff_enabled": bool(options.get("min_price_diff_enabled", True)),
 

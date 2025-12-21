@@ -271,6 +271,7 @@ CALCULATION_AFFECTING_KEYS: Final = {
     "battery_capacity",
     "limit_discharge_to_buffer",
     "discharge_buffer_limit_kwh",
+    "use_projected_buffer_tomorrow",
 
     # Solar production settings
     "solar_window_start",
