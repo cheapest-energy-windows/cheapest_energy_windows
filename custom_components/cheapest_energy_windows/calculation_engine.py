@@ -1352,6 +1352,7 @@ class WindowCalculationEngine:
         solar_export_revenue = 0.0
         grid_savings_from_solar = 0.0
         solar_export_events = []  # Track per-period exports for completed calculation
+        solar_base_offset_events = []  # Track per-period solar base offsets for completed calculation
 
         # Sell formula parameters for solar export revenue
         sell_country = config.get("price_country", DEFAULT_PRICE_COUNTRY)
@@ -1395,6 +1396,13 @@ class WindowCalculationEngine:
                 if solar_to_base > 0:
                     solar_offset_base_kwh += solar_to_base
                     grid_savings_from_solar += solar_to_base * price
+                    # Track for completed calculation
+                    solar_base_offset_events.append({
+                        "timestamp": period["timestamp"],
+                        "duration": period["duration"],
+                        "kwh": solar_to_base,
+                        "savings": solar_to_base * price
+                    })
 
                 # Solar can also contribute to charging
                 solar_to_charge = min(solar_remaining, desired_charge, available_capacity)
@@ -1498,6 +1506,13 @@ class WindowCalculationEngine:
                     # During discharge, solar covering base means less battery needed for house
                     # This is effectively a grid saving (battery would otherwise need to cover this)
                     grid_savings_from_solar += solar_to_base * price
+                    # Track for completed calculation
+                    solar_base_offset_events.append({
+                        "timestamp": period["timestamp"],
+                        "duration": period["duration"],
+                        "kwh": solar_to_base,
+                        "savings": solar_to_base * price
+                    })
 
                 # Export remaining solar (adds to revenue)
                 solar_remaining = solar_available - solar_to_base
@@ -1646,6 +1661,13 @@ class WindowCalculationEngine:
                 if solar_to_base > 0:
                     solar_offset_base_kwh += solar_to_base
                     grid_savings_from_solar += solar_to_base * price
+                    # Track for completed calculation
+                    solar_base_offset_events.append({
+                        "timestamp": period["timestamp"],
+                        "duration": period["duration"],
+                        "kwh": solar_to_base,
+                        "savings": solar_to_base * price
+                    })
 
                 # Handle excess solar based on strategy
                 if solar_remaining > 0:
@@ -1738,6 +1760,7 @@ class WindowCalculationEngine:
             "grid_savings_from_solar": round(grid_savings_from_solar, 3),
             "expected_solar_kwh": round(expected_solar_kwh, 3),
             "solar_export_events": solar_export_events,
+            "solar_base_offset_events": solar_base_offset_events,
         }
 
     def _build_result(
@@ -2265,6 +2288,18 @@ class WindowCalculationEngine:
                 completed_solar_export_revenue += event["revenue"]
         completed_solar_export_revenue = round(completed_solar_export_revenue, 3)
 
+        # Calculate completed solar grid savings (solar offsetting base usage)
+        solar_base_offset_events = chrono_result.get("solar_base_offset_events", [])
+        completed_solar_grid_savings = 0
+        completed_solar_base_kwh = 0
+        for event in solar_base_offset_events:
+            event_end = event["timestamp"] + timedelta(minutes=event["duration"])
+            if event_end <= current_time:
+                completed_solar_grid_savings += event["savings"]
+                completed_solar_base_kwh += event["kwh"]
+        completed_solar_grid_savings = round(completed_solar_grid_savings, 3)
+        completed_solar_base_kwh = round(completed_solar_base_kwh, 3)
+
         # Find current battery state
         # Priority: real sensor value (for today) > trajectory simulation > buffer_energy
         current_battery_state = buffer_energy  # Default to starting value
@@ -2622,10 +2657,12 @@ class WindowCalculationEngine:
             "completed_charge_kwh": round(completed_charge_kwh, 3),
             "completed_discharge_kwh": round(completed_discharge_kwh, 3),
             "completed_base_grid_kwh": round(completed_base_grid_kwh, 3),
-            "completed_net_grid_kwh": round(completed_charge_kwh + completed_base_grid_kwh - completed_discharge_kwh, 3),
+            "completed_solar_base_kwh": round(completed_solar_base_kwh, 3),
+            "completed_net_grid_kwh": round(completed_charge_kwh + completed_base_grid_kwh - completed_discharge_kwh - completed_solar_base_kwh, 3),
             "uncovered_base_usage_kwh": round(uncovered_kwh, 3),
             "uncovered_base_usage_cost": round(uncovered_cost, 3),
-            "total_cost": round(completed_charge_cost + completed_base_usage_cost - completed_discharge_revenue - completed_solar_export_revenue, 3),
+            "completed_solar_grid_savings": round(completed_solar_grid_savings, 3),
+            "total_cost": round(completed_charge_cost + completed_base_usage_cost - completed_discharge_revenue - completed_solar_export_revenue - completed_solar_grid_savings, 3),
             "planned_total_cost": planned_total_cost,
             "planned_charge_cost": round(planned_charge_cost, 3),
             "planned_discharge_revenue": round(planned_discharge_revenue, 3),
@@ -2853,9 +2890,11 @@ class WindowCalculationEngine:
             "completed_charge_kwh": 0,
             "completed_discharge_kwh": 0,
             "completed_base_grid_kwh": 0,
+            "completed_solar_base_kwh": 0,
             "completed_net_grid_kwh": 0,
             "uncovered_base_usage_kwh": 0,
             "uncovered_base_usage_cost": 0,
+            "completed_solar_grid_savings": 0,
             "total_cost": 0,
             "planned_total_cost": 0,
             "planned_charge_cost": 0,
