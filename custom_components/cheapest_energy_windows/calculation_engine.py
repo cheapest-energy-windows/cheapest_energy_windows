@@ -565,10 +565,10 @@ class WindowCalculationEngine:
             # Calculate spread using this candidate's individual price (not running average)
             # This ensures each window is judged on its own merit, preventing the paradox
             # where increasing max windows can result in fewer selected windows
-            # RTE does NOT affect window selection - only affects buffer size
+            # Profit = spread - RTE loss (energy stored now loses efficiency)
             if candidate["price"] > 0:
                 spread_pct = ((expensive_avg - candidate["price"]) / candidate["price"]) * 100
-                profit_pct = spread_pct  # RTE removed - does not affect window selection
+                profit_pct = spread_pct - rte_loss  # Apply RTE loss to get true profit
                 price_diff = expensive_max - candidate["price"]  # Per-window: max expensive price minus this charge price
 
                 if profit_pct >= min_profit and price_diff >= min_price_diff:
@@ -669,12 +669,12 @@ class WindowCalculationEngine:
                 break
 
             # Calculate spread and profit: (avg_sell - avg_buy) / avg_buy * 100
-            # RTE does NOT affect window selection - only affects buffer size
+            # Profit = spread - RTE loss (accounts for battery efficiency)
             # Note: min_price_diff only applies to charge windows (buy-buy comparison)
             # For discharge, profit threshold is sufficient
             if cheap_avg > 0:
                 spread_pct = ((expensive_avg - cheap_avg) / cheap_avg) * 100
-                profit_pct = spread_pct  # RTE removed - does not affect window selection
+                profit_pct = spread_pct - rte_loss  # Apply RTE loss to get true profit
 
                 if profit_pct >= min_profit:
                     selected.append(candidate)
