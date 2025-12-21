@@ -1929,9 +1929,19 @@ class WindowCalculationEngine:
                         # Grid provides base usage, add to cost
                         completed_base_usage_cost += price_data["price"] * duration_hours * base_usage
                         completed_base_grid_kwh += duration_hours * base_usage
-                    else:  # battery_covers (NoM)
-                        # Battery provides base usage, track battery consumption
-                        completed_base_usage_battery += duration_hours * base_usage
+                    else:  # battery_covers or battery_covers_limited
+                        # Battery provides base usage, but only if battery actually has capacity
+                        # Check if buffer_energy > 0 OR battery sensor is configured and available
+                        use_sensor = config.get("use_battery_buffer_sensor", False)
+                        sensor_entity = config.get("battery_available_energy_sensor", "")
+                        has_battery_capacity = buffer_energy > 0.01 or (use_sensor and sensor_entity)
+
+                        if has_battery_capacity:
+                            completed_base_usage_battery += duration_hours * base_usage
+                        else:
+                            # No battery available, grid must cover base usage
+                            completed_base_usage_cost += price_data["price"] * duration_hours * base_usage
+                            completed_base_grid_kwh += duration_hours * base_usage
 
         # Calculate planned total cost for ALL windows (for tomorrow's estimate)
         # Unlike total_cost which only counts completed windows, this estimates the full day
