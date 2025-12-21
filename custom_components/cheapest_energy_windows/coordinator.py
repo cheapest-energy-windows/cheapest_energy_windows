@@ -304,7 +304,6 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             "limit_discharge_to_buffer": bool(options.get("limit_discharge_to_buffer", DEFAULT_LIMIT_DISCHARGE_TO_BUFFER)),
             "battery_available_energy_sensor": options.get("battery_available_energy_sensor", ""),
             "min_price_diff_enabled": bool(options.get("min_price_diff_enabled", True)),
-            "min_price_diff_enabled_tomorrow": bool(options.get("min_price_diff_enabled_tomorrow", True)),
 
             # Solar production settings
             "solar_window_start": options.get("solar_window_start", DEFAULT_SOLAR_WINDOW_START),

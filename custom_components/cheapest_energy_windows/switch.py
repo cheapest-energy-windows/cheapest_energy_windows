@@ -50,7 +50,6 @@ async def async_setup_entry(
         ("use_min_sell_price", "Use Minimum Sell Price", False, "mdi:cash-check"),
         ("min_sell_price_bypass_spread", "Min Sell Price Bypasses Spread", False, "mdi:skip-forward"),
         ("min_price_diff_enabled", "Min Buy Price Diff Enabled", True, "mdi:cash-check"),
-        ("min_price_diff_enabled_tomorrow", "Min Buy Price Diff Enabled Tomorrow", True, "mdi:cash-check"),
         # Buffer/chronological calculation toggles
         ("use_battery_buffer_sensor", "Use Battery Buffer Sensor", False, "mdi:connection"),
         ("limit_discharge_to_buffer", "Limit Discharge to Buffer", False, "mdi:battery-lock"),

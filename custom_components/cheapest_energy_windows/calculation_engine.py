@@ -81,7 +81,7 @@ class WindowCalculationEngine:
         # Profit thresholds (v1.2.0+): profit = spread - RTE_loss
         min_profit_charge = config.get(f"min_profit_charge{suffix}", 10)
         min_profit_discharge = config.get(f"min_profit_discharge{suffix}", 10)
-        min_price_diff_enabled = config.get(f"min_price_diff_enabled{suffix}", True)
+        min_price_diff_enabled = config.get("min_price_diff_enabled", True)  # Global setting
         min_price_diff = config.get(f"min_price_difference{suffix}", 0.05) if min_price_diff_enabled else float('-inf')
         # Calculate RTE loss for profit checks
         battery_rte = config.get("battery_rte", 85)
