@@ -389,6 +389,9 @@ class CEWTodaySensor(CEWBaseSensor):
             "battery_discharged_to_base_kwh": result.get("battery_discharged_to_base_kwh", 0.0),
             "battery_discharged_to_grid_kwh": result.get("battery_discharged_to_grid_kwh", 0.0),
             "battery_discharged_avg_price": result.get("battery_discharged_avg_price", 0.0),
+            # RTE (Round-Trip Efficiency) loss tracking
+            "rte_loss_kwh": result.get("rte_loss_kwh", 0.0),
+            "rte_loss_value": result.get("rte_loss_value", 0.0),
         }
 
 
@@ -600,6 +603,9 @@ class CEWTomorrowSensor(CEWBaseSensor):
             "battery_discharged_to_base_kwh": result.get("battery_discharged_to_base_kwh", 0.0),
             "battery_discharged_to_grid_kwh": result.get("battery_discharged_to_grid_kwh", 0.0),
             "battery_discharged_avg_price": result.get("battery_discharged_avg_price", 0.0),
+            # RTE (Round-Trip Efficiency) loss tracking
+            "rte_loss_kwh": result.get("rte_loss_kwh", 0.0),
+            "rte_loss_value": result.get("rte_loss_value", 0.0),
         }
 
 

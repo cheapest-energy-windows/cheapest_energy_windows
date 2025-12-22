@@ -1368,6 +1368,10 @@ class WindowCalculationEngine:
         grid_charging_prices = []  # To calculate avg charge price
         grid_discharging_prices = []  # To calculate avg discharge price
 
+        # RTE (Round-Trip Efficiency) loss tracking
+        rte_loss_kwh = 0.0  # Total kWh lost to battery conversion inefficiency
+        rte_loss_value = 0.0  # Opportunity cost - what those kWh would have earned if exported
+
         # Sell formula parameters for solar export revenue
         sell_country = config.get("price_country", DEFAULT_PRICE_COUNTRY)
         sell_param_a = config.get("sell_formula_param_a", DEFAULT_SELL_FORMULA_PARAM_A)
@@ -1421,6 +1425,14 @@ class WindowCalculationEngine:
                 # Solar can also contribute to charging
                 solar_to_charge = min(solar_remaining, desired_charge, available_capacity)
                 if solar_to_charge > 0:
+                    # Track RTE loss - energy lost to battery inefficiency
+                    rte_loss = solar_to_charge * (1 - battery_rte)
+                    rte_loss_kwh += rte_loss
+                    # Calculate sell price for opportunity cost
+                    raw_price = period.get("raw_price", price)
+                    current_sell_price = self._calculate_sell_price(raw_price, price, sell_country, sell_param_a, sell_param_b)
+                    rte_loss_value += rte_loss * current_sell_price  # What we'd have earned exporting
+
                     battery_state += solar_to_charge * battery_rte
                     solar_to_battery_kwh += solar_to_charge
                     grid_savings_from_solar += solar_to_charge * price
@@ -1455,6 +1467,8 @@ class WindowCalculationEngine:
 
                     # RTE DOES affect battery state - physical reality of charging losses
                     usable_grid_charge = actual_grid_charge * battery_rte  # Battery stores less than grid draw
+                    # Track RTE loss from grid charging (no export opportunity cost - energy from grid)
+                    rte_loss_kwh += actual_grid_charge * (1 - battery_rte)
 
                     # Remaining base demand after solar
                     base_from_other = base_demand - solar_to_base
@@ -1713,6 +1727,14 @@ class WindowCalculationEngine:
                         max_charge_this_period = charge_power * duration_hours
                         solar_to_batt = min(solar_remaining, available_capacity, max_charge_this_period)
                         if solar_to_batt > 0:
+                            # Track RTE loss - energy lost to battery inefficiency
+                            rte_loss = solar_to_batt * (1 - battery_rte)
+                            rte_loss_kwh += rte_loss
+                            # Calculate opportunity cost (what we'd have earned exporting)
+                            raw_price = period.get("raw_price", price)
+                            current_sell_price = self._calculate_sell_price(raw_price, price, sell_country, sell_param_a, sell_param_b)
+                            rte_loss_value += rte_loss * current_sell_price
+
                             battery_state += solar_to_batt * battery_rte
                             solar_to_battery_kwh += solar_to_batt
                             solar_remaining -= solar_to_batt
@@ -1812,6 +1834,9 @@ class WindowCalculationEngine:
             "battery_discharged_avg_price": round(
                 sum(grid_discharging_prices) / len(grid_discharging_prices), 5
             ) if grid_discharging_prices else 0.0,
+            # RTE (Round-Trip Efficiency) loss tracking
+            "rte_loss_kwh": round(rte_loss_kwh, 3),
+            "rte_loss_value": round(rte_loss_value, 4),  # Opportunity cost of lost energy
         }
 
     def _build_result(
@@ -2515,6 +2540,17 @@ class WindowCalculationEngine:
             chrono_result["solar_total_contribution_kwh"] = elected_chrono_result["solar_total_contribution_kwh"]
             chrono_result["grid_savings_from_solar"] = elected_chrono_result["grid_savings_from_solar"]
             chrono_result["expected_solar_kwh"] = elected_chrono_result["expected_solar_kwh"]
+            # Battery tracking from elected chrono
+            chrono_result["battery_charged_from_grid_kwh"] = elected_chrono_result.get("battery_charged_from_grid_kwh", 0.0)
+            chrono_result["battery_charged_from_grid_cost"] = elected_chrono_result.get("battery_charged_from_grid_cost", 0.0)
+            chrono_result["battery_charged_from_solar_kwh"] = elected_chrono_result.get("battery_charged_from_solar_kwh", 0.0)
+            chrono_result["battery_charged_avg_price"] = elected_chrono_result.get("battery_charged_avg_price", 0.0)
+            chrono_result["battery_discharged_to_base_kwh"] = elected_chrono_result.get("battery_discharged_to_base_kwh", 0.0)
+            chrono_result["battery_discharged_to_grid_kwh"] = elected_chrono_result.get("battery_discharged_to_grid_kwh", 0.0)
+            chrono_result["battery_discharged_avg_price"] = elected_chrono_result.get("battery_discharged_avg_price", 0.0)
+            # RTE loss tracking from elected chrono
+            chrono_result["rte_loss_kwh"] = elected_chrono_result.get("rte_loss_kwh", 0.0)
+            chrono_result["rte_loss_value"] = elected_chrono_result.get("rte_loss_value", 0.0)
 
             # Re-lookup current battery state from the new trajectory
             current_battery_state = buffer_energy
@@ -2829,6 +2865,9 @@ class WindowCalculationEngine:
             "battery_discharged_to_base_kwh": chrono_result.get("battery_discharged_to_base_kwh", 0.0),
             "battery_discharged_to_grid_kwh": chrono_result.get("battery_discharged_to_grid_kwh", 0.0),
             "battery_discharged_avg_price": chrono_result.get("battery_discharged_avg_price", 0.0),
+            # RTE (Round-Trip Efficiency) loss tracking
+            "rte_loss_kwh": chrono_result.get("rte_loss_kwh", 0.0),
+            "rte_loss_value": chrono_result.get("rte_loss_value", 0.0),
         }
 
         return result
@@ -3037,4 +3076,15 @@ class WindowCalculationEngine:
             "solar_total_contribution_kwh": 0.0,
             "grid_savings_from_solar": 0.0,
             "expected_solar_kwh": 0.0,
+            # Battery tracking
+            "battery_charged_from_grid_kwh": 0.0,
+            "battery_charged_from_grid_cost": 0.0,
+            "battery_charged_from_solar_kwh": 0.0,
+            "battery_charged_avg_price": 0.0,
+            "battery_discharged_to_base_kwh": 0.0,
+            "battery_discharged_to_grid_kwh": 0.0,
+            "battery_discharged_avg_price": 0.0,
+            # RTE loss tracking
+            "rte_loss_kwh": 0.0,
+            "rte_loss_value": 0.0,
         }
