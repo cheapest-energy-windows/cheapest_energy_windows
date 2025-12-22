@@ -114,7 +114,14 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         persistent_key = f"{DOMAIN}_{entry.entry_id}_price_state"
         if persistent_key in hass.data:
             hass.data.pop(persistent_key)
-            _LOGGER.info("Cleared persistent coordinator state")
+
+        # Clean up sensor persistent states
+        for sensor_type in ["today", "tomorrow"]:
+            sensor_key = f"{DOMAIN}_{entry.entry_id}_sensor_{sensor_type}_state"
+            if sensor_key in hass.data:
+                hass.data.pop(sensor_key)
+
+        _LOGGER.info("Cleared persistent state")
 
         # Clean up services if this was the last instance
         if not hass.data[DOMAIN]:
@@ -127,23 +134,12 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Reload the config entry - ensures module cache is cleared."""
-    import sys
-
+    """Reload the config entry."""
     _LOGGER.info("Reloading Cheapest Energy Windows integration")
 
     # Clear formula registry cache before unload
     from .formulas import clear_registry
     clear_registry()
-
-    # Clear cached modules from sys.modules to pick up code changes
-    modules_to_remove = [
-        key for key in list(sys.modules.keys())
-        if key.startswith("custom_components.cheapest_energy_windows")
-    ]
-    for mod in modules_to_remove:
-        sys.modules.pop(mod, None)
-    _LOGGER.info(f"Cleared {len(modules_to_remove)} cached modules")
 
     # Standard reload: unload + setup
     await async_unload_entry(hass, entry)
