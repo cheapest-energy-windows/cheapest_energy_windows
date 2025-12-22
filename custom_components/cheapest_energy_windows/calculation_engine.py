@@ -2019,8 +2019,8 @@ class WindowCalculationEngine:
         sell_param_a = config.get("sell_formula_param_a", DEFAULT_SELL_FORMULA_PARAM_A)
         sell_param_b = config.get("sell_formula_param_b", DEFAULT_SELL_FORMULA_PARAM_B)
 
-        # Build price lookup for raw prices
-        price_lookup = {p["timestamp"]: p for p in prices}
+        # Build price lookup from all_prices (not filtered prices) to ensure all timestamps are covered
+        price_lookup = {p["timestamp"]: p for p in all_prices}
 
         # Initialize tracking variables
         completed_charge_cost = 0
@@ -2043,7 +2043,10 @@ class WindowCalculationEngine:
                 charge_kwh_to_battery = duration_hours * charge_power
                 rte_loss_kwh = charge_kwh_to_battery * (1 - battery_rte)
                 completed_rte_loss_kwh += rte_loss_kwh
-                completed_rte_loss_value += rte_loss_kwh * w["price"]  # Cost of lost energy
+                # Look up verified buy price from price_lookup (w["price"] may have spot price in some cases)
+                price_data = price_lookup.get(w["timestamp"], {})
+                buy_price = price_data.get("price", w["price"])  # Fallback to w["price"] if not found
+                completed_rte_loss_value += rte_loss_kwh * buy_price  # Cost of lost energy
 
                 if charge_strategy == "grid_covers_both":
                     # Grid provides charge power + base usage
@@ -2244,8 +2247,8 @@ class WindowCalculationEngine:
 
         # Calculate profit percentages (v1.2.0+)
         # profit = spread - RTE_loss
-        battery_rte = config.get("battery_rte", 85)
-        rte_loss = 100 - battery_rte
+        battery_rte_pct = config.get("battery_rte", 85)  # Use different var name to avoid shadowing decimal battery_rte
+        rte_loss = 100 - battery_rte_pct
         charge_profit_pct = spread_avg - rte_loss  # Buy-buy spread for charging
         discharge_profit_pct = arbitrage_avg - rte_loss  # Buy-sell spread for discharge
 
@@ -2516,6 +2519,19 @@ class WindowCalculationEngine:
                         completed_charge_cost += w["price"] * duration_hours * (charge_power + base_usage)
                     else:  # battery_covers_base
                         completed_charge_cost += w["price"] * duration_hours * charge_power
+            # RECALCULATE completed_rte_loss from filtered windows
+            completed_rte_loss_kwh = 0
+            completed_rte_loss_value = 0
+            for w in actual_charge:
+                if w["timestamp"] + timedelta(minutes=w["duration"]) <= current_time:
+                    duration_hours = w["duration"] / 60
+                    charge_kwh_to_battery = duration_hours * charge_power
+                    rte_loss_kwh = charge_kwh_to_battery * (1 - battery_rte)
+                    completed_rte_loss_kwh += rte_loss_kwh
+                    # Look up verified buy price from price_lookup (w["price"] may have spot price in some cases)
+                    price_data = price_lookup.get(w["timestamp"], {})
+                    buy_price = price_data.get("price", w["price"])  # Fallback to w["price"] if not found
+                    completed_rte_loss_value += rte_loss_kwh * buy_price
             _LOGGER.info(
                 f"Charge windows filtered: original={original_charge_count}, "
                 f"feasible={len(actual_charge)}, skipped={len(skipped_charge)} (battery full), "
@@ -2940,8 +2956,11 @@ class WindowCalculationEngine:
             "battery_discharged_to_grid_kwh": chrono_result.get("battery_discharged_to_grid_kwh", 0.0),
             "battery_discharged_avg_price": chrono_result.get("battery_discharged_avg_price", 0.0),
             # RTE (Round-Trip Efficiency) loss tracking
-            # Combine completed windows RTE loss + future windows RTE loss from chrono simulation
-            "rte_loss_kwh": completed_rte_loss_kwh + chrono_result.get("rte_loss_kwh", 0.0),
+            # kWh: Only add completed when using sensor (chrono doesn't include completed windows)
+            # When NOT using sensor, chrono already includes ALL RTE loss kWh (avoid double counting)
+            # Value: Always add completed because chrono only tracks solar RTE (opportunity cost),
+            # while completed tracks grid RTE (actual cost) - they measure different things
+            "rte_loss_kwh": (completed_rte_loss_kwh if using_sensor_for_today else 0) + chrono_result.get("rte_loss_kwh", 0.0),
             "rte_loss_value": completed_rte_loss_value + chrono_result.get("rte_loss_value", 0.0),
             # RTE-aware discharge tracking
             "rte_preserved_kwh": chrono_result.get("rte_preserved_kwh", 0.0),
