@@ -102,35 +102,28 @@ async def async_create_notification_automation(hass: HomeAssistant) -> tuple[boo
                     "platform": "state",
                     "entity_id": f"sensor.{PREFIX}today",
                     "to": "charge",
-                    "from": ["discharge", "discharge_aggressive", "idle", "off"],
+                    "from": ["discharge", "idle", "off"],
                     "id": "charge_start"
                 },
                 {
                     "platform": "state",
                     "entity_id": f"sensor.{PREFIX}today",
                     "to": "discharge",
-                    "from": ["charge", "discharge_aggressive", "idle", "off"],
+                    "from": ["charge", "idle", "off"],
                     "id": "discharge_start"
                 },
                 {
                     "platform": "state",
                     "entity_id": f"sensor.{PREFIX}today",
-                    "to": "discharge_aggressive",
-                    "from": ["charge", "discharge", "idle", "off"],
-                    "id": "discharge_aggressive_start"
-                },
-                {
-                    "platform": "state",
-                    "entity_id": f"sensor.{PREFIX}today",
                     "to": "idle",
-                    "from": ["charge", "discharge", "discharge_aggressive", "off"],
+                    "from": ["charge", "discharge", "off"],
                     "id": "idle_start"
                 },
                 {
                     "platform": "state",
                     "entity_id": f"sensor.{PREFIX}today",
                     "to": "off",
-                    "from": ["charge", "discharge", "discharge_aggressive", "idle"],
+                    "from": ["charge", "discharge", "idle"],
                     "id": "automation_disabled"
                 }
             ],
@@ -172,25 +165,6 @@ async def async_create_notification_automation(hass: HomeAssistant) -> tuple[boo
                                             "Example: Turn on battery discharge mode, set discharge power, etc."
                                         ),
                                         "notification_id": "cew_discharge_action_needed"
-                                    }
-                                }
-                            ]
-                        },
-                        {
-                            "conditions": [
-                                {"condition": "trigger", "id": "discharge_aggressive_start"}
-                            ],
-                            "sequence": [
-                                {
-                                    "service": "persistent_notification.create",
-                                    "data": {
-                                        "title": "CEW Battery Action Needed",
-                                        "message": (
-                                            "⚠️ AGGRESSIVE DISCHARGE trigger fired but no battery action configured.\n\n"
-                                            "Edit this automation and add your battery AGGRESSIVE DISCHARGE action here.\n"
-                                            "Example: Set maximum discharge power for peak price periods."
-                                        ),
-                                        "notification_id": "cew_discharge_aggressive_action_needed"
                                     }
                                 }
                             ]
@@ -286,7 +260,6 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             # Spreads
             ("min_spread_tomorrow", "min_spread"),
             ("min_spread_discharge_tomorrow", "min_spread_discharge"),
-            ("aggressive_discharge_spread_tomorrow", "aggressive_discharge_spread"),
             # Price override
             ("price_override_threshold_tomorrow", "price_override_threshold"),
         ]
@@ -383,7 +356,6 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             "idle": f"text.{PREFIX}battery_idle_action",
             "charge": f"text.{PREFIX}battery_charge_action",
             "discharge": f"text.{PREFIX}battery_discharge_action",
-            "aggressive_discharge": f"text.{PREFIX}battery_aggressive_discharge_action",
             "off": f"text.{PREFIX}battery_off_action",
         }
 
@@ -437,7 +409,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         "trigger_battery_action",
         handle_trigger_battery_action,
         schema=vol.Schema({
-            vol.Required("mode"): vol.In(["idle", "charge", "discharge", "aggressive_discharge", "off"]),
+            vol.Required("mode"): vol.In(["idle", "charge", "discharge", "off"]),
         }),
     )
 
