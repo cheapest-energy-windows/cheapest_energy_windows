@@ -285,6 +285,9 @@ CALCULATION_AFFECTING_KEYS: Final = {
     "expected_solar_kwh",
     "expected_solar_kwh_tomorrow",
     "use_solar_forecast",
+    "use_solar_forecast_sensor",
+    "solar_forecast_sensor",
+    "solar_forecast_sensor_tomorrow",
 
     # Tomorrow settings
     "tomorrow_settings_enabled",

@@ -1210,12 +1210,13 @@ class WindowCalculationEngine:
 
         return timeline
 
-    def _get_expected_solar(self, config: Dict[str, Any], is_tomorrow: bool) -> float:
+    def _get_expected_solar(self, config: Dict[str, Any], is_tomorrow: bool, hass: Any = None) -> float:
         """Get expected solar production for the calculation period.
 
         Args:
             config: Configuration dictionary
             is_tomorrow: Whether calculating for tomorrow
+            hass: Home Assistant instance (for sensor value lookup)
 
         Returns:
             Expected solar production in kWh
@@ -1224,6 +1225,23 @@ class WindowCalculationEngine:
         if not config.get("use_solar_forecast", True):
             return 0.0
 
+        # Try sensor if enabled and hass is available
+        if config.get("use_solar_forecast_sensor", False) and hass:
+            sensor_key = "solar_forecast_sensor_tomorrow" if is_tomorrow else "solar_forecast_sensor"
+            sensor_entity = config.get(sensor_key, "not_configured")
+
+            if sensor_entity and sensor_entity != "not_configured":
+                try:
+                    sensor_state = hass.states.get(sensor_entity)
+                    if sensor_state and sensor_state.state not in ("unknown", "unavailable", None):
+                        solar_value = float(sensor_state.state)
+                        _LOGGER.debug(f"Solar forecast from sensor {sensor_entity}: {solar_value} kWh")
+                        return solar_value
+                except (ValueError, TypeError) as e:
+                    _LOGGER.warning(f"Could not read solar forecast sensor {sensor_entity}: {e}")
+                    # Fall through to manual values
+
+        # Fall back to manual values
         if is_tomorrow:
             # Tomorrow uses tomorrow-specific setting if enabled
             suffix = "_tomorrow" if config.get("tomorrow_settings_enabled", False) else ""
@@ -1319,7 +1337,8 @@ class WindowCalculationEngine:
         config: Dict[str, Any],
         buffer_energy: float,
         limit_discharge: bool = False,
-        is_tomorrow: bool = False
+        is_tomorrow: bool = False,
+        hass: Any = None
     ) -> Dict[str, Any]:
         """Simulate battery state and calculate costs chronologically.
 
@@ -1328,6 +1347,7 @@ class WindowCalculationEngine:
             config: Configuration dictionary
             buffer_energy: Starting battery energy in kWh
             limit_discharge: If True, skip discharge windows that can't be supported
+            hass: Home Assistant instance (for sensor value lookup)
 
         Returns:
             Dictionary with calculated costs, battery trajectory, and feasibility info
@@ -1367,7 +1387,7 @@ class WindowCalculationEngine:
         grid_kwh_total = 0.0  # Cumulative grid kWh (charge + uncovered base)
 
         # Solar configuration and tracking
-        expected_solar_kwh = self._get_expected_solar(config, is_tomorrow)
+        expected_solar_kwh = self._get_expected_solar(config, is_tomorrow, hass)
         solar_priority = config.get("solar_priority_strategy", "base_then_grid")
         solar_to_battery_kwh = 0.0
         solar_offset_base_kwh = 0.0
@@ -2432,7 +2452,7 @@ class WindowCalculationEngine:
         )
 
         chrono_result = self._simulate_chronological_costs(
-            chrono_timeline, config, buffer_energy, limit_discharge, is_tomorrow
+            chrono_timeline, config, buffer_energy, limit_discharge, is_tomorrow, hass
         )
 
         # Calculate buffer delta (end - start)
@@ -2615,7 +2635,7 @@ class WindowCalculationEngine:
                 ]
             # Re-run chrono to get correct trajectory for elected windows
             elected_chrono_result = self._simulate_chronological_costs(
-                elected_timeline, config, buffer_energy, limit_discharge, is_tomorrow
+                elected_timeline, config, buffer_energy, limit_discharge, is_tomorrow, hass
             )
             # Update trajectory and battery state values from elected run
             chrono_result["battery_trajectory"] = elected_chrono_result["battery_trajectory"]
