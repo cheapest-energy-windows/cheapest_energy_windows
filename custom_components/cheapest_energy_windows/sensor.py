@@ -248,7 +248,6 @@ class CEWTodaySensor(CEWBaseSensor):
             if config.get("use_projected_buffer_tomorrow", False):
                 today_end_state = result.get("battery_state_end_of_day", 0.0)
                 self.coordinator.data["_projected_buffer_tomorrow"] = today_end_state
-                _LOGGER.debug(f"Stored projected buffer for tomorrow: {today_end_state} kWh")
         else:
             automation_enabled = config.get("automation_enabled", True)
             new_state = STATE_OFF if not automation_enabled else STATE_IDLE
@@ -413,7 +412,6 @@ class CEWTomorrowSensor(CEWBaseSensor):
         if not self.coordinator.data:
             # No coordinator data - maintain previous state if we have one
             if self._previous_state is not None:
-                _LOGGER.debug("No coordinator data, maintaining previous tomorrow state")
                 return
             else:
                 new_state = STATE_OFF
@@ -444,18 +442,7 @@ class CEWTomorrowSensor(CEWBaseSensor):
         # Only skip recalculation for non-calculation config changes
         # Always recalculate for scheduled updates (needed for time-based state changes)
         if config_changed and not price_data_changed and not is_first_load and not calc_config_changed and not scheduled_update:
-            _LOGGER.debug("Tomorrow: Non-calculation config change, skipping recalculation")
             return
-
-        if calc_config_changed:
-            _LOGGER.info(f"Tomorrow: Calculation config changed, forcing recalculation")
-
-        if scheduled_update:
-            _LOGGER.debug("Tomorrow: Scheduled update - recalculating for time-based state changes")
-
-        # On first load, calculate to set initial state
-        if is_first_load:
-            _LOGGER.debug("Tomorrow: First load - calculating initial state")
 
         # Price data changed OR first run - proceed with recalculation
         tomorrow_valid = self.coordinator.data.get("tomorrow_valid", False)
@@ -468,7 +455,6 @@ class CEWTomorrowSensor(CEWBaseSensor):
                 if projected is not None:
                     config = config.copy()  # Don't mutate original
                     config["_projected_buffer_tomorrow"] = projected
-                    _LOGGER.debug(f"Tomorrow using projected buffer from today: {projected} kWh")
 
             # Calculate tomorrow's windows
             result = self._calculation_engine.calculate_windows(
@@ -488,11 +474,6 @@ class CEWTomorrowSensor(CEWBaseSensor):
         attributes_changed = new_attributes != self._previous_attributes
 
         if state_changed or attributes_changed:
-            if state_changed:
-                _LOGGER.info(f"Tomorrow state changed: {self._previous_state} → {new_state}")
-            else:
-                _LOGGER.debug("Tomorrow attributes changed, updating sensor")
-
             self._attr_native_value = new_state
             self._attr_extra_state_attributes = new_attributes
             self._previous_state = new_state
@@ -503,7 +484,6 @@ class CEWTomorrowSensor(CEWBaseSensor):
             self._persistent_sensor_state["previous_calc_config_hash"] = current_calc_config_hash
             self.async_write_ha_state()
         else:
-            _LOGGER.debug("No changes in tomorrow sensor, maintaining current state")
             # Still update tracking even if state didn't change
             self._previous_automation_enabled = current_automation_enabled
             self._previous_calc_config_hash = current_calc_config_hash
@@ -654,8 +634,6 @@ class CEWPriceSensorProxy(SensorEntity):
 
         # Calculation engine for price calculations
         self._calculation_engine = WindowCalculationEngine()
-
-        _LOGGER.debug("Price sensor proxy initialized")
 
     @property
     def device_info(self):
@@ -893,11 +871,6 @@ class CEWPriceSensorProxy(SensorEntity):
             self._attr_extra_state_attributes["active_params"] = []
             self._attr_extra_state_attributes["buy_equals_sell"] = True
 
-        _LOGGER.debug(f"Proxy sensor updated from {price_sensor_id}, state: {self._attr_native_value}")
-        _LOGGER.debug(f"Calculated {len(calculated_buy_today)} buy prices today, "
-                     f"{len(calculated_buy_tomorrow)} buy prices tomorrow, "
-                     f"{len(calculated_sell_today)} sell prices today, "
-                     f"{len(calculated_sell_tomorrow)} sell prices tomorrow")
         self.async_write_ha_state()
 
     async def async_added_to_hass(self) -> None:
@@ -966,7 +939,6 @@ class CEWLastCalculationSensor(CoordinatorEntity, SensorEntity):
             # Actual calculation occurred - generate new unique value
             self._attr_native_value = str(uuid.uuid4())[:8]
             self.async_write_ha_state()
-            _LOGGER.debug(f"Last calculation updated: {self._attr_native_value} (price_changed={price_data_changed}, config_changed={config_changed})")
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""

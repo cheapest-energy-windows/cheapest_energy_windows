@@ -128,25 +128,16 @@ class CEWSwitch(SwitchEntity):
         new_options = dict(self._config_entry.options)
         new_options[self._key] = self._attr_is_on
 
-        _LOGGER.debug(f"Switch {self._key}: Saving state={self._attr_is_on} to config entry")
-        _LOGGER.debug(f"Switch {self._key}: Before update, config_entry.options[{self._key}]={self._config_entry.options.get(self._key, 'NOT SET')}")
-
         self.hass.config_entries.async_update_entry(
             self._config_entry,
             options=new_options
         )
 
-        _LOGGER.debug(f"Switch {self._key}: After update, config_entry.options[{self._key}]={self._config_entry.options.get(self._key, 'NOT SET')}")
-
         self.async_write_ha_state()
 
         # Only trigger coordinator refresh for switches that affect calculations
-        # Check against the centralized registry of calculation-affecting keys
         if self._key in CALCULATION_AFFECTING_KEYS:
             if DOMAIN in self.hass.data and self._config_entry.entry_id in self.hass.data[DOMAIN]:
                 coordinator = self.hass.data[DOMAIN][self._config_entry.entry_id].get("coordinator")
                 if coordinator:
-                    _LOGGER.debug(f"Switch {self._key} affects calculations, triggering coordinator refresh")
                     await coordinator.async_request_refresh()
-        else:
-            _LOGGER.debug(f"Switch {self._key} is UI/notification only, skipping coordinator refresh")

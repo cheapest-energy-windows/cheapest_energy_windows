@@ -62,13 +62,6 @@ class WindowCalculationEngine:
         Returns:
             Dictionary with calculated windows and attributes
         """
-        # Debug logging for calculation window
-        _LOGGER.debug(f"=== CALCULATION ENGINE CALLED for {'tomorrow' if is_tomorrow else 'today'} ===")
-        _LOGGER.debug(f"Config keys received: {list(config.keys())}")
-        _LOGGER.debug(f"calculation_window_enabled in config: {config.get('calculation_window_enabled', 'NOT PRESENT')}")
-        _LOGGER.debug(f"calculation_window_start: {config.get('calculation_window_start', 'NOT PRESENT')}")
-        _LOGGER.debug(f"calculation_window_end: {config.get('calculation_window_end', 'NOT PRESENT')}")
-
         # Get configuration values
         pricing_mode = config.get("pricing_window_duration", PRICING_15_MINUTES)
 
@@ -104,18 +97,13 @@ class WindowCalculationEngine:
         if calc_window_enabled:
             calc_window_start = config.get(f"calculation_window_start{suffix}", "00:00:00")
             calc_window_end = config.get(f"calculation_window_end{suffix}", "23:59:59")
-            _LOGGER.debug(f"Calculation window ENABLED: {calc_window_start} - {calc_window_end}, filtering {len(processed_prices)} prices for window selection")
             processed_prices = self._filter_prices_by_calculation_window(
                 processed_prices,
                 calc_window_start,
                 calc_window_end
             )
-            _LOGGER.debug(f"After calculation window filter: {len(processed_prices)} prices for window selection, {len(all_prices)} prices for base usage")
             if not processed_prices:
-                _LOGGER.debug("No prices after calculation window filter")
                 return self._empty_result(is_tomorrow)
-        else:
-            _LOGGER.debug("Calculation window disabled")
 
         # Calculate arbitrage_avg for profit display
         arbitrage_avg = self._calculate_arbitrage_avg(processed_prices, config, is_tomorrow)
@@ -153,8 +141,6 @@ class WindowCalculationEngine:
                 override_end_str = ""
 
             if override_start_str and override_end_str:
-                _LOGGER.debug(f"Time override enabled: {override_start_str} - {override_end_str}, mode: {override_mode}")
-
                 # For idle/off modes, exclude override periods from window calculations
                 if override_mode in [MODE_IDLE, MODE_OFF]:
                     filtered_prices = []
@@ -163,7 +149,6 @@ class WindowCalculationEngine:
                             filtered_prices.append(price_data)
                     prices_for_charge_calc = filtered_prices
                     prices_for_discharge_calc = filtered_prices
-                    _LOGGER.debug(f"Filtered {len(processed_prices)} prices to {len(filtered_prices)} after excluding {override_mode} periods")
 
                 # For charge mode, only charge windows should be in override period
                 elif override_mode == MODE_CHARGE:
@@ -179,7 +164,6 @@ class WindowCalculationEngine:
                         if not self._is_in_time_range(price_data["timestamp"], override_start_str, override_end_str):
                             discharge_filtered.append(price_data)
                     prices_for_discharge_calc = discharge_filtered
-                    _LOGGER.debug(f"Charge mode: {len(charge_override_prices)} prices for charging, {len(discharge_filtered)} for discharge")
 
                 # For discharge mode, only discharge windows should be in override period
                 elif override_mode == MODE_DISCHARGE:
@@ -195,7 +179,6 @@ class WindowCalculationEngine:
                         if self._is_in_time_range(price_data["timestamp"], override_start_str, override_end_str):
                             discharge_override_prices.append(price_data)
                     prices_for_discharge_calc = discharge_override_prices
-                    _LOGGER.debug(f"Discharge mode: {len(charge_filtered)} prices for charging, {len(discharge_override_prices)} for discharge")
 
         # Find windows using the pre-filtered prices
         charge_windows = self._find_charge_windows(
@@ -218,10 +201,6 @@ class WindowCalculationEngine:
             rte_loss,
             min_price_diff,
             return_all=True
-        )
-        _LOGGER.debug(
-            f"Capacity-first selection: {len(charge_windows)} limited windows, "
-            f"{len(all_charge_candidates)} total candidates passing profit threshold"
         )
 
         # Get sell price configuration
@@ -250,12 +229,6 @@ class WindowCalculationEngine:
             processed_prices,
             config
         )
-
-        # Debug output when calculation window is enabled
-        if calc_window_enabled:
-            charge_times = [w["timestamp"].strftime("%H:%M") for w in charge_windows]
-            discharge_times = [w["timestamp"].strftime("%H:%M") for w in discharge_windows]
-            _LOGGER.debug(f"After calculation window filter - Charge windows: {charge_times}, Discharge windows: {discharge_times}")
 
         # Calculate current state (pass arbitrage_avg and is_tomorrow for RTE protection)
         # Note: arbitrage_avg was already calculated earlier for the protection check
@@ -297,24 +270,6 @@ class WindowCalculationEngine:
         vat = config.get("vat", DEFAULT_VAT_RATE)
         tax = config.get("tax", DEFAULT_TAX)
         additional_cost = config.get("additional_cost", DEFAULT_ADDITIONAL_COST)
-
-        _LOGGER.debug("="*60)
-        _LOGGER.debug("PROCESS PRICES START")
-        _LOGGER.debug(f"Raw prices type: {type(raw_prices)}")
-        _LOGGER.debug(f"Raw prices length: {len(raw_prices) if hasattr(raw_prices, '__len__') else 'N/A'}")
-        _LOGGER.debug(f"Pricing mode: {pricing_mode}")
-        _LOGGER.debug(f"Buy price country: {buy_country}")
-        _LOGGER.debug(f"Buy formula param A: {buy_param_a}")
-        _LOGGER.debug(f"Buy formula param B: {buy_param_b}")
-        _LOGGER.debug(f"VAT: {vat}%")
-        _LOGGER.debug(f"Tax: {tax} EUR/kWh")
-        _LOGGER.debug(f"Additional cost: {additional_cost} EUR/kWh")
-
-        if raw_prices and len(raw_prices) > 0:
-            _LOGGER.debug(f"First item type: {type(raw_prices[0])}")
-            _LOGGER.debug(f"First item: {raw_prices[0]}")
-            if len(raw_prices) > 1:
-                _LOGGER.debug(f"Second item: {raw_prices[1]}")
 
         processed = []
 
@@ -438,13 +393,6 @@ class WindowCalculationEngine:
         # Sort by timestamp
         processed.sort(key=lambda x: x["timestamp"])
 
-        _LOGGER.debug(f"Processed {len(processed)} price entries")
-        if processed:
-            _LOGGER.debug(f"First processed price: {processed[0]}")
-            _LOGGER.debug(f"Last processed price: {processed[-1]}")
-        _LOGGER.debug("PROCESS PRICES END")
-        _LOGGER.debug("="*60)
-
         return processed
 
     def _filter_prices_by_calculation_window(
@@ -493,8 +441,6 @@ class WindowCalculationEngine:
                     # Same day: include if start <= time < end
                     if start_time <= price_time < end_time:
                         filtered.append(price_data)
-
-            _LOGGER.debug(f"Calculation window filter: {len(prices)} -> {len(filtered)} prices (window: {start_str} to {end_str})")
 
         except (ValueError, IndexError, AttributeError) as e:
             _LOGGER.error(f"Failed to parse calculation window times: {e}")
@@ -1542,12 +1488,6 @@ class WindowCalculationEngine:
                         battery_charged_from_grid_kwh += actual_grid_charge
                         battery_charged_from_grid_cost += actual_grid_charge * price
                         grid_charging_prices.append(price)
-
-                    _LOGGER.debug(
-                        f"CHARGE @ {period['timestamp']}: grid={actual_grid_charge:.2f} kWh, "
-                        f"solar={solar_to_charge:.2f} kWh, "
-                        f"capacity_left={available_capacity:.2f} kWh → battery={battery_state:.2f} kWh"
-                    )
                 else:
                     # Battery too full - skip this charge window
                     skipped_charge_windows.append({
@@ -1555,10 +1495,6 @@ class WindowCalculationEngine:
                         "price": price,
                         "reason": f"Battery nearly full ({battery_state:.2f}/{battery_capacity:.2f} kWh, only {available_capacity:.2f} kWh space)"
                     })
-                    _LOGGER.debug(
-                        f"CHARGE SKIPPED @ {period['timestamp']}: battery={battery_state:.2f} kWh, "
-                        f"capacity={battery_capacity:.2f} kWh, space={available_capacity:.2f} kWh"
-                    )
 
             elif window_type == "discharge":
                 # Use discharge strategy for all discharge windows
@@ -1674,12 +1610,6 @@ class WindowCalculationEngine:
 
                 if limit_discharge:
                     # Conservative mode: only include if we can do FULL discharge
-                    _LOGGER.debug(
-                        f"Conservative check @ {period['timestamp']}: "
-                        f"battery={battery_state:.2f}, needed={total_drain_needed:.2f}, "
-                        f"available={available_for_discharge:.2f}, desired_export={desired_net_export:.2f}, "
-                        f"actual_export={actual_net_export:.2f}"
-                    )
                     if battery_state >= total_drain_needed:
                         feasible_discharge_windows.append(period)
                         battery_state -= total_actual_drain
@@ -1694,7 +1624,6 @@ class WindowCalculationEngine:
                         if actual_net_export > 0:
                             grid_discharging_prices.append(sell_price)
                     else:
-                        _LOGGER.debug(f"  -> SKIPPED: battery={battery_state:.2f} < needed={total_drain_needed:.2f}")
                         skipped_discharge_windows.append({
                             "timestamp": period["timestamp"].isoformat() if hasattr(period["timestamp"], 'isoformat') else str(period["timestamp"]),
                             "price": price,
@@ -2395,18 +2324,8 @@ class WindowCalculationEngine:
                 is_tomorrow
             )
             charge_for_chrono = all_actual_charge
-            _LOGGER.debug(
-                f"Capacity-first: using {len(all_actual_charge)} candidates for chrono "
-                f"(vs {len(actual_charge)} limited), will select cheapest {num_charge_windows}"
-            )
         else:
             charge_for_chrono = actual_charge
-
-        _LOGGER.debug(
-            f"Chronological calc: buffer_energy={buffer_energy:.2f} kWh, "
-            f"limit_discharge={limit_discharge}, battery_capacity={battery_capacity:.1f} kWh, "
-            f"is_tomorrow={is_tomorrow}, discharge_windows={len(actual_discharge)}"
-        )
 
         # Build chronological timeline and simulate battery state
         chrono_timeline = self._build_chronological_timeline(
@@ -2436,20 +2355,7 @@ class WindowCalculationEngine:
                 if window_end > now:
                     future_timeline.append(entry)
 
-            _LOGGER.debug(
-                f"Sensor mode: filtered timeline from {len(chrono_timeline)} to {len(future_timeline)} future windows"
-            )
             chrono_timeline = future_timeline
-
-        # Debug: Log timeline composition before simulation
-        charge_count = sum(1 for p in chrono_timeline if p["window_type"] == "charge")
-        discharge_count = sum(1 for p in chrono_timeline if p["window_type"] == "discharge")
-        idle_count = sum(1 for p in chrono_timeline if p["window_type"] == "idle")
-        _LOGGER.info(
-            f"Timeline before simulation: {len(chrono_timeline)} windows "
-            f"(charge={charge_count}, discharge={discharge_count}, idle={idle_count}), "
-            f"buffer_start={buffer_energy:.2f} kWh, limit_discharge={limit_discharge}"
-        )
 
         chrono_result = self._simulate_chronological_costs(
             chrono_timeline, config, buffer_energy, limit_discharge, is_tomorrow, hass
@@ -2568,8 +2474,6 @@ class WindowCalculationEngine:
                 f"feasible={len(actual_charge)}, skipped={len(skipped_charge)} (battery full), "
                 f"completed={completed_charge}"
             )
-            for skipped in skipped_charge:
-                _LOGGER.debug(f"  Skipped charge: {skipped['timestamp']} - {skipped['reason']}")
 
         # When conservative discharge mode is enabled, replace discharge windows with only feasible ones
         if limit_discharge:
@@ -2611,9 +2515,6 @@ class WindowCalculationEngine:
                 f"completed={completed_discharge}, "
                 f"final_battery={chrono_result['final_battery_state']:.2f} kWh"
             )
-            if chrono_result['skipped_discharge_windows']:
-                for skipped in chrono_result['skipped_discharge_windows']:
-                    _LOGGER.debug(f"  Skipped discharge: {skipped['timestamp']} - {skipped['reason']}")
 
         # RE-RUN chrono with ELECTED windows after capacity-first selection
         # The first chrono run used ALL candidates to determine feasibility
@@ -2809,12 +2710,6 @@ class WindowCalculationEngine:
                 uncovered_cost = uncovered_kwh * day_avg_price
                 planned_total_cost = round(planned_total_cost + uncovered_cost, 3)
 
-            _LOGGER.debug(
-                f"Planned costs recalculated from filtered windows: "
-                f"charge_cost={planned_charge_cost:.3f}, discharge_revenue={planned_discharge_revenue:.3f}, "
-                f"total_cost={planned_total_cost:.3f}"
-            )
-
             # Recalculate savings
             baseline_cost = net_grid_kwh * day_avg_price
             estimated_savings = baseline_cost - planned_total_cost
@@ -2824,13 +2719,6 @@ class WindowCalculationEngine:
             true_savings = savings_per_kwh * (base_usage_kwh + max(0, final_battery_state))
             # End-of-day buffer value (for dashboard display)
             battery_state_end_of_day_value = final_battery_state * battery_margin_eur_kwh if final_battery_state > 0 else 0
-
-            _LOGGER.debug(
-                f"Gross metrics recalculated: charge={gross_charged_kwh:.2f}, usable={gross_usable_kwh:.2f}, "
-                f"discharge={gross_discharged_kwh:.2f}, remaining={actual_remaining_kwh:.2f}, "
-                f"net_charge={net_planned_charge_kwh:.2f}, net_discharge={net_planned_discharge_kwh:.2f}, "
-                f"net_grid={net_grid_kwh:.2f}"
-            )
 
         # ALWAYS re-determine current state after chrono simulation to include:
         # 1. Filtered charge/discharge windows
@@ -2871,7 +2759,7 @@ class WindowCalculationEngine:
             "completed_base_grid_kwh": round(completed_base_grid_kwh, 3),
             "completed_solar_base_kwh": round(completed_solar_base_kwh, 3),
             "completed_solar_export_kwh": round(completed_solar_export_kwh, 3),
-            "completed_net_grid_kwh": round(completed_charge_kwh + completed_base_grid_kwh - completed_discharge_kwh - completed_solar_export_kwh, 3),
+            "completed_net_grid_kwh": round(completed_charge_kwh + completed_base_grid_kwh - completed_discharge_kwh - completed_solar_export_kwh - completed_solar_base_kwh, 3),
             "uncovered_base_usage_kwh": round(uncovered_kwh, 3),
             "uncovered_base_usage_cost": round(uncovered_cost, 3),
             "completed_solar_grid_savings": round(completed_solar_grid_savings, 3),
