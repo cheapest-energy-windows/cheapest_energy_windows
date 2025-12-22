@@ -58,6 +58,7 @@ async def async_setup_entry(
         ("use_solar_forecast", "Use Solar Forecast", True, "mdi:solar-power"),
         # RTE-aware discharge (global battery setting)
         ("rte_aware_discharge", "RTE-Aware Idle Discharge", True, "mdi:battery-sync"),
+        ("rte_aware_include_solar", "RTE Include Solar kWh", False, "mdi:solar-power-variant"),
         # Note: Arbitrage Protection removed in v1.2.0
         # Profit thresholds now naturally control window qualification
     ]

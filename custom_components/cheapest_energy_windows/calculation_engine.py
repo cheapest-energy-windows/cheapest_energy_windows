@@ -1792,20 +1792,31 @@ class WindowCalculationEngine:
 
                         if rte_aware_discharge and battery_state > 0:
                             # Calculate breakeven price based on what we paid to charge
-                            total_charged = battery_charged_from_grid_kwh + solar_to_battery_kwh
-                            if total_charged > 0:
-                                # Get day average price for solar opportunity cost
+                            rte_include_solar = config.get("rte_aware_include_solar", False)
+
+                            if rte_include_solar:
+                                # Include solar with opportunity cost in RTE protection
+                                total_charged = battery_charged_from_grid_kwh + solar_to_battery_kwh
                                 day_avg_price = config.get("day_avg_price", 0.25)
-                                # Weighted average: grid cost + solar opportunity cost
                                 avg_charge_price = (
                                     battery_charged_from_grid_cost +
                                     solar_to_battery_kwh * day_avg_price
-                                ) / total_charged
+                                ) / total_charged if total_charged > 0 else 0
+                            else:
+                                # Only grid energy in RTE pool - solar freely used
+                                total_charged = battery_charged_from_grid_kwh
+                                avg_charge_price = (
+                                    battery_charged_from_grid_cost / total_charged
+                                ) if total_charged > 0 else 0
+
+                            if total_charged > 0:
                                 # Apply RTE and margin to get breakeven
                                 current_breakeven_price = (avg_charge_price / battery_rte) * (1 + rte_discharge_margin)
 
                                 # Only use battery if current price exceeds breakeven + margin
                                 use_battery = price > current_breakeven_price
+                            # else: total_charged == 0 means no grid charge (and solar excluded)
+                            # use_battery stays True - freely use solar energy
 
                         if use_battery:
                             # Battery provides remaining base usage (drain battery)
