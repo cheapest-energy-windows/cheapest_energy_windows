@@ -248,6 +248,10 @@ CALCULATION_AFFECTING_KEYS: Final = {
     "charge_power",
     "discharge_power",
 
+    # RTE-aware discharge (global battery setting)
+    "rte_aware_discharge",
+    "rte_discharge_margin",
+
     # Price overrides
     "price_override_enabled",
     "price_override_threshold",

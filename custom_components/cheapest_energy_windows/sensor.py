@@ -392,6 +392,10 @@ class CEWTodaySensor(CEWBaseSensor):
             # RTE (Round-Trip Efficiency) loss tracking
             "rte_loss_kwh": result.get("rte_loss_kwh", 0.0),
             "rte_loss_value": result.get("rte_loss_value", 0.0),
+            # RTE-aware discharge tracking
+            "rte_preserved_kwh": result.get("rte_preserved_kwh", 0.0),
+            "rte_preserved_periods": result.get("rte_preserved_periods", []),
+            "rte_breakeven_price": result.get("rte_breakeven_price", 0.0),
         }
 
 
@@ -606,6 +610,10 @@ class CEWTomorrowSensor(CEWBaseSensor):
             # RTE (Round-Trip Efficiency) loss tracking
             "rte_loss_kwh": result.get("rte_loss_kwh", 0.0),
             "rte_loss_value": result.get("rte_loss_value", 0.0),
+            # RTE-aware discharge tracking
+            "rte_preserved_kwh": result.get("rte_preserved_kwh", 0.0),
+            "rte_preserved_periods": result.get("rte_preserved_periods", []),
+            "rte_breakeven_price": result.get("rte_breakeven_price", 0.0),
         }
 
 

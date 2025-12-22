@@ -736,7 +736,8 @@ class WindowCalculationEngine:
         discharge_windows: List[Dict[str, Any]],
         config: Dict[str, Any],
         arbitrage_avg: float = 0.0,
-        is_tomorrow: bool = False
+        is_tomorrow: bool = False,
+        rte_preserved_periods: List[Dict[str, Any]] = None
     ) -> str:
         """Determine current state based on time and configuration.
 
@@ -775,6 +776,18 @@ class WindowCalculationEngine:
         for window in charge_windows:
             if self._is_window_active(window, current_time):
                 return STATE_CHARGE
+
+        # Check if current time is in an RTE-preserved period (battery held due to low price)
+        # RTE-preserved periods should trigger OFF state so automations stop grid matching
+        if rte_preserved_periods:
+            for period in rte_preserved_periods:
+                period_time = period["timestamp"]
+                # Handle both datetime objects and ISO strings
+                if isinstance(period_time, str):
+                    period_time = datetime.fromisoformat(period_time.replace('Z', '+00:00'))
+                period_end = period_time + timedelta(minutes=period["duration"])
+                if period_time <= current_time < period_end:
+                    return STATE_OFF
 
         return STATE_IDLE
 
@@ -1331,6 +1344,10 @@ class WindowCalculationEngine:
         discharge_strategy = config.get("base_usage_discharge_strategy", "subtract_base")
         idle_strategy = config.get("base_usage_idle_strategy", "grid_covers")
 
+        # RTE-aware discharge settings (global)
+        rte_aware_discharge = config.get("rte_aware_discharge", True)
+        rte_discharge_margin = config.get("rte_discharge_margin", 2) / 100  # Convert from % to decimal
+
         # Initialize state
         battery_state = buffer_energy
         planned_charge_cost = 0.0
@@ -1371,6 +1388,11 @@ class WindowCalculationEngine:
         # RTE (Round-Trip Efficiency) loss tracking
         rte_loss_kwh = 0.0  # Total kWh lost to battery conversion inefficiency
         rte_loss_value = 0.0  # Opportunity cost - what those kWh would have earned if exported
+
+        # RTE-aware discharge tracking
+        rte_preserved_kwh = 0.0  # kWh preserved by RTE-aware logic
+        rte_preserved_periods = []  # List of periods where battery was preserved
+        current_breakeven_price = 0.0  # Most recent calculated breakeven price
 
         # Sell formula parameters for solar export revenue
         sell_country = config.get("price_country", DEFAULT_PRICE_COUNTRY)
@@ -1765,13 +1787,47 @@ class WindowCalculationEngine:
                         planned_base_usage_cost += price * base_from_other
                         grid_kwh_total += base_from_other
                     elif idle_strategy in ("battery_covers", "battery_covers_limited"):
-                        # Battery provides remaining base usage (drain battery)
-                        battery_drain = min(base_from_other, battery_state)
-                        battery_state -= battery_drain
-                        battery_discharged_to_base_kwh += battery_drain
-                        uncovered = base_from_other - battery_drain
+                        # RTE-aware discharge decision
+                        use_battery = True
+
+                        if rte_aware_discharge and battery_state > 0:
+                            # Calculate breakeven price based on what we paid to charge
+                            total_charged = battery_charged_from_grid_kwh + solar_to_battery_kwh
+                            if total_charged > 0:
+                                # Get day average price for solar opportunity cost
+                                day_avg_price = config.get("day_avg_price", 0.25)
+                                # Weighted average: grid cost + solar opportunity cost
+                                avg_charge_price = (
+                                    battery_charged_from_grid_cost +
+                                    solar_to_battery_kwh * day_avg_price
+                                ) / total_charged
+                                # Apply RTE and margin to get breakeven
+                                current_breakeven_price = (avg_charge_price / battery_rte) * (1 + rte_discharge_margin)
+
+                                # Only use battery if current price exceeds breakeven + margin
+                                use_battery = price > current_breakeven_price
+
+                        if use_battery:
+                            # Battery provides remaining base usage (drain battery)
+                            battery_drain = min(base_from_other, battery_state)
+                            battery_state -= battery_drain
+                            battery_discharged_to_base_kwh += battery_drain
+                            uncovered = base_from_other - battery_drain
+                        else:
+                            # RTE-aware: preserve battery, use grid instead
+                            battery_drain = 0
+                            uncovered = base_from_other
+                            rte_preserved_kwh += min(base_from_other, battery_state)  # What we would have drained
+                            rte_preserved_periods.append({
+                                "timestamp": period["timestamp"].isoformat() if hasattr(period["timestamp"], 'isoformat') else str(period["timestamp"]),
+                                "duration": period["duration"],
+                                "price": round(price, 4),
+                                "breakeven": round(current_breakeven_price, 4),
+                                "preserved_kwh": round(min(base_from_other, battery_state), 3)
+                            })
+
                         if uncovered > 0:
-                            # Grid fallback: battery empty, grid must cover the rest
+                            # Grid fallback: battery empty/preserved, grid covers the rest
                             planned_base_usage_cost += price * uncovered
                             grid_kwh_total += uncovered
                             uncovered_base_kwh += uncovered
@@ -1837,6 +1893,10 @@ class WindowCalculationEngine:
             # RTE (Round-Trip Efficiency) loss tracking
             "rte_loss_kwh": round(rte_loss_kwh, 3),
             "rte_loss_value": round(rte_loss_value, 4),  # Opportunity cost of lost energy
+            # RTE-aware discharge tracking
+            "rte_preserved_kwh": round(rte_preserved_kwh, 3),
+            "rte_preserved_periods": rte_preserved_periods,
+            "rte_breakeven_price": round(current_breakeven_price, 4),
         }
 
     def _build_result(
@@ -1944,6 +2004,7 @@ class WindowCalculationEngine:
         charge_power = config.get("charge_power", 2400) / 1000  # Convert to kW
         discharge_power = config.get("discharge_power", 2400) / 1000
         base_usage = config.get("base_usage", 0) / 1000
+        battery_rte = config.get("battery_rte", 85) / 100  # Convert to decimal
 
         # Get strategies
         charge_strategy = config.get("base_usage_charge_strategy", "grid_covers_both")
@@ -1971,11 +2032,19 @@ class WindowCalculationEngine:
         completed_charge_kwh = 0  # Grid draw for charging
         completed_discharge_kwh = 0  # Export to grid
         completed_base_grid_kwh = 0  # Grid draw for uncovered base usage
+        completed_rte_loss_kwh = 0  # RTE loss from completed charging
+        completed_rte_loss_value = 0  # Cost of energy lost to RTE during charging
 
         # CHARGE windows: Apply charge strategy
         for w in actual_charge:
             if w["timestamp"] + timedelta(minutes=w["duration"]) <= current_time:
                 duration_hours = w["duration"] / 60
+                # RTE loss applies to charge power going to battery (not base usage which goes directly to house)
+                charge_kwh_to_battery = duration_hours * charge_power
+                rte_loss_kwh = charge_kwh_to_battery * (1 - battery_rte)
+                completed_rte_loss_kwh += rte_loss_kwh
+                completed_rte_loss_value += rte_loss_kwh * w["price"]  # Cost of lost energy
+
                 if charge_strategy == "grid_covers_both":
                     # Grid provides charge power + base usage
                     completed_charge_cost += w["price"] * duration_hours * (charge_power + base_usage)
@@ -2551,6 +2620,10 @@ class WindowCalculationEngine:
             # RTE loss tracking from elected chrono
             chrono_result["rte_loss_kwh"] = elected_chrono_result.get("rte_loss_kwh", 0.0)
             chrono_result["rte_loss_value"] = elected_chrono_result.get("rte_loss_value", 0.0)
+            # RTE-aware discharge tracking from elected chrono
+            chrono_result["rte_preserved_kwh"] = elected_chrono_result.get("rte_preserved_kwh", 0.0)
+            chrono_result["rte_preserved_periods"] = elected_chrono_result.get("rte_preserved_periods", [])
+            chrono_result["rte_breakeven_price"] = elected_chrono_result.get("rte_breakeven_price", 0.0)
 
             # Re-lookup current battery state from the new trajectory
             current_battery_state = buffer_energy
@@ -2712,17 +2785,18 @@ class WindowCalculationEngine:
                 f"net_grid={net_grid_kwh:.2f}"
             )
 
-        # Re-determine current state if any windows were filtered (charge or discharge)
-        # If current hour was a window that got filtered, state should become IDLE
-        if windows_were_filtered:
-            current_state = self._determine_current_state(
-                prices,
-                actual_charge,  # Use filtered charge windows
-                actual_discharge,  # Use filtered discharge windows
-                config,
-                0.0,  # arbitrage_avg not needed for state check
-                is_tomorrow
-            )
+        # ALWAYS re-determine current state after chrono simulation to include:
+        # 1. Filtered charge/discharge windows
+        # 2. RTE-preserved periods (battery held due to price < breakeven)
+        current_state = self._determine_current_state(
+            prices,
+            actual_charge,  # Use filtered charge windows
+            actual_discharge,  # Use filtered discharge windows
+            config,
+            0.0,  # arbitrage_avg not needed for state check
+            is_tomorrow,
+            rte_preserved_periods=chrono_result.get("rte_preserved_periods", [])
+        )
 
         # Build result
         result = {
@@ -2866,8 +2940,13 @@ class WindowCalculationEngine:
             "battery_discharged_to_grid_kwh": chrono_result.get("battery_discharged_to_grid_kwh", 0.0),
             "battery_discharged_avg_price": chrono_result.get("battery_discharged_avg_price", 0.0),
             # RTE (Round-Trip Efficiency) loss tracking
-            "rte_loss_kwh": chrono_result.get("rte_loss_kwh", 0.0),
-            "rte_loss_value": chrono_result.get("rte_loss_value", 0.0),
+            # Combine completed windows RTE loss + future windows RTE loss from chrono simulation
+            "rte_loss_kwh": completed_rte_loss_kwh + chrono_result.get("rte_loss_kwh", 0.0),
+            "rte_loss_value": completed_rte_loss_value + chrono_result.get("rte_loss_value", 0.0),
+            # RTE-aware discharge tracking
+            "rte_preserved_kwh": chrono_result.get("rte_preserved_kwh", 0.0),
+            "rte_preserved_periods": chrono_result.get("rte_preserved_periods", []),
+            "rte_breakeven_price": chrono_result.get("rte_breakeven_price", 0.0),
         }
 
         return result

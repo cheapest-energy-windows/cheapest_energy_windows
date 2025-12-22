@@ -56,6 +56,8 @@ async def async_setup_entry(
         ("use_projected_buffer_tomorrow", "Use Projected Buffer Tomorrow", False, "mdi:battery-arrow-up"),
         # Solar production toggles
         ("use_solar_forecast", "Use Solar Forecast", True, "mdi:solar-power"),
+        # RTE-aware discharge (global battery setting)
+        ("rte_aware_discharge", "RTE-Aware Idle Discharge", True, "mdi:battery-sync"),
         # Note: Arbitrage Protection removed in v1.2.0
         # Profit thresholds now naturally control window qualification
     ]

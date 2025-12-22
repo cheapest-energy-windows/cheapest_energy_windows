@@ -119,6 +119,12 @@ async def async_setup_entry(
             0, 10000, DEFAULT_DISCHARGE_POWER, 100, "W",
             "mdi:lightning-bolt", NumberMode.BOX
         ),
+        # RTE-aware discharge margin (global battery setting)
+        CEWNumber(
+            hass, config_entry, "rte_discharge_margin", "RTE Discharge Margin",
+            0, 50, 2, 1, "%",  # 0-50%, default 2%, step 1%
+            "mdi:percent", NumberMode.BOX
+        ),
         CEWNumber(
             hass, config_entry, "base_usage", "Base Usage",
             0, 5000, DEFAULT_BASE_USAGE, 100, "W",
