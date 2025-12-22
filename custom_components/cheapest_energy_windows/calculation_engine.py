@@ -1455,8 +1455,10 @@ class WindowCalculationEngine:
 
                     # RTE DOES affect battery state - physical reality of charging losses
                     usable_grid_charge = actual_grid_charge * battery_rte  # Battery stores less than grid draw
-                    # Track RTE loss from grid charging (no export opportunity cost - energy from grid)
-                    rte_loss_kwh += actual_grid_charge * (1 - battery_rte)
+                    # Track RTE loss from grid charging - both kWh and cost
+                    grid_rte_loss = actual_grid_charge * (1 - battery_rte)
+                    rte_loss_kwh += grid_rte_loss
+                    rte_loss_value += grid_rte_loss * price  # Cost of energy lost to RTE
 
                     # Remaining base demand after solar
                     base_from_other = base_demand - solar_to_base

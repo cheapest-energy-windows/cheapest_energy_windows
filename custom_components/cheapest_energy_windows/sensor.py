@@ -477,6 +477,7 @@ class CEWTodaySensor(CEWBaseSensor):
             ATTR_TOTAL_COST: result.get("total_cost", 0.0),
             ATTR_PLANNED_TOTAL_COST: result.get("planned_total_cost", 0.0),
             ATTR_PLANNED_CHARGE_COST: result.get("planned_charge_cost", 0.0),
+            "planned_discharge_revenue": result.get("planned_discharge_revenue", 0.0),
             "net_planned_charge_kwh": result.get("net_planned_charge_kwh", 0.0),
             "net_planned_discharge_kwh": result.get("net_planned_discharge_kwh", 0.0),
             ATTR_NUM_WINDOWS: result.get("num_windows", 0),
@@ -807,6 +808,7 @@ class CEWTomorrowSensor(CEWBaseSensor):
             "actual_discharge_sell_prices": result.get("actual_discharge_sell_prices", []),
             ATTR_PLANNED_TOTAL_COST: result.get("planned_total_cost", 0.0),
             ATTR_PLANNED_CHARGE_COST: result.get("planned_charge_cost", 0.0),
+            "planned_discharge_revenue": result.get("planned_discharge_revenue", 0.0),
             "net_planned_charge_kwh": result.get("net_planned_charge_kwh", 0.0),
             "net_planned_discharge_kwh": result.get("net_planned_discharge_kwh", 0.0),
             "last_config_update": last_config_update.isoformat() if last_config_update else None,
@@ -855,6 +857,7 @@ class CEWTomorrowSensor(CEWBaseSensor):
             # Grid and battery state tracking (v1.2.0+) - tomorrow specific
             ATTR_GRID_KWH_ESTIMATED_TOMORROW: result.get("grid_kwh_estimated_today", 0.0),  # Reuse today's field
             ATTR_BATTERY_STATE_END_OF_TOMORROW: result.get("battery_state_end_of_day", 0.0),  # Reuse today's field
+            "battery_state_end_of_tomorrow_value": result.get("battery_state_end_of_day_value", 0.0),  # Reuse today's field
             # Solar integration metrics
             "solar_to_battery_kwh": result.get("solar_to_battery_kwh", 0.0),
             "solar_offset_base_kwh": result.get("solar_offset_base_kwh", 0.0),
