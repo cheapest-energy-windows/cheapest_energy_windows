@@ -320,6 +320,11 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             "solar_forecast_sensor": options.get("solar_forecast_sensor", "not_configured"),
             "solar_forecast_sensor_tomorrow": options.get("solar_forecast_sensor_tomorrow", "not_configured"),
 
+            # Auto-optimization settings
+            "auto_optimize_strategy": options.get("auto_optimize_strategy", "off"),
+            "auto_optimize_strategy_tomorrow": options.get("auto_optimize_strategy_tomorrow", "off"),
+            "min_daily_savings": float(options.get("min_daily_savings", 0.50)),
+
             # Time values
             "time_override_start": options.get("time_override_start", DEFAULT_TIME_OVERRIDE_START),
             "time_override_end": options.get("time_override_end", DEFAULT_TIME_OVERRIDE_END),

@@ -1764,8 +1764,22 @@ class WindowCalculationEngine:
 
                                 # Only use battery if current price exceeds breakeven + margin
                                 use_battery = price > current_breakeven_price
-                            # else: total_charged == 0 means no grid charge (and solar excluded)
-                            # use_battery stays True - freely use solar energy
+                            else:
+                                # total_charged == 0: No grid charge (solar excluded from RTE pool)
+                                # If discharge windows exist, protect battery for scheduled discharge
+                                # Use average discharge sell price as opportunity cost
+                                if actual_discharge_times and len(actual_discharge_times) > 0:
+                                    # Battery has solar energy that should be saved for discharge windows
+                                    # Calculate synthetic breakeven from discharge window sell prices
+                                    avg_discharge_sell = sum(actual_discharge_sell_prices) / len(actual_discharge_sell_prices) if actual_discharge_sell_prices else 0
+
+                                    if avg_discharge_sell > 0:
+                                        # Protect battery: only use if current price > avg discharge price
+                                        # (would lose money using battery now vs. selling at discharge time)
+                                        current_breakeven_price = avg_discharge_sell * (1 - rte_discharge_margin)
+                                        use_battery = price > current_breakeven_price
+                                    # else: no discharge prices, freely use battery
+                                # else: no discharge windows, freely use solar energy (use_battery stays True)
 
                         if use_battery:
                             # Battery provides remaining base usage (drain battery)

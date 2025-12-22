@@ -199,6 +199,13 @@ async def async_setup_entry(
         ),
         # Note: Arbitrage Protection removed in v1.2.0
         # Profit thresholds now naturally control window qualification
+
+        # Auto-optimization minimum savings threshold
+        CEWNumber(
+            hass, config_entry, "min_daily_savings", "Min Daily Savings",
+            0, 5.0, 0.50, 0.05, "EUR",
+            "mdi:currency-eur", NumberMode.BOX
+        ),
     ])
 
     # Tomorrow's configuration

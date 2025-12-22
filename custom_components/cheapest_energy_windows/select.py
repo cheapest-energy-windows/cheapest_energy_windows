@@ -53,6 +53,9 @@ async def async_setup_entry(
         ("price_country", "Price Formula", country_display_names, default_country_display, "mdi:map-marker"),
         # Solar production priority strategy
         ("solar_priority_strategy", "Solar Priority", ["base_then_grid", "base_then_battery"], DEFAULT_SOLAR_PRIORITY_STRATEGY, "mdi:solar-power-variant"),
+        # Auto-optimization strategy
+        ("auto_optimize_strategy", "Auto Optimize Strategy", ["off", "minimize_cost"], "off", "mdi:auto-fix"),
+        ("auto_optimize_strategy_tomorrow", "Auto Optimize Strategy Tomorrow", ["off", "minimize_cost"], "off", "mdi:auto-fix"),
     ]
 
     for key, name, options, default, icon in select_configs:
@@ -89,7 +92,7 @@ class CEWSelect(SelectEntity):
         self._attr_has_entity_name = False
 
         # Set translation key to enable HA's native option translations
-        if key.startswith("base_usage_") or key == "solar_priority_strategy":
+        if key.startswith("base_usage_") or key == "solar_priority_strategy" or key.startswith("auto_optimize_strategy"):
             self._attr_translation_key = key
 
         # Load value from config entry options, with fallback to data for backwards compatibility

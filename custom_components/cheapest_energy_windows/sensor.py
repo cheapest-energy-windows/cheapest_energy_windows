@@ -17,6 +17,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
 from .calculation_engine import WindowCalculationEngine
+from .window_optimizer import WindowOptimizer
 from .const import (
     DOMAIN,
     LOGGER_NAME,
@@ -187,6 +188,12 @@ class CEWBaseSensor(CoordinatorEntity, SensorEntity):
             config.get(f"time_override_mode{suffix}", "charge"),
         ])
 
+        # Add auto-optimization settings
+        calc_values.extend([
+            config.get(f"auto_optimize_strategy{suffix}", "off"),
+            config.get("min_daily_savings", 0.50),
+        ])
+
         # Create hash from all values
         return str(hash(tuple(str(v) for v in calc_values)))
 
@@ -198,6 +205,8 @@ class CEWTodaySensor(CEWBaseSensor):
         """Initialize today sensor."""
         super().__init__(coordinator, config_entry, "today")
         self._calculation_engine = WindowCalculationEngine()
+        self._window_optimizer = WindowOptimizer()
+        self._optimization_running = False
 
     @callback
     def _handle_coordinator_update(self) -> None:
@@ -238,9 +247,113 @@ class CEWTodaySensor(CEWBaseSensor):
         raw_today = self.coordinator.data.get("raw_today", [])
 
         if raw_today:
-            result = self._calculation_engine.calculate_windows(
-                raw_today, config, is_tomorrow=False, hass=self.coordinator.hass
-            )
+            # Check if auto-optimization is enabled
+            strategy = config.get("auto_optimize_strategy", "off")
+
+            if strategy != "off":
+                # Auto-optimization enabled
+                # CRITICAL: Only run optimizer when data/config actually changed
+                # Skip on scheduled_update (time-based state transitions only)
+                # Also check for manual recalculation trigger (button press)
+                force_recalc = self.hass.data.get(DOMAIN, {}).get(
+                    self.config_entry.entry_id, {}
+                ).get("force_recalculation", False)
+
+                needs_optimization = (
+                    is_first_load or
+                    price_data_changed or
+                    calc_config_changed or
+                    force_recalc
+                )
+
+                # Clear the force flag if set
+                if force_recalc:
+                    self.hass.data[DOMAIN][self.config_entry.entry_id]["force_recalculation"] = False
+                    _LOGGER.info("Today: Manual recalculation requested")
+
+                if not needs_optimization:
+                    # Skip full optimization - but still do lightweight state update
+                    # Check if current time has crossed into a different window type
+                    if self._previous_attributes:
+                        # Get windows from previous calculation
+                        charge_times = self._previous_attributes.get("actual_charge_times", [])
+                        discharge_times = self._previous_attributes.get("actual_discharge_times", [])
+                        rte_preserved = self._previous_attributes.get("rte_preserved_periods", [])
+
+                        # Simple state determination based on current time
+                        from datetime import datetime
+                        import zoneinfo
+                        now = datetime.now(zoneinfo.ZoneInfo("Europe/Amsterdam"))
+
+                        new_state = STATE_IDLE  # Default
+                        automation_enabled = config.get("automation_enabled", True)
+
+                        if not automation_enabled:
+                            new_state = STATE_OFF
+                        else:
+                            # Check if current time is in any window
+                            for t in charge_times:
+                                try:
+                                    window_time = datetime.fromisoformat(t) if isinstance(t, str) else t
+                                    window_end = window_time + timedelta(minutes=15)
+                                    if window_time <= now < window_end:
+                                        new_state = STATE_CHARGE
+                                        break
+                                except:
+                                    pass
+
+                            if new_state == STATE_IDLE:
+                                for t in discharge_times:
+                                    try:
+                                        window_time = datetime.fromisoformat(t) if isinstance(t, str) else t
+                                        window_end = window_time + timedelta(minutes=15)
+                                        if window_time <= now < window_end:
+                                            new_state = STATE_DISCHARGE
+                                            break
+                                    except:
+                                        pass
+
+                            # Check RTE-preserved (off) periods
+                            if new_state == STATE_IDLE and rte_preserved:
+                                for period in rte_preserved:
+                                    try:
+                                        period_time = datetime.fromisoformat(period["timestamp"]) if isinstance(period["timestamp"], str) else period["timestamp"]
+                                        duration = period.get("duration", 0.25)
+                                        period_end = period_time + timedelta(hours=duration)
+                                        if period_time <= now < period_end:
+                                            new_state = STATE_OFF
+                                            break
+                                    except:
+                                        pass
+
+                        if new_state != self._previous_state:
+                            _LOGGER.info(f"Today: State transition {self._previous_state} → {new_state}")
+                            self._attr_native_value = new_state
+                            self._previous_state = new_state
+                            self.async_write_ha_state()
+                    return
+
+                if self._optimization_running:
+                    _LOGGER.debug("Today: Optimization already running, skipping")
+                    return
+
+                # Set optimizing state and schedule async task
+                self._optimization_running = True
+                self._attr_native_value = "optimizing"
+                self.async_write_ha_state()
+
+                # Schedule the async optimization
+                self.coordinator.hass.async_create_task(
+                    self._async_run_optimization(raw_today, config)
+                )
+                return  # Don't continue - the async task will handle the rest
+            else:
+                # Manual mode - use direct calculation
+                result = self._calculation_engine.calculate_windows(
+                    raw_today, config, is_tomorrow=False, hass=self.coordinator.hass
+                )
+                result["auto_optimized"] = False
+
             new_state = result.get("state", STATE_OFF)
             new_attributes = self._build_attributes(result)
 
@@ -274,6 +387,67 @@ class CEWTodaySensor(CEWBaseSensor):
             self._previous_calc_config_hash = current_calc_config_hash
             self._persistent_sensor_state["previous_automation_enabled"] = current_automation_enabled
             self._persistent_sensor_state["previous_calc_config_hash"] = current_calc_config_hash
+
+    async def _async_run_optimization(self, raw_prices: List[Dict[str, Any]], config: Dict[str, Any]) -> None:
+        """Run optimization in executor and update sensor state."""
+        try:
+            strategy = config.get("auto_optimize_strategy", "minimize_cost")
+
+            # Run optimizer in thread pool to avoid blocking event loop
+            opt_result = await self.coordinator.hass.async_add_executor_job(
+                self._window_optimizer.optimize,
+                raw_prices,
+                config,
+                strategy,
+                False,  # is_tomorrow
+                self.coordinator.hass
+            )
+
+            # Use the optimized result
+            result = opt_result.result
+            result["auto_optimized"] = True
+            result["optimal_charge_windows"] = opt_result.optimal_charge_windows
+            result["optimal_discharge_windows"] = opt_result.optimal_discharge_windows
+            result["optimal_percentile"] = opt_result.optimal_percentile
+            result["optimization_savings"] = opt_result.savings_vs_baseline
+            result["optimization_baseline_cost"] = opt_result.baseline_cost
+            result["optimization_time_ms"] = opt_result.optimization_time_ms
+            result["optimization_iterations"] = opt_result.iterations_checked
+            result["below_min_savings"] = opt_result.below_min_savings
+
+            new_state = result.get("state", STATE_OFF)
+            new_attributes = self._build_attributes(result)
+
+            # Store projected buffer for tomorrow
+            if config.get("use_projected_buffer_tomorrow", False):
+                today_end_state = result.get("battery_state_end_of_day", 0.0)
+                self.coordinator.data["_projected_buffer_tomorrow"] = today_end_state
+
+            # Update sensor state
+            self._attr_native_value = new_state
+            self._attr_extra_state_attributes = new_attributes
+            self._previous_state = new_state
+            self._previous_attributes = new_attributes.copy() if new_attributes else None
+
+            current_automation_enabled = config.get("automation_enabled", True)
+            current_calc_config_hash = self._calc_config_hash(config, is_tomorrow=False)
+            self._previous_automation_enabled = current_automation_enabled
+            self._previous_calc_config_hash = current_calc_config_hash
+            self._persistent_sensor_state["previous_automation_enabled"] = current_automation_enabled
+            self._persistent_sensor_state["previous_calc_config_hash"] = current_calc_config_hash
+
+            _LOGGER.info(f"Today: Optimized → {new_state} (charge={opt_result.optimal_charge_windows}, discharge={opt_result.optimal_discharge_windows})")
+
+            self.async_write_ha_state()
+
+        except Exception as e:
+            _LOGGER.error(f"Today: Optimization failed: {e}", exc_info=True)
+            # Fall back to manual mode on error
+            self._attr_native_value = STATE_OFF
+            self.async_write_ha_state()
+
+        finally:
+            self._optimization_running = False
 
     def _build_attributes(self, result: Dict[str, Any]) -> Dict[str, Any]:
         """Build sensor attributes from calculation result."""
@@ -395,6 +569,16 @@ class CEWTodaySensor(CEWBaseSensor):
             "rte_preserved_kwh": result.get("rte_preserved_kwh", 0.0),
             "rte_preserved_periods": result.get("rte_preserved_periods", []),
             "rte_breakeven_price": result.get("rte_breakeven_price", 0.0),
+            # Auto-optimization attributes
+            "auto_optimized": result.get("auto_optimized", False),
+            "optimal_charge_windows": result.get("optimal_charge_windows"),
+            "optimal_discharge_windows": result.get("optimal_discharge_windows"),
+            "optimal_percentile": result.get("optimal_percentile"),
+            "optimization_savings": result.get("optimization_savings", 0.0),
+            "optimization_baseline_cost": result.get("optimization_baseline_cost", 0.0),
+            "optimization_time_ms": result.get("optimization_time_ms", 0.0),
+            "optimization_iterations": result.get("optimization_iterations", 0),
+            "below_min_savings": result.get("below_min_savings", False),
         }
 
 
@@ -405,6 +589,8 @@ class CEWTomorrowSensor(CEWBaseSensor):
         """Initialize tomorrow sensor."""
         super().__init__(coordinator, config_entry, "tomorrow")
         self._calculation_engine = WindowCalculationEngine()
+        self._window_optimizer = WindowOptimizer()
+        self._optimization_running = False
 
     @callback
     def _handle_coordinator_update(self) -> None:
@@ -456,10 +642,52 @@ class CEWTomorrowSensor(CEWBaseSensor):
                     config = config.copy()  # Don't mutate original
                     config["_projected_buffer_tomorrow"] = projected
 
-            # Calculate tomorrow's windows
-            result = self._calculation_engine.calculate_windows(
-                raw_tomorrow, config, is_tomorrow=True, hass=self.coordinator.hass
-            )
+            # Check if auto-optimization is enabled for tomorrow
+            strategy = config.get("auto_optimize_strategy_tomorrow", "off")
+
+            if strategy != "off":
+                # Auto-optimization enabled
+                # CRITICAL: Only run optimizer when data/config actually changed
+                # Skip on scheduled_update (time-based state transitions only)
+                # Also check for manual recalculation trigger (button press)
+                force_recalc = self.hass.data.get(DOMAIN, {}).get(
+                    self.config_entry.entry_id, {}
+                ).get("force_recalculation", False)
+
+                needs_optimization = (
+                    is_first_load or
+                    price_data_changed or
+                    calc_config_changed or
+                    force_recalc
+                )
+
+                if force_recalc:
+                    _LOGGER.info("Tomorrow: Manual recalculation requested")
+
+                if not needs_optimization:
+                    # Tomorrow sensor: just skip, no state transitions needed
+                    return
+
+                if self._optimization_running:
+                    _LOGGER.debug("Tomorrow: Optimization already running, skipping")
+                    return
+
+                # Set optimizing state and schedule async task
+                self._optimization_running = True
+                self._attr_native_value = "optimizing"
+                self.async_write_ha_state()
+
+                # Schedule the async optimization
+                self.coordinator.hass.async_create_task(
+                    self._async_run_optimization(raw_tomorrow, config)
+                )
+                return  # Don't continue - the async task will handle the rest
+            else:
+                # Manual mode - use direct calculation
+                result = self._calculation_engine.calculate_windows(
+                    raw_tomorrow, config, is_tomorrow=True, hass=self.coordinator.hass
+                )
+                result["auto_optimized"] = False
 
             # Get calculated state from result (like today sensor does)
             new_state = result.get("state", STATE_OFF)
@@ -489,6 +717,62 @@ class CEWTomorrowSensor(CEWBaseSensor):
             self._previous_calc_config_hash = current_calc_config_hash
             self._persistent_sensor_state["previous_automation_enabled"] = current_automation_enabled
             self._persistent_sensor_state["previous_calc_config_hash"] = current_calc_config_hash
+
+    async def _async_run_optimization(self, raw_prices: List[Dict[str, Any]], config: Dict[str, Any]) -> None:
+        """Run optimization in executor and update sensor state."""
+        try:
+            strategy = config.get("auto_optimize_strategy_tomorrow", "minimize_cost")
+
+            # Run optimizer in thread pool to avoid blocking event loop
+            opt_result = await self.coordinator.hass.async_add_executor_job(
+                self._window_optimizer.optimize,
+                raw_prices,
+                config,
+                strategy,
+                True,  # is_tomorrow
+                self.coordinator.hass
+            )
+
+            # Use the optimized result
+            result = opt_result.result
+            result["auto_optimized"] = True
+            result["optimal_charge_windows"] = opt_result.optimal_charge_windows
+            result["optimal_discharge_windows"] = opt_result.optimal_discharge_windows
+            result["optimal_percentile"] = opt_result.optimal_percentile
+            result["optimization_savings"] = opt_result.savings_vs_baseline
+            result["optimization_baseline_cost"] = opt_result.baseline_cost
+            result["optimization_time_ms"] = opt_result.optimization_time_ms
+            result["optimization_iterations"] = opt_result.iterations_checked
+            result["below_min_savings"] = opt_result.below_min_savings
+
+            new_state = result.get("state", STATE_OFF)
+            new_attributes = self._build_attributes(result)
+
+            # Update sensor state
+            self._attr_native_value = new_state
+            self._attr_extra_state_attributes = new_attributes
+            self._previous_state = new_state
+            self._previous_attributes = new_attributes.copy() if new_attributes else None
+
+            current_automation_enabled = config.get("automation_enabled", True)
+            current_calc_config_hash = self._calc_config_hash(config, is_tomorrow=True)
+            self._previous_automation_enabled = current_automation_enabled
+            self._previous_calc_config_hash = current_calc_config_hash
+            self._persistent_sensor_state["previous_automation_enabled"] = current_automation_enabled
+            self._persistent_sensor_state["previous_calc_config_hash"] = current_calc_config_hash
+
+            _LOGGER.info(f"Tomorrow: Optimized → {new_state} (charge={opt_result.optimal_charge_windows}, discharge={opt_result.optimal_discharge_windows})")
+
+            self.async_write_ha_state()
+
+        except Exception as e:
+            _LOGGER.error(f"Tomorrow: Optimization failed: {e}", exc_info=True)
+            # Fall back to unavailable on error
+            self._attr_native_value = STATE_OFF
+            self.async_write_ha_state()
+
+        finally:
+            self._optimization_running = False
 
     def _build_attributes(self, result: Dict[str, Any]) -> Dict[str, Any]:
         """Build sensor attributes for tomorrow."""
@@ -594,6 +878,16 @@ class CEWTomorrowSensor(CEWBaseSensor):
             "rte_preserved_kwh": result.get("rte_preserved_kwh", 0.0),
             "rte_preserved_periods": result.get("rte_preserved_periods", []),
             "rte_breakeven_price": result.get("rte_breakeven_price", 0.0),
+            # Auto-optimization attributes
+            "auto_optimized": result.get("auto_optimized", False),
+            "optimal_charge_windows": result.get("optimal_charge_windows"),
+            "optimal_discharge_windows": result.get("optimal_discharge_windows"),
+            "optimal_percentile": result.get("optimal_percentile"),
+            "optimization_savings": result.get("optimization_savings", 0.0),
+            "optimization_baseline_cost": result.get("optimization_baseline_cost", 0.0),
+            "optimization_time_ms": result.get("optimization_time_ms", 0.0),
+            "optimization_iterations": result.get("optimization_iterations", 0),
+            "below_min_savings": result.get("below_min_savings", False),
         }
 
 

@@ -212,14 +212,16 @@
           "charge": "Charge",
           "discharge": "Discharge",
           "idle": "Idle",
-          "off": "Off"
+          "off": "Off",
+          "optimizing": "Optimizing..."
         }
       },
       "cew_tomorrow": {
         "name": "CEW Tomorrow",
         "state": {
           "available": "Available",
-          "unavailable": "Unavailable"
+          "unavailable": "Unavailable",
+          "optimizing": "Optimizing..."
         }
       }
     },
@@ -273,6 +275,20 @@
       },
       "buy_formula_param_b": {
         "name": "Multiplier (B)"
+      },
+      "auto_optimize_strategy": {
+        "name": "Auto Optimize Strategy",
+        "state": {
+          "off": "Off (Manual)",
+          "minimize_cost": "Minimize Daily Cost"
+        }
+      },
+      "auto_optimize_strategy_tomorrow": {
+        "name": "Auto Optimize Strategy Tomorrow",
+        "state": {
+          "off": "Off (Manual)",
+          "minimize_cost": "Minimize Daily Cost"
+        }
       }
     }
   },
@@ -306,6 +322,12 @@
       "options": {
         "netherlands": "Netherlands",
         "belgium_engie": "Belgium (ENGIE)"
+      }
+    },
+    "auto_optimize_strategy": {
+      "options": {
+        "off": "Off (Manual)",
+        "minimize_cost": "Minimize Daily Cost"
       }
     }
   }

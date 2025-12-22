@@ -8,7 +8,7 @@ PREFIX: Final = "cew_"
 VERSION: Final = "1.2.0"
 
 # Platforms
-PLATFORMS: Final = ["sensor", "number", "select", "switch", "time", "text"]
+PLATFORMS: Final = ["sensor", "number", "select", "switch", "time", "text", "button"]
 
 # Configuration keys
 CONF_PRICE_SENSOR: Final = "price_sensor"
@@ -313,6 +313,10 @@ CALCULATION_AFFECTING_KEYS: Final = {
     "min_profit_charge_tomorrow",
     "min_profit_discharge_tomorrow",
 
+    # Auto-optimization settings
+    "auto_optimize_strategy",
+    "auto_optimize_strategy_tomorrow",
+    "min_daily_savings",
 }
 
 # Configuration keys that DON'T affect calculation (UI/notification settings)
