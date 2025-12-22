@@ -23,6 +23,16 @@ List all CEW entities:
 curl -s "http://10.50.0.9:8125/api/states" -H "Authorization: Bearer <token>" | python3 -c "import sys,json; [print(e['entity_id']) for e in json.load(sys.stdin) if 'cew_' in e['entity_id']]"
 ```
 
+View CEW logs (last 50 lines):
+```bash
+curl -s "http://10.50.0.9:8125/api/error_log" -H "Authorization: Bearer <token>" | grep "cheapest_energy_windows" | tail -50
+```
+
+View all recent logs:
+```bash
+curl -s "http://10.50.0.9:8125/api/error_log" -H "Authorization: Bearer <token>" | tail -100
+```
+
 Reload integration:
 ```bash
 curl -X POST "http://10.50.0.9:8125/api/services/homeassistant/reload_config_entry" -H "Authorization: Bearer <token>" -H "Content-Type: application/json" -d '{"entry_id": "<config_entry_id>"}'
