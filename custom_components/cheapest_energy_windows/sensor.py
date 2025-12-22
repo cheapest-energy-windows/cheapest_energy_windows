@@ -381,6 +381,14 @@ class CEWTodaySensor(CEWBaseSensor):
             "solar_total_contribution_kwh": result.get("solar_total_contribution_kwh", 0.0),
             "grid_savings_from_solar": result.get("grid_savings_from_solar", 0.0),
             "expected_solar_kwh": result.get("expected_solar_kwh", 0.0),
+            # Detailed battery tracking for energy flow report
+            "battery_charged_from_grid_kwh": result.get("battery_charged_from_grid_kwh", 0.0),
+            "battery_charged_from_grid_cost": result.get("battery_charged_from_grid_cost", 0.0),
+            "battery_charged_from_solar_kwh": result.get("battery_charged_from_solar_kwh", 0.0),
+            "battery_charged_avg_price": result.get("battery_charged_avg_price", 0.0),
+            "battery_discharged_to_base_kwh": result.get("battery_discharged_to_base_kwh", 0.0),
+            "battery_discharged_to_grid_kwh": result.get("battery_discharged_to_grid_kwh", 0.0),
+            "battery_discharged_avg_price": result.get("battery_discharged_avg_price", 0.0),
         }
 
 
@@ -584,6 +592,14 @@ class CEWTomorrowSensor(CEWBaseSensor):
             "solar_total_contribution_kwh": result.get("solar_total_contribution_kwh", 0.0),
             "grid_savings_from_solar": result.get("grid_savings_from_solar", 0.0),
             "expected_solar_kwh": result.get("expected_solar_kwh", 0.0),
+            # Detailed battery tracking for energy flow report
+            "battery_charged_from_grid_kwh": result.get("battery_charged_from_grid_kwh", 0.0),
+            "battery_charged_from_grid_cost": result.get("battery_charged_from_grid_cost", 0.0),
+            "battery_charged_from_solar_kwh": result.get("battery_charged_from_solar_kwh", 0.0),
+            "battery_charged_avg_price": result.get("battery_charged_avg_price", 0.0),
+            "battery_discharged_to_base_kwh": result.get("battery_discharged_to_base_kwh", 0.0),
+            "battery_discharged_to_grid_kwh": result.get("battery_discharged_to_grid_kwh", 0.0),
+            "battery_discharged_avg_price": result.get("battery_discharged_avg_price", 0.0),
         }
 
 

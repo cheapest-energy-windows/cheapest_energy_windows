@@ -1360,6 +1360,14 @@ class WindowCalculationEngine:
         solar_export_events = []  # Track per-period exports for completed calculation
         solar_base_offset_events = []  # Track per-period solar base offsets for completed calculation
 
+        # Detailed battery tracking for energy flow report
+        battery_charged_from_grid_kwh = 0.0
+        battery_charged_from_grid_cost = 0.0
+        battery_discharged_to_base_kwh = 0.0
+        battery_discharged_to_grid_kwh = 0.0
+        grid_charging_prices = []  # To calculate avg charge price
+        grid_discharging_prices = []  # To calculate avg discharge price
+
         # Sell formula parameters for solar export revenue
         sell_country = config.get("price_country", DEFAULT_PRICE_COUNTRY)
         sell_param_a = config.get("sell_formula_param_a", DEFAULT_SELL_FORMULA_PARAM_A)
@@ -1430,7 +1438,8 @@ class WindowCalculationEngine:
                     solar_export_events.append({
                         "timestamp": period["timestamp"],
                         "duration": period["duration"],
-                        "revenue": revenue
+                        "revenue": revenue,
+                        "kwh": solar_remaining
                     })
 
                 # Grid provides remaining charge (after solar contribution)
@@ -1471,6 +1480,12 @@ class WindowCalculationEngine:
 
                     battery_state = min(max(0, battery_state), battery_capacity)  # Clamp to valid range
                     actual_charge_kwh += actual_grid_charge + solar_to_charge
+
+                    # Track grid charging separately for energy flow report
+                    if actual_grid_charge > 0:
+                        battery_charged_from_grid_kwh += actual_grid_charge
+                        battery_charged_from_grid_cost += actual_grid_charge * price
+                        grid_charging_prices.append(price)
 
                     _LOGGER.debug(
                         f"CHARGE @ {period['timestamp']}: grid={actual_grid_charge:.2f} kWh, "
@@ -1533,7 +1548,8 @@ class WindowCalculationEngine:
                     solar_export_events.append({
                         "timestamp": period["timestamp"],
                         "duration": period["duration"],
-                        "revenue": revenue
+                        "revenue": revenue,
+                        "kwh": solar_remaining
                     })
 
                 # Effective base demand after solar covers some
@@ -1615,6 +1631,12 @@ class WindowCalculationEngine:
 
                         # Revenue based on net export to grid
                         planned_discharge_revenue += sell_price * actual_net_export
+
+                        # Track discharge destinations for energy flow report
+                        battery_discharged_to_base_kwh += actual_base_from_battery
+                        battery_discharged_to_grid_kwh += actual_net_export
+                        if actual_net_export > 0:
+                            grid_discharging_prices.append(sell_price)
                     else:
                         _LOGGER.debug(f"  -> SKIPPED: battery={battery_state:.2f} < needed={total_drain_needed:.2f}")
                         skipped_discharge_windows.append({
@@ -1625,6 +1647,8 @@ class WindowCalculationEngine:
                         })
                         # Even if discharge window is skipped, base usage still drains battery
                         battery_state -= actual_base_from_battery
+                        # Track base coverage even when export is skipped
+                        battery_discharged_to_base_kwh += actual_base_from_battery
                         if actual_base_from_battery < effective_base_demand:
                             # Grid fallback: battery can't cover all base usage (after solar)
                             uncovered = effective_base_demand - actual_base_from_battery
@@ -1644,6 +1668,12 @@ class WindowCalculationEngine:
 
                     # Revenue based on net export to grid
                     planned_discharge_revenue += sell_price * actual_net_export
+
+                    # Track discharge destinations for energy flow report
+                    battery_discharged_to_base_kwh += actual_base_from_battery
+                    battery_discharged_to_grid_kwh += actual_net_export
+                    if actual_net_export > 0:
+                        grid_discharging_prices.append(sell_price)
 
                 battery_state = max(0, battery_state)  # Ensure non-negative
 
@@ -1699,7 +1729,8 @@ class WindowCalculationEngine:
                         solar_export_events.append({
                             "timestamp": period["timestamp"],
                             "duration": period["duration"],
-                            "revenue": revenue
+                            "revenue": revenue,
+                            "kwh": solar_remaining
                         })
 
                 # Remaining base demand after solar
@@ -1715,6 +1746,7 @@ class WindowCalculationEngine:
                         # Battery provides remaining base usage (drain battery)
                         battery_drain = min(base_from_other, battery_state)
                         battery_state -= battery_drain
+                        battery_discharged_to_base_kwh += battery_drain
                         uncovered = base_from_other - battery_drain
                         if uncovered > 0:
                             # Grid fallback: battery empty, grid must cover the rest
@@ -1768,6 +1800,18 @@ class WindowCalculationEngine:
             "expected_solar_kwh": round(expected_solar_kwh, 3),
             "solar_export_events": solar_export_events,
             "solar_base_offset_events": solar_base_offset_events,
+            # Detailed battery tracking for energy flow report
+            "battery_charged_from_grid_kwh": round(battery_charged_from_grid_kwh, 3),
+            "battery_charged_from_grid_cost": round(battery_charged_from_grid_cost, 4),
+            "battery_charged_from_solar_kwh": round(solar_to_battery_kwh, 3),  # Alias for clarity
+            "battery_charged_avg_price": round(
+                sum(grid_charging_prices) / len(grid_charging_prices), 5
+            ) if grid_charging_prices else 0.0,
+            "battery_discharged_to_base_kwh": round(battery_discharged_to_base_kwh, 3),
+            "battery_discharged_to_grid_kwh": round(battery_discharged_to_grid_kwh, 3),
+            "battery_discharged_avg_price": round(
+                sum(grid_discharging_prices) / len(grid_discharging_prices), 5
+            ) if grid_discharging_prices else 0.0,
         }
 
     def _build_result(
@@ -2287,13 +2331,16 @@ class WindowCalculationEngine:
         final_battery_state = chrono_result["final_battery_state"]
         buffer_delta = final_battery_state - buffer_energy
 
-        # Calculate completed solar export revenue from solar_export_events
+        # Calculate completed solar export revenue and kWh from solar_export_events
         solar_export_events = chrono_result.get("solar_export_events", [])
+        completed_solar_export_kwh = 0
         for event in solar_export_events:
             event_end = event["timestamp"] + timedelta(minutes=event["duration"])
             if event_end <= current_time:
                 completed_solar_export_revenue += event["revenue"]
+                completed_solar_export_kwh += event.get("kwh", 0)
         completed_solar_export_revenue = round(completed_solar_export_revenue, 3)
+        completed_solar_export_kwh = round(completed_solar_export_kwh, 3)
 
         # Calculate completed solar grid savings (solar offsetting base usage)
         solar_base_offset_events = chrono_result.get("solar_base_offset_events", [])
@@ -2559,9 +2606,10 @@ class WindowCalculationEngine:
             discharged_kwh = chrono_result.get("actual_discharge_kwh", 0)  # Grid export
             uncovered_base = chrono_result.get("uncovered_base_kwh", 0)  # Grid covered base when battery empty
 
-            # net_grid_kwh = grid import - grid export
+            # net_grid_kwh = grid import - grid export (battery + solar)
             # grid_kwh_total already includes charge + uncovered base
-            net_grid_kwh = chrono_result.get("grid_kwh_total", 0) - discharged_kwh
+            solar_exported = chrono_result.get("solar_exported_kwh", 0)
+            net_grid_kwh = chrono_result.get("grid_kwh_total", 0) - discharged_kwh - solar_exported
 
             # For remaining calculations
             usable_kwh_calc = charged_kwh
@@ -2665,7 +2713,8 @@ class WindowCalculationEngine:
             "completed_discharge_kwh": round(completed_discharge_kwh, 3),
             "completed_base_grid_kwh": round(completed_base_grid_kwh, 3),
             "completed_solar_base_kwh": round(completed_solar_base_kwh, 3),
-            "completed_net_grid_kwh": round(completed_charge_kwh + completed_base_grid_kwh - completed_discharge_kwh - completed_solar_base_kwh, 3),
+            "completed_solar_export_kwh": round(completed_solar_export_kwh, 3),
+            "completed_net_grid_kwh": round(completed_charge_kwh + completed_base_grid_kwh - completed_discharge_kwh - completed_solar_export_kwh, 3),
             "uncovered_base_usage_kwh": round(uncovered_kwh, 3),
             "uncovered_base_usage_cost": round(uncovered_cost, 3),
             "completed_solar_grid_savings": round(completed_solar_grid_savings, 3),
@@ -2772,6 +2821,14 @@ class WindowCalculationEngine:
             "solar_total_contribution_kwh": chrono_result.get("solar_total_contribution_kwh", 0.0),
             "grid_savings_from_solar": chrono_result.get("grid_savings_from_solar", 0.0),
             "expected_solar_kwh": chrono_result.get("expected_solar_kwh", 0.0),
+            # Battery tracking from chrono simulation
+            "battery_charged_from_grid_kwh": chrono_result.get("battery_charged_from_grid_kwh", 0.0),
+            "battery_charged_from_grid_cost": chrono_result.get("battery_charged_from_grid_cost", 0.0),
+            "battery_charged_from_solar_kwh": chrono_result.get("battery_charged_from_solar_kwh", 0.0),
+            "battery_charged_avg_price": chrono_result.get("battery_charged_avg_price", 0.0),
+            "battery_discharged_to_base_kwh": chrono_result.get("battery_discharged_to_base_kwh", 0.0),
+            "battery_discharged_to_grid_kwh": chrono_result.get("battery_discharged_to_grid_kwh", 0.0),
+            "battery_discharged_avg_price": chrono_result.get("battery_discharged_avg_price", 0.0),
         }
 
         return result
@@ -2892,6 +2949,7 @@ class WindowCalculationEngine:
             "completed_discharge_kwh": 0,
             "completed_base_grid_kwh": 0,
             "completed_solar_base_kwh": 0,
+            "completed_solar_export_kwh": 0,
             "completed_net_grid_kwh": 0,
             "uncovered_base_usage_kwh": 0,
             "uncovered_base_usage_cost": 0,
