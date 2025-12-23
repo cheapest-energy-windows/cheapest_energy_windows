@@ -2445,6 +2445,20 @@ class WindowCalculationEngine:
         feasible_charge = chrono_result.get("feasible_charge_windows", [])
         skipped_charge = chrono_result.get("skipped_charge_windows", [])
 
+        # CHRONOLOGICAL FILTER: Exclude charge windows after last discharge window
+        # Reason: Charging after all discharges increases cost without same-day benefit
+        # The charged energy would only be useful for tomorrow, not minimizing today's cost
+        feasible_discharge = chrono_result.get("feasible_discharge_windows", [])
+        if feasible_discharge:
+            last_discharge_time = max(d["timestamp"] for d in feasible_discharge)
+            late_charge_count = len([c for c in feasible_charge if c["timestamp"] > last_discharge_time])
+            if late_charge_count > 0:
+                feasible_charge = [c for c in feasible_charge if c["timestamp"] <= last_discharge_time]
+                _LOGGER.info(
+                    f"Chronological filter: Excluded {late_charge_count} charge window(s) after last discharge "
+                    f"({last_discharge_time.strftime('%H:%M')}) - no same-day benefit"
+                )
+
         # CAPACITY-FIRST SELECTION: From all feasible windows, select the cheapest N
         # This ensures that increasing max windows never DECREASES elected windows
         # Feasibility is determined by battery capacity (chrono), selection by price
