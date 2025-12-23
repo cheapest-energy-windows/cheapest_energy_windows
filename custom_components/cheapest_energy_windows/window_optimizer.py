@@ -79,7 +79,10 @@ class WindowOptimizer:
     ) -> float:
         """Calculate maximum available energy for discharge.
 
-        Available energy = buffer + solar + (charge_windows × charge_power × RTE)
+        Available energy = buffer + net_solar_to_battery + (charge_windows × charge_power × RTE)
+
+        IMPORTANT: Solar first covers base usage during daylight hours.
+        Only excess solar reaches the battery.
 
         Args:
             num_charge: Number of charge windows
@@ -106,8 +109,34 @@ class WindowOptimizer:
         # Energy stored from grid charging (after RTE loss)
         charge_kwh = num_charge * window_duration * charge_power_kw * battery_rte
 
+        # Calculate NET solar that actually reaches battery (after base usage consumes its share)
+        net_solar_kwh = 0.0
+        if solar_kwh > 0:
+            # Get solar window duration
+            solar_start_str = config.get("solar_window_start", "09:00:00")
+            solar_end_str = config.get("solar_window_end", "19:00:00")
+
+            # Parse times and calculate hours
+            try:
+                from datetime import datetime
+                start = datetime.strptime(solar_start_str, "%H:%M:%S")
+                end = datetime.strptime(solar_end_str, "%H:%M:%S")
+                solar_hours = (end - start).seconds / 3600
+            except (ValueError, TypeError):
+                solar_hours = 10.0  # Default fallback
+
+            # Base usage during solar hours consumes solar first
+            base_usage_kw = float(config.get("base_usage", 0)) / 1000.0
+            base_usage_during_solar = base_usage_kw * solar_hours
+
+            # Only excess solar goes to battery
+            excess_solar = max(0, solar_kwh - base_usage_during_solar)
+
+            # Apply RTE loss when solar is stored in battery
+            net_solar_kwh = excess_solar * battery_rte
+
         # Total available for discharge
-        available_kwh = buffer_kwh + solar_kwh + charge_kwh
+        available_kwh = buffer_kwh + net_solar_kwh + charge_kwh
 
         return available_kwh
 
@@ -239,6 +268,29 @@ class WindowOptimizer:
         decision_tree.append(f"Battery RTE: {int(battery_rte)}%")
         decision_tree.append(f"Charge: {int(charge_power)}W → {charge_kwh_per_window:.3f} kWh/window")
         decision_tree.append(f"Discharge: {int(discharge_power)}W → {discharge_kwh_per_window:.3f} kWh/window")
+
+        # Show solar/base calculation for transparency
+        solar_key = f"expected_solar_kwh{suffix}" if suffix else "expected_solar_kwh"
+        expected_solar = float(config.get(solar_key, 0))
+        base_usage_w = float(config.get("base_usage", 0))
+        if expected_solar > 0 and base_usage_w > 0:
+            solar_start_str = config.get("solar_window_start", "09:00:00")
+            solar_end_str = config.get("solar_window_end", "19:00:00")
+            try:
+                from datetime import datetime
+                start = datetime.strptime(solar_start_str, "%H:%M:%S")
+                end = datetime.strptime(solar_end_str, "%H:%M:%S")
+                solar_hours = (end - start).seconds / 3600
+            except (ValueError, TypeError):
+                solar_hours = 10.0
+            base_usage_kw = base_usage_w / 1000.0
+            base_during_solar = base_usage_kw * solar_hours
+            net_solar = max(0, expected_solar - base_during_solar)
+            net_solar_after_rte = net_solar * (battery_rte / 100.0)
+            decision_tree.append(f"Solar: {expected_solar:.1f} kWh - {base_during_solar:.1f} kWh base = {net_solar:.1f} kWh → battery")
+            decision_tree.append(f"  After RTE: {net_solar_after_rte:.1f} kWh available for discharge")
+        elif expected_solar > 0:
+            decision_tree.append(f"Solar: {expected_solar:.1f} kWh (no base usage configured)")
         decision_tree.append("")
 
         # Calculate baseline (0 windows = no battery action, just base usage)
