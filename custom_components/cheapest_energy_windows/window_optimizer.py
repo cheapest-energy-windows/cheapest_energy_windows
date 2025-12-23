@@ -20,16 +20,6 @@ _LOGGER = logging.getLogger(LOGGER_NAME)
 
 
 @dataclass
-class DecisionNode:
-    """Node in the decision tree for debugging/transparency."""
-    charge_windows: int
-    discharge_windows: int
-    percentile: int
-    planned_cost: float
-    is_optimal: bool = False
-
-
-@dataclass
 class OptimizationResult:
     """Result of window optimization."""
     optimal_charge_windows: int
@@ -41,7 +31,7 @@ class OptimizationResult:
     iterations_checked: int
     optimization_time_ms: float
     result: Dict[str, Any]
-    decision_tree: List[DecisionNode] = field(default_factory=list)
+    decision_tree: List[str] = field(default_factory=list)
     below_min_savings: bool = False
 
 
@@ -217,13 +207,34 @@ class WindowOptimizer:
         """
         start_time = time.time()
         iterations = 0
-        decision_tree: List[DecisionNode] = []
+        decision_tree: List[str] = []
+        best_by_percentile: Dict[int, Tuple[int, int, float]] = {}  # {percentile: (charge, discharge, cost)}
 
         suffix = "_tomorrow" if is_tomorrow and config.get("tomorrow_settings_enabled", False) else ""
         min_daily_savings = config.get("min_daily_savings", 0.50)
 
         # Bypass thresholds to find true optimal
         test_config = self._bypass_thresholds(config, suffix)
+
+        # Get configuration values for decision tree header
+        num_prices = len(raw_prices)
+        pricing_mode = config.get("pricing_window_duration", "15_minutes")
+        pricing_label = "15-min" if pricing_mode == "15_minutes" else "hourly"
+        window_hours = self._get_window_duration_hours(config)
+        charge_power = float(config.get("charge_power", 2500))
+        discharge_power = float(config.get("discharge_power", 2500))
+        charge_kwh_per_window = charge_power / 1000 * window_hours
+        discharge_kwh_per_window = discharge_power / 1000 * window_hours
+        battery_rte = float(config.get("battery_rte", 85))
+
+        # Build decision tree header
+        strategy_display = "Maximum Arbitrage" if strategy == "minimize_cost" else strategy
+        decision_tree.append(f"Strategy: {strategy_display}")
+        decision_tree.append(f"Price periods: {num_prices} ({pricing_label})")
+        decision_tree.append(f"Battery RTE: {int(battery_rte)}%")
+        decision_tree.append(f"Charge: {int(charge_power)}W → {charge_kwh_per_window:.3f} kWh/window")
+        decision_tree.append(f"Discharge: {int(discharge_power)}W → {discharge_kwh_per_window:.3f} kWh/window")
+        decision_tree.append("")
 
         # Calculate baseline (0 windows = no battery action, just base usage)
         baseline_config = test_config.copy()
@@ -241,15 +252,18 @@ class WindowOptimizer:
         best_config: Tuple[int, int, int] = (0, 0, 25)  # (charge, discharge, percentile)
         best_result: Dict[str, Any] = baseline_result
 
-        decision_tree.append(DecisionNode(
-            charge_windows=0,
-            discharge_windows=0,
-            percentile=25,
-            planned_cost=baseline_cost,
-            is_optimal=False
-        ))
-
         # Phase 1: Coarse grid search
+        decision_tree.append("--- Phase 1: Coarse Grid Search ---")
+        decision_tree.append("Search space:")
+        decision_tree.append(f"  Charge: 0-{self.MAX_CHARGE} windows")
+        decision_tree.append(f"  Discharge: 0-{self.MAX_DISCHARGE} windows")
+        decision_tree.append(f"  Percentile: {self.PERCENTILE_COARSE}")
+        total_coarse = (self.MAX_CHARGE + 1) * (self.MAX_DISCHARGE + 1) * len(self.PERCENTILE_COARSE)
+        decision_tree.append(f"  Max configs: {total_coarse}")
+        decision_tree.append("")
+        decision_tree.append(f"Baseline (0C/0D): €{baseline_cost:.4f}")
+        decision_tree.append("")
+
         _LOGGER.debug(f"Optimizer Phase 1: Coarse grid search (step={self.CHARGE_STEP_COARSE})")
         skipped_infeasible = 0
 
@@ -275,13 +289,9 @@ class WindowOptimizer:
                     iterations += 1
                     cost = result.get("planned_total_cost", float('inf'))
 
-                    decision_tree.append(DecisionNode(
-                        charge_windows=num_charge,
-                        discharge_windows=num_discharge,
-                        percentile=percentile,
-                        planned_cost=cost,
-                        is_optimal=False
-                    ))
+                    # Track best per percentile
+                    if percentile not in best_by_percentile or cost < best_by_percentile[percentile][2]:
+                        best_by_percentile[percentile] = (num_charge, num_discharge, cost)
 
                     if cost < best_cost:
                         best_cost = cost
@@ -290,27 +300,51 @@ class WindowOptimizer:
 
         _LOGGER.debug(f"Optimizer Phase 1: Skipped {skipped_infeasible} infeasible configs")
 
+        # Add results by percentile to decision tree
+        coarse_best = best_config
+        decision_tree.append("Results by percentile:")
+        for p in self.PERCENTILE_COARSE:
+            if p in best_by_percentile:
+                c, d, cost = best_by_percentile[p]
+                marker = " ← best" if (c, d, p) == coarse_best else ""
+                decision_tree.append(f"  {p}%: {c}C/{d}D → €{cost:.4f}{marker}")
+            else:
+                decision_tree.append(f"  {p}%: No feasible config")
+        decision_tree.append("")
+
+        if coarse_best != (0, 0, 25):
+            decision_tree.append(f"Coarse best: {coarse_best[0]}C/{coarse_best[1]}D @ {coarse_best[2]}% → €{best_cost:.4f}")
+        else:
+            decision_tree.append("Coarse best: Baseline (no arbitrage profitable)")
+        if skipped_infeasible > 0:
+            decision_tree.append(f"Skipped: {skipped_infeasible} infeasible (discharge > available energy)")
+        decision_tree.append("")
+
         # Phase 2: Fine refinement around best coarse result
+        fine_iterations = 0
         if best_config != (0, 0, 25):  # Only refine if we found something better than baseline
             _LOGGER.debug(f"Optimizer Phase 2: Fine refinement around {best_config}")
 
             coarse_charge, coarse_discharge, coarse_percentile = best_config
 
             # Define fine search ranges
-            charge_range = range(
-                max(0, coarse_charge - self.FINE_OFFSET),
-                min(self.MAX_CHARGE + 1, coarse_charge + self.FINE_OFFSET + 1)
-            )
-            discharge_range = range(
-                max(0, coarse_discharge - self.FINE_OFFSET),
-                min(self.MAX_DISCHARGE + 1, coarse_discharge + self.FINE_OFFSET + 1)
-            )
-            # +/- 5 percentile points
-            percentile_range = range(
-                max(5, coarse_percentile - 5),
-                min(51, coarse_percentile + 6),
-                5
-            )
+            charge_min = max(0, coarse_charge - self.FINE_OFFSET)
+            charge_max = min(self.MAX_CHARGE, coarse_charge + self.FINE_OFFSET)
+            discharge_min = max(0, coarse_discharge - self.FINE_OFFSET)
+            discharge_max = min(self.MAX_DISCHARGE, coarse_discharge + self.FINE_OFFSET)
+            percentile_min = max(5, coarse_percentile - 5)
+            percentile_max = min(50, coarse_percentile + 5)
+
+            charge_range = range(charge_min, charge_max + 1)
+            discharge_range = range(discharge_min, discharge_max + 1)
+            percentile_range = range(percentile_min, percentile_max + 1, 5)
+
+            decision_tree.append("--- Phase 2: Fine Refinement ---")
+            decision_tree.append(f"Search around: {coarse_charge}C/{coarse_discharge}D @ {coarse_percentile}%")
+            decision_tree.append(f"  Charge: {charge_min}-{charge_max}")
+            decision_tree.append(f"  Discharge: {discharge_min}-{discharge_max}")
+            decision_tree.append(f"  Percentile: {list(percentile_range)}")
+            decision_tree.append("")
 
             for percentile in percentile_range:
                 for num_charge in charge_range:
@@ -334,45 +368,56 @@ class WindowOptimizer:
                             raw_prices, iter_config, is_tomorrow, hass
                         )
                         iterations += 1
+                        fine_iterations += 1
                         cost = result.get("planned_total_cost", float('inf'))
-
-                        decision_tree.append(DecisionNode(
-                            charge_windows=num_charge,
-                            discharge_windows=num_discharge,
-                            percentile=percentile,
-                            planned_cost=cost,
-                            is_optimal=False
-                        ))
 
                         if cost < best_cost:
                             best_cost = cost
                             best_config = (num_charge, num_discharge, percentile)
                             best_result = result
 
-        # Mark the optimal node in decision tree
-        for node in decision_tree:
-            if (node.charge_windows == best_config[0] and
-                node.discharge_windows == best_config[1] and
-                node.percentile == best_config[2]):
-                node.is_optimal = True
-                break
+            if best_config != coarse_best:
+                decision_tree.append(f"Improved: {best_config[0]}C/{best_config[1]}D @ {best_config[2]}% → €{best_cost:.4f}")
+            else:
+                decision_tree.append(f"No improvement (coarse was optimal)")
+            decision_tree.append(f"Fine iterations: {fine_iterations}")
+            decision_tree.append("")
+        else:
+            decision_tree.append("--- Phase 2: Skipped ---")
+            decision_tree.append("Baseline was optimal, no refinement needed")
+            decision_tree.append("")
 
         # Check if savings meet minimum threshold
         savings = baseline_cost - best_cost
         below_min_savings = savings < min_daily_savings and best_config != (0, 0, 25)
+
+        # Decision section
+        decision_tree.append("--- Decision ---")
+        decision_tree.append(f"Potential savings: €{savings:.4f}")
+        decision_tree.append(f"Min threshold: €{min_daily_savings:.2f}")
 
         if below_min_savings:
             _LOGGER.info(
                 f"Optimizer: Savings {savings:.4f} EUR < min {min_daily_savings:.2f} EUR, "
                 f"using 0 windows (baseline)"
             )
+            decision_tree.append(f"Result: Below threshold → 0 windows")
+            decision_tree.append(f"Reason: €{savings:.2f}/day not worth battery wear")
             # Revert to baseline but keep solar/buffer benefits
             best_config = (0, 0, 25)
             best_cost = baseline_cost
             best_result = baseline_result
             savings = 0.0
+        elif best_config == (0, 0, 25):
+            decision_tree.append(f"Result: 0 windows (baseline optimal)")
+            decision_tree.append(f"Reason: No profitable arbitrage found")
+        else:
+            decision_tree.append(f"Result: {best_config[0]}C/{best_config[1]}D @ {best_config[2]}%")
+            decision_tree.append(f"Savings: €{savings:.4f}/day")
 
         elapsed_ms = (time.time() - start_time) * 1000
+        decision_tree.append("")
+        decision_tree.append(f"Completed in {elapsed_ms:.0f}ms ({iterations} iterations)")
 
         # Log energy balance info for transparency
         available_kwh = self._calculate_available_discharge_kwh(best_config[0], test_config, suffix)

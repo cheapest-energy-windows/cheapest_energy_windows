@@ -415,6 +415,7 @@ class CEWTodaySensor(CEWBaseSensor):
             result["optimization_time_ms"] = opt_result.optimization_time_ms
             result["optimization_iterations"] = opt_result.iterations_checked
             result["below_min_savings"] = opt_result.below_min_savings
+            result["optimization_decision_tree"] = opt_result.decision_tree
 
             new_state = result.get("state", STATE_OFF)
             new_attributes = self._build_attributes(result)
@@ -581,6 +582,7 @@ class CEWTodaySensor(CEWBaseSensor):
             "optimization_time_ms": result.get("optimization_time_ms", 0.0),
             "optimization_iterations": result.get("optimization_iterations", 0),
             "below_min_savings": result.get("below_min_savings", False),
+            "optimization_decision_tree": result.get("optimization_decision_tree", []),
         }
 
 
@@ -752,6 +754,7 @@ class CEWTomorrowSensor(CEWBaseSensor):
             result["optimization_time_ms"] = opt_result.optimization_time_ms
             result["optimization_iterations"] = opt_result.iterations_checked
             result["below_min_savings"] = opt_result.below_min_savings
+            result["optimization_decision_tree"] = opt_result.decision_tree
 
             new_state = result.get("state", STATE_OFF)
             new_attributes = self._build_attributes(result)
@@ -898,6 +901,7 @@ class CEWTomorrowSensor(CEWBaseSensor):
             "optimization_time_ms": result.get("optimization_time_ms", 0.0),
             "optimization_iterations": result.get("optimization_iterations", 0),
             "below_min_savings": result.get("below_min_savings", False),
+            "optimization_decision_tree": result.get("optimization_decision_tree", []),
         }
 
 
