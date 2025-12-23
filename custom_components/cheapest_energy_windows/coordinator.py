@@ -324,6 +324,7 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             "auto_optimize_strategy": options.get("auto_optimize_strategy", "off"),
             "auto_optimize_strategy_tomorrow": options.get("auto_optimize_strategy_tomorrow", "off"),
             "min_daily_savings": float(options.get("min_daily_savings", 0.50)),
+            "fast_search": options.get("fast_search", True),
 
             # Time values
             "time_override_start": options.get("time_override_start", DEFAULT_TIME_OVERRIDE_START),

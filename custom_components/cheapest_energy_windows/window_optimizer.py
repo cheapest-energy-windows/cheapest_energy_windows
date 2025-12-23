@@ -82,9 +82,15 @@ class WindowOptimizer:
         Returns dynamic limits if battery_capacity is configured,
         otherwise falls back to hardcoded defaults.
 
+        Fast Search toggle (default ON) uses fallback limits for quicker optimization.
+
         Returns:
             Tuple of (max_charge_windows, max_discharge_windows)
         """
+        # Fast Search toggle (default ON) uses fallback limits for quicker optimization
+        if config.get("fast_search", True):
+            return self.FALLBACK_MAX_CHARGE, self.FALLBACK_MAX_DISCHARGE
+
         battery_capacity = float(config.get("battery_capacity", 100.0))
 
         # If using default placeholder (100 kWh), use fallback limits

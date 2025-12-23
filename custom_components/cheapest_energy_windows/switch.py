@@ -62,6 +62,8 @@ async def async_setup_entry(
         ("rte_aware_include_solar", "RTE Include Solar kWh", False, "mdi:solar-power-variant"),
         # Note: Arbitrage Protection removed in v1.2.0
         # Profit thresholds now naturally control window qualification
+        # Optimizer search space
+        ("fast_search", "Fast Search", True, "mdi:lightning-bolt"),
     ]
 
     for key, name, default, icon in switch_configs:

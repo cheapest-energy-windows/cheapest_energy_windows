@@ -2762,14 +2762,42 @@ class WindowCalculationEngine:
                 planned_total_cost = round(planned_total_cost + uncovered_cost, 3)
 
             # Recalculate savings
-            baseline_cost = net_grid_kwh * day_avg_price
+            # FIXED: baseline_cost should be base_usage only, not total grid (which includes charging)
+            # This is what we'd pay without battery optimization - just covering household usage
+            baseline_cost = base_usage_kwh * day_avg_price
             estimated_savings = baseline_cost - planned_total_cost
             # True savings = savings on what we KEPT (base usage + end-of-day buffer)
             # Use final_battery_state from chrono (more accurate than actual_remaining_kwh)
             savings_per_kwh = day_avg_price - (planned_total_cost / net_grid_kwh) if net_grid_kwh > 0 else 0
             true_savings = savings_per_kwh * (base_usage_kwh + max(0, final_battery_state))
+
             # End-of-day buffer value (for dashboard display)
-            battery_state_end_of_day_value = final_battery_state * battery_margin_eur_kwh if final_battery_state > 0 else 0
+            # Method 2: EOD value = snapshot of TODAY's performance
+            # Effective price = charge cost spread across usable energy (after RTE losses)
+            if final_battery_state > 0:
+                # Get charge cost and energy data from chrono
+                chrono_charge_cost = chrono_result.get("planned_charge_cost", planned_charge_cost)
+                # Use actual_charge_kwh from chrono (net_planned_charge_kwh is calculated separately)
+                total_charged_kwh = chrono_result.get("actual_charge_kwh", 0)
+                rte_loss_kwh = chrono_result.get("rte_loss_kwh", 0)
+
+                # Usable kWh = what we charged minus TODAY's RTE losses
+                usable_kwh = total_charged_kwh - rte_loss_kwh
+
+                # Effective price = charge cost spread across usable energy
+                if usable_kwh > 0:
+                    effective_price_per_kwh = chrono_charge_cost / usable_kwh
+                else:
+                    effective_price_per_kwh = day_avg_price  # fallback if no charging
+
+                # Margin = what we can sell at (day_avg) - what we paid (effective price)
+                # Negative margin = we overpaid relative to average price
+                battery_margin_eur_kwh = day_avg_price - effective_price_per_kwh
+
+                # Value of remaining battery (can be negative if we overpaid)
+                battery_state_end_of_day_value = final_battery_state * battery_margin_eur_kwh
+            else:
+                battery_state_end_of_day_value = 0
 
         # ALWAYS re-determine current state after chrono simulation to include:
         # 1. Filtered charge/discharge windows

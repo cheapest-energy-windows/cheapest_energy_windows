@@ -317,6 +317,9 @@ CALCULATION_AFFECTING_KEYS: Final = {
     "auto_optimize_strategy",
     "auto_optimize_strategy_tomorrow",
     "min_daily_savings",
+
+    # Optimizer search space
+    "fast_search",
 }
 
 # Configuration keys that DON'T affect calculation (UI/notification settings)
