@@ -79,13 +79,13 @@
         "data": {
           "base_usage": "Household Base Load (Watts)",
           "base_usage_charge_strategy": "During Charging",
-          "base_usage_idle_strategy": "During Idle",
+          "base_usage_normal_strategy": "During Normal",
           "base_usage_discharge_strategy": "During Discharge"
         },
         "data_description": {
           "base_usage": "Average constant power consumption (lights, appliances, standby devices)",
           "base_usage_charge_strategy": "How base load is handled while battery charges",
-          "base_usage_idle_strategy": "How base load is handled when battery is idle",
+          "base_usage_normal_strategy": "How base load is handled when battery is in normal mode",
           "base_usage_discharge_strategy": "How base load affects discharge calculations"
         }
       },
@@ -153,13 +153,13 @@
         "title": "Battery Operations (Optional)",
         "description": "{info}",
         "data": {
-          "battery_idle_action": "Idle Mode Action",
+          "battery_normal_action": "Normal Mode Action",
           "battery_charge_action": "Charge Mode Action",
           "battery_discharge_action": "Discharge Mode Action",
           "battery_off_action": "Off Mode Action"
         },
         "data_description": {
-          "battery_idle_action": "Select automation/script for idle mode. Example: Set battery to follow grid (Smart Matching)",
+          "battery_normal_action": "Select automation/script for normal mode. Example: Set battery to follow grid (Smart Matching)",
           "battery_charge_action": "Select automation/script for charge mode. Example: Enable battery charging from grid at max power",
           "battery_discharge_action": "Select automation/script for discharge mode. Example: Enable battery discharge to grid at normal power",
           "battery_off_action": "Select automation/script for off mode. Example: Set battery to manual mode when automation is disabled"
@@ -211,7 +211,7 @@
         "state": {
           "charge": "Charge",
           "discharge": "Discharge",
-          "idle": "Idle",
+          "normal": "Normal",
           "off": "Off"
         }
       },
@@ -231,8 +231,8 @@
           "battery_covers_base": "Battery powers house during charging"
         }
       },
-      "base_usage_idle_strategy": {
-        "name": "Base Usage: During Idle",
+      "base_usage_normal_strategy": {
+        "name": "Base Usage: During Normal",
         "state": {
           "battery_covers_limited": "Battery powers house, limited to buffer",
           "battery_covers": "Battery powers house",
@@ -312,7 +312,7 @@
         "battery_covers_base": "Battery powers house during charging"
       }
     },
-    "base_usage_idle_strategy": {
+    "base_usage_normal_strategy": {
       "options": {
         "battery_covers_limited": "Battery powers house, limited to buffer",
         "grid_covers": "Grid powers house",

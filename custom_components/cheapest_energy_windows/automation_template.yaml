@@ -28,7 +28,7 @@ trigger:
     to: charge
     from:
     - discharge
-    - idle
+    - normal
     - 'off'
     id: charge_start
   - platform: state
@@ -36,24 +36,24 @@ trigger:
     to: discharge
     from:
     - charge
-    - idle
+    - normal
     - 'off'
     id: discharge_start
   - platform: state
     entity_id: sensor.cew_today
-    to: idle
+    to: normal
     from:
     - charge
     - discharge
     - 'off'
-    id: idle_start
+    id: normal_start
   - platform: state
     entity_id: sensor.cew_today
     to: 'off'
     from:
     - charge
     - discharge
-    - idle
+    - normal
     id: off_start
   - platform: time
     at: "00:00:10"  # 10 seconds after midnight to avoid races
@@ -218,7 +218,7 @@ action:
                         {% set current_energy = states(sensor) | float(0) %}
                         Battery energy ({{ current_energy }} kWh) is at or below discharge limit ({{ limit }} kWh).
 
-                        Mode set to idle to protect battery reserve.
+                        Mode set to normal to protect battery reserve.
                   - stop: "Energy below discharge buffer limit"
 
           # Send notification if enabled
@@ -276,11 +276,11 @@ action:
             default: []
 
       #########################################################################
-      # IDLE State - No charge or discharge window active
+      # NORMAL State - No charge or discharge window active
       #########################################################################
       - conditions:
           - condition: trigger
-            id: idle_start
+            id: normal_start
         sequence:
           # Send notification if enabled
           - choose:
@@ -289,7 +289,7 @@ action:
                     entity_id: switch.cew_notifications_enabled
                     state: 'on'
                   - condition: state
-                    entity_id: switch.cew_notify_idle
+                    entity_id: switch.cew_notify_normal
                     state: 'on'
                   - condition: or
                     conditions:
@@ -305,7 +305,7 @@ action:
                 sequence:
                   - service: notify.notify
                     data:
-                      title: "💤 CEW: Normal/idle Mode Started"
+                      title: "💤 CEW: Normal Mode Started"
                       message: >-
                         Current price: €{{ state_attr('sensor.cew_today', 'current_price') | float(0) | round(5) }}/kWh
 
@@ -317,19 +317,19 @@ action:
               - conditions:
                   - condition: template
                     value_template: >-
-                      {% set entity = states('text.cew_battery_idle_action') %}
+                      {% set entity = states('text.cew_battery_normal_action') %}
                       {{ entity != 'not_configured' and entity != 'unknown' and entity != '' }}
                 sequence:
                   - service: >
-                      {% if states('text.cew_battery_idle_action').startswith('automation.') %}
+                      {% if states('text.cew_battery_normal_action').startswith('automation.') %}
                         automation.trigger
-                      {% elif states('text.cew_battery_idle_action').startswith('script.') %}
+                      {% elif states('text.cew_battery_normal_action').startswith('script.') %}
                         script.turn_on
-                      {% elif states('text.cew_battery_idle_action').startswith('scene.') %}
+                      {% elif states('text.cew_battery_normal_action').startswith('scene.') %}
                         scene.turn_on
                       {% endif %}
                     target:
-                      entity_id: "{{ states('text.cew_battery_idle_action') }}"
+                      entity_id: "{{ states('text.cew_battery_normal_action') }}"
             default: []
 
       #########################################################################

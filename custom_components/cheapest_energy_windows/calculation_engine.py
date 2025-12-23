@@ -14,11 +14,11 @@ from .const import (
     PRICING_1_HOUR,
     MODE_CHARGE,
     MODE_DISCHARGE,
-    MODE_IDLE,
+    MODE_NORMAL,
     MODE_OFF,
     STATE_CHARGE,
     STATE_DISCHARGE,
-    STATE_IDLE,
+    STATE_NORMAL,
     STATE_OFF,
     DEFAULT_PRICE_COUNTRY,
     DEFAULT_MIN_SELL_PRICE,
@@ -110,16 +110,16 @@ class WindowCalculationEngine:
 
         # Note: Arbitrage Protection removed in v1.2.0
         # Profit thresholds now naturally control window qualification
-        # If profit is below threshold, windows won't be selected → system is idle
+        # If profit is below threshold, windows won't be selected → system is in normal mode
 
-        # Pre-filter prices based on time override to prevent idle/off periods from being selected
+        # Pre-filter prices based on time override to prevent normal/off periods from being selected
         # This ensures that windows calculations respect time overrides from the start
         time_override_enabled = config.get(f"time_override_enabled{suffix}", False)
         prices_for_charge_calc = processed_prices
         prices_for_discharge_calc = processed_prices
 
         if time_override_enabled:
-            override_mode = config.get(f"time_override_mode{suffix}", MODE_IDLE)
+            override_mode = config.get(f"time_override_mode{suffix}", MODE_NORMAL)
 
             # Get time values and ensure they're in string format
             override_start = config.get(f"time_override_start{suffix}", "")
@@ -141,8 +141,8 @@ class WindowCalculationEngine:
                 override_end_str = ""
 
             if override_start_str and override_end_str:
-                # For idle/off modes, exclude override periods from window calculations
-                if override_mode in [MODE_IDLE, MODE_OFF]:
+                # For normal/off modes, exclude override periods from window calculations
+                if override_mode in [MODE_NORMAL, MODE_OFF]:
                     filtered_prices = []
                     for price_data in processed_prices:
                         if not self._is_in_time_range(price_data["timestamp"], override_start_str, override_end_str):
@@ -689,7 +689,7 @@ class WindowCalculationEngine:
 
         v1.2.0: Arbitrage Protection removed. Profit thresholds now naturally
         control window qualification - if profit is below threshold, no windows
-        are selected and system defaults to idle.
+        are selected and system defaults to normal mode.
         """
         # Check if automation is enabled
         if not config.get("automation_enabled", True):
@@ -702,7 +702,7 @@ class WindowCalculationEngine:
         if config.get("time_override_enabled", False):
             start_str = config.get("time_override_start", "")
             end_str = config.get("time_override_end", "")
-            mode = config.get("time_override_mode", MODE_IDLE)
+            mode = config.get("time_override_mode", MODE_NORMAL)
 
             if self._is_in_time_range(current_time, start_str, end_str):
                 return self._mode_to_state(mode)
@@ -735,7 +735,7 @@ class WindowCalculationEngine:
                 if period_time <= current_time < period_end:
                     return STATE_OFF
 
-        return STATE_IDLE
+        return STATE_NORMAL
 
     def _is_window_active(self, window: Dict[str, Any], current_time: datetime) -> bool:
         """Check if a window is currently active."""
@@ -943,12 +943,12 @@ class WindowCalculationEngine:
     def _mode_to_state(self, mode: str) -> str:
         """Convert override mode to state."""
         mode_map = {
-            MODE_IDLE: STATE_IDLE,
+            MODE_NORMAL: STATE_NORMAL,
             MODE_CHARGE: STATE_CHARGE,
             MODE_DISCHARGE: STATE_DISCHARGE,
             MODE_OFF: STATE_OFF,
         }
-        return mode_map.get(mode, STATE_IDLE)
+        return mode_map.get(mode, STATE_NORMAL)
 
     def _calculate_actual_windows(
         self,
@@ -992,7 +992,7 @@ class WindowCalculationEngine:
         # Get time values and ensure they're in string format
         override_start = config.get(f"time_override_start{suffix}", "")
         override_end = config.get(f"time_override_end{suffix}", "")
-        override_mode = config.get(f"time_override_mode{suffix}", MODE_IDLE)
+        override_mode = config.get(f"time_override_mode{suffix}", MODE_NORMAL)
 
         # Convert to string format if needed
         if hasattr(override_start, 'strftime'):
@@ -1026,7 +1026,7 @@ class WindowCalculationEngine:
             price = price_data["price"]
 
             # Determine state for this time period (priority order: time override > price override > calculated)
-            state = STATE_IDLE  # Default
+            state = STATE_NORMAL  # Default
 
             # Check time override first (highest priority)
             if time_override_enabled and self._is_in_time_range(timestamp, override_start_str, override_end_str):
@@ -1041,7 +1041,7 @@ class WindowCalculationEngine:
                         state = STATE_DISCHARGE
                         break
 
-                if state == STATE_IDLE:
+                if state == STATE_NORMAL:
                     for window in charge_windows:
                         if self._is_window_active(window, timestamp):
                             state = STATE_CHARGE
@@ -1138,7 +1138,7 @@ class WindowCalculationEngine:
             elif ts in discharge_timestamps:
                 window_type = "discharge"
             else:
-                window_type = "idle"
+                window_type = "normal"
 
             # Calculate sell price for this period
             raw_price = price_data.get("raw_price", price_data["price"])
@@ -1308,7 +1308,7 @@ class WindowCalculationEngine:
         # Strategies
         charge_strategy = config.get("base_usage_charge_strategy", "grid_covers_both")
         discharge_strategy = config.get("base_usage_discharge_strategy", "subtract_base")
-        idle_strategy = config.get("base_usage_idle_strategy", "grid_covers")
+        normal_strategy = config.get("base_usage_normal_strategy", "grid_covers")
 
         # RTE-aware discharge settings (global)
         rte_aware_discharge = config.get("rte_aware_discharge", True)
@@ -1365,7 +1365,7 @@ class WindowCalculationEngine:
         sell_param_a = config.get("sell_formula_param_a", DEFAULT_SELL_FORMULA_PARAM_A)
         sell_param_b = config.get("sell_formula_param_b", DEFAULT_SELL_FORMULA_PARAM_B)
 
-        # Extract discharge window sell prices for RTE-aware idle logic
+        # Extract discharge window sell prices for RTE-aware normal mode logic
         # Used to calculate opportunity cost when no grid charging occurred
         actual_discharge_sell_prices = [
             p["sell_price"] for p in timeline if p.get("window_type") == "discharge"
@@ -1670,7 +1670,7 @@ class WindowCalculationEngine:
 
                 battery_state = max(0, battery_state)  # Ensure non-negative
 
-            else:  # idle
+            else:  # normal
                 base_demand = base_usage * duration_hours
 
                 # Get solar for this period
@@ -1739,11 +1739,11 @@ class WindowCalculationEngine:
 
                 # Handle remaining base demand with existing strategy
                 if base_from_other > 0:
-                    if idle_strategy == "grid_covers":
+                    if normal_strategy == "grid_covers":
                         # Grid provides remaining base usage
                         planned_base_usage_cost += price * base_from_other
                         grid_kwh_total += base_from_other
-                    elif idle_strategy in ("battery_covers", "battery_covers_limited"):
+                    elif normal_strategy in ("battery_covers", "battery_covers_limited"):
                         # RTE-aware discharge decision
                         use_battery = True
 
@@ -1990,7 +1990,7 @@ class WindowCalculationEngine:
 
         # Get strategies
         charge_strategy = config.get("base_usage_charge_strategy", "grid_covers_both")
-        idle_strategy = config.get("base_usage_idle_strategy", "grid_covers")
+        normal_strategy = config.get("base_usage_normal_strategy", "grid_covers")
         discharge_strategy = config.get("base_usage_discharge_strategy", "subtract_base")
 
         # Get buffer energy early - needed for usable_kwh calculations
@@ -2063,14 +2063,14 @@ class WindowCalculationEngine:
                     completed_discharge_kwh += duration_hours * net_export
                     completed_base_usage_battery += duration_hours * base_usage
 
-        # IDLE periods: Apply idle strategy
+        # NORMAL periods: Apply normal strategy
         # Build sets of timestamps for active windows
         charge_timestamps = {w["timestamp"] for w in actual_charge}
         discharge_timestamps = {w["timestamp"] for w in actual_discharge}
 
         # Track remaining battery for base usage
         # Use buffer_energy which already accounts for sensor reading (from _get_buffer_energy)
-        # This tracks battery draining during idle periods
+        # This tracks battery draining during normal periods
         remaining_battery_for_base = buffer_energy
 
         # Use all_prices (not filtered by calculation window) for base usage calculations
@@ -2078,12 +2078,12 @@ class WindowCalculationEngine:
         for price_data in all_prices:
             timestamp = price_data["timestamp"]
             if timestamp + timedelta(minutes=price_data["duration"]) <= current_time:
-                # Check if this period is idle (not in any active window)
+                # Check if this period is normal (not in any active window)
                 is_active = timestamp in charge_timestamps or timestamp in discharge_timestamps
 
                 if not is_active:
                     duration_hours = price_data["duration"] / 60
-                    if idle_strategy == "grid_covers":
+                    if normal_strategy == "grid_covers":
                         # Grid provides base usage, add to cost
                         completed_base_usage_cost += price_data["price"] * duration_hours * base_usage
                         completed_base_grid_kwh += duration_hours * base_usage
@@ -2139,21 +2139,21 @@ class WindowCalculationEngine:
                 net_export = max(0, discharge_power - base_usage)
                 planned_discharge_revenue += sell_price * duration_hours * net_export
 
-        # All idle periods (use all_prices for full 24h coverage)
+        # All normal periods (use all_prices for full 24h coverage)
         for price_data in all_prices:
             timestamp = price_data["timestamp"]
             is_active = timestamp in charge_timestamps or timestamp in discharge_timestamps
 
             if not is_active:
                 duration_hours = price_data["duration"] / 60
-                if idle_strategy == "grid_covers":
+                if normal_strategy == "grid_covers":
                     planned_base_usage_cost += price_data["price"] * duration_hours * base_usage
 
         planned_total_cost = round(planned_charge_cost + planned_base_usage_cost - planned_discharge_revenue, 3)
 
-        # Calculate effective base usage (limited by charged energy when idle strategy is "battery_covers_limited")
+        # Calculate effective base usage (limited by charged energy when normal strategy is "battery_covers_limited")
         # This is used by the dashboard for Estimated Savings calculation
-        limit_savings_enabled = (idle_strategy == "battery_covers_limited")
+        limit_savings_enabled = (normal_strategy == "battery_covers_limited")
         base_usage_kwh = base_usage * 24  # Full day base usage in kWh
 
         # Calculate net planned charge (accounts for battery_covers_base strategy)

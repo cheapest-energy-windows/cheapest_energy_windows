@@ -60,7 +60,7 @@ Prices must be in EUR/kWh. Both 15-minute and 1-hour window modes are supported.
 `sensor.cew_today` outputs one of:
 - `charge` - Currently in a cheap window, charging is profitable
 - `discharge` - Currently in an expensive window, discharging is profitable
-- `idle` - No action recommended
+- `normal` - No action recommended
 - `off` - Automation disabled
 
 Trigger your battery control automations on these state changes.

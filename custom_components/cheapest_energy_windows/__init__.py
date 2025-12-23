@@ -26,6 +26,73 @@ _LOGGER = logging.getLogger(LOGGER_NAME)
 # Config entry only integration
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
+# Migration mapping for "idle" to "normal" rename
+_IDLE_TO_NORMAL_MIGRATION = {
+    "base_usage_idle_strategy": "base_usage_normal_strategy",
+    "notify_idle": "notify_normal",
+    "battery_idle_action": "battery_normal_action",
+}
+
+
+async def _async_migrate_idle_to_normal(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Migrate old 'idle' config keys to 'normal' (v1.2.0+ breaking change)."""
+    needs_update = False
+    new_options = dict(entry.options)
+    new_data = dict(entry.data)
+
+    # Check and migrate options
+    for old_key, new_key in _IDLE_TO_NORMAL_MIGRATION.items():
+        if old_key in new_options:
+            new_options[new_key] = new_options.pop(old_key)
+            needs_update = True
+            _LOGGER.info(f"Migrating config option '{old_key}' → '{new_key}'")
+
+    # Check and migrate data (for backward compatibility)
+    for old_key, new_key in _IDLE_TO_NORMAL_MIGRATION.items():
+        if old_key in new_data:
+            new_data[new_key] = new_data.pop(old_key)
+            needs_update = True
+            _LOGGER.info(f"Migrating config data '{old_key}' → '{new_key}'")
+
+    # Also migrate time_override_mode value from "idle" to "normal"
+    if new_options.get("time_override_mode") == "idle":
+        new_options["time_override_mode"] = "normal"
+        needs_update = True
+        _LOGGER.info("Migrating time_override_mode value 'idle' → 'normal'")
+    if new_options.get("time_override_mode_tomorrow") == "idle":
+        new_options["time_override_mode_tomorrow"] = "normal"
+        needs_update = True
+        _LOGGER.info("Migrating time_override_mode_tomorrow value 'idle' → 'normal'")
+
+    if needs_update:
+        hass.config_entries.async_update_entry(
+            entry,
+            options=new_options,
+            data=new_data
+        )
+        _LOGGER.info("Configuration migration from 'idle' to 'normal' complete")
+
+        # Create a persistent notification to warn users
+        await hass.services.async_call(
+            "persistent_notification",
+            "create",
+            {
+                "title": "CEW: 'Idle' renamed to 'Normal'",
+                "message": (
+                    "⚠️ **Breaking Change**: The 'idle' state has been renamed to 'normal'.\n\n"
+                    "Your configuration has been automatically migrated.\n\n"
+                    "**Action Required:**\n"
+                    "- Update any custom automations that trigger on `sensor.cew_today` state 'idle' → 'normal'\n"
+                    "- Entity IDs have changed:\n"
+                    "  - `switch.cew_notify_idle` → `switch.cew_notify_normal`\n"
+                    "  - `text.cew_battery_idle_action` → `text.cew_battery_normal_action`\n"
+                    "  - `select.cew_base_usage_idle_strategy` → `select.cew_base_usage_normal_strategy`\n\n"
+                    "This notification will not appear again."
+                ),
+                "notification_id": "cew_idle_to_normal_migration"
+            }
+        )
+
 
 async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
     """Set up the Cheapest Energy Windows component."""
@@ -37,6 +104,9 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Cheapest Energy Windows from a config entry."""
     _LOGGER.info("Setting up Cheapest Energy Windows integration")
+
+    # Migrate old "idle" keys to "normal" (v1.2.0+ breaking change)
+    await _async_migrate_idle_to_normal(hass, entry)
 
     # Store domain data
     hass.data.setdefault(DOMAIN, {})

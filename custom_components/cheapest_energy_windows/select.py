@@ -45,10 +45,10 @@ async def async_setup_entry(
     # Define all select entities
     select_configs = [
         ("pricing_window_duration", "Pricing Window Duration", ["15_minutes", "1_hour"], "15_minutes", "mdi:timer"),
-        ("time_override_mode", "Time Override Mode", ["idle", "charge", "discharge", "off"], "idle", "mdi:toggle-switch"),
-        ("time_override_mode_tomorrow", "Time Override Mode Tomorrow", ["idle", "charge", "discharge", "off"], "idle", "mdi:toggle-switch"),
+        ("time_override_mode", "Time Override Mode", ["normal", "charge", "discharge", "off"], "normal", "mdi:toggle-switch"),
+        ("time_override_mode_tomorrow", "Time Override Mode Tomorrow", ["normal", "charge", "discharge", "off"], "normal", "mdi:toggle-switch"),
         ("base_usage_charge_strategy", "Base Usage: During Charging", ["grid_covers_both", "battery_covers_base"], "grid_covers_both", "mdi:battery-charging"),
-        ("base_usage_idle_strategy", "Base Usage: During Idle", ["battery_covers_limited", "battery_covers", "grid_covers"], "battery_covers_limited", "mdi:home-lightning-bolt"),
+        ("base_usage_normal_strategy", "Base Usage: During Normal", ["battery_covers_limited", "battery_covers", "grid_covers"], "battery_covers_limited", "mdi:home-lightning-bolt"),
         ("base_usage_discharge_strategy", "Base Usage: During Discharge", ["already_included", "subtract_base"], "subtract_base", "mdi:battery-arrow-down"),
         ("price_country", "Price Formula", country_display_names, default_country_display, "mdi:map-marker"),
         # Solar production priority strategy

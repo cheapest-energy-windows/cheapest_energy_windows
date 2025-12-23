@@ -19,7 +19,7 @@ from .const import (
     DEFAULT_PRICE_SENSOR,
     DEFAULT_BASE_USAGE,
     DEFAULT_BASE_USAGE_CHARGE_STRATEGY,
-    DEFAULT_BASE_USAGE_IDLE_STRATEGY,
+    DEFAULT_BASE_USAGE_NORMAL_STRATEGY,
     DEFAULT_BASE_USAGE_DISCHARGE_STRATEGY,
     DEFAULT_PRICE_COUNTRY,
     DEFAULT_SELL_FORMULA_PARAM_A,
@@ -242,7 +242,7 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             "rte_aware_include_solar": bool(options.get("rte_aware_include_solar", False)),
             "base_usage": float(options.get("base_usage", DEFAULT_BASE_USAGE)),
             "base_usage_charge_strategy": options.get("base_usage_charge_strategy", DEFAULT_BASE_USAGE_CHARGE_STRATEGY),
-            "base_usage_idle_strategy": options.get("base_usage_idle_strategy", DEFAULT_BASE_USAGE_IDLE_STRATEGY),
+            "base_usage_normal_strategy": options.get("base_usage_normal_strategy", DEFAULT_BASE_USAGE_NORMAL_STRATEGY),
             "base_usage_discharge_strategy": options.get("base_usage_discharge_strategy", DEFAULT_BASE_USAGE_DISCHARGE_STRATEGY),
             "price_override_threshold": float(options.get("price_override_threshold", DEFAULT_PRICE_OVERRIDE_THRESHOLD)),
             "discharge_buffer_limit_kwh": float(options.get("discharge_buffer_limit_kwh", DEFAULT_DISCHARGE_BUFFER_LIMIT_KWH)),
@@ -272,7 +272,7 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             "notify_automation_disabled": bool(options.get("notify_automation_disabled", False)),
             "notify_charging": bool(options.get("notify_charging", True)),
             "notify_discharge": bool(options.get("notify_discharge", True)),
-            "notify_idle": bool(options.get("notify_idle", False)),
+            "notify_normal": bool(options.get("notify_normal", False)),
 
             # String values (selects)
             "pricing_window_duration": options.get("pricing_window_duration", "15_minutes"),

@@ -25,7 +25,7 @@ from .const import (
     VERSION,
     STATE_CHARGE,
     STATE_DISCHARGE,
-    STATE_IDLE,
+    STATE_NORMAL,
     STATE_OFF,
     STATE_AVAILABLE,
     STATE_UNAVAILABLE,
@@ -286,7 +286,7 @@ class CEWTodaySensor(CEWBaseSensor):
                         import zoneinfo
                         now = datetime.now(zoneinfo.ZoneInfo("Europe/Amsterdam"))
 
-                        new_state = STATE_IDLE  # Default
+                        new_state = STATE_NORMAL  # Default
                         automation_enabled = config.get("automation_enabled", True)
 
                         if not automation_enabled:
@@ -303,7 +303,7 @@ class CEWTodaySensor(CEWBaseSensor):
                                 except:
                                     pass
 
-                            if new_state == STATE_IDLE:
+                            if new_state == STATE_NORMAL:
                                 for t in discharge_times:
                                     try:
                                         window_time = datetime.fromisoformat(t) if isinstance(t, str) else t
@@ -315,7 +315,7 @@ class CEWTodaySensor(CEWBaseSensor):
                                         pass
 
                             # Check RTE-preserved (off) periods
-                            if new_state == STATE_IDLE and rte_preserved:
+                            if new_state == STATE_NORMAL and rte_preserved:
                                 for period in rte_preserved:
                                     try:
                                         period_time = datetime.fromisoformat(period["timestamp"]) if isinstance(period["timestamp"], str) else period["timestamp"]
@@ -364,7 +364,7 @@ class CEWTodaySensor(CEWBaseSensor):
                 self.coordinator.data["_projected_buffer_tomorrow"] = today_end_state
         else:
             automation_enabled = config.get("automation_enabled", True)
-            new_state = STATE_OFF if not automation_enabled else STATE_IDLE
+            new_state = STATE_OFF if not automation_enabled else STATE_NORMAL
             new_attributes = self._build_attributes({})
 
         state_changed = new_state != self._previous_state

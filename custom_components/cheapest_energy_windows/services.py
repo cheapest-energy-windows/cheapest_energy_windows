@@ -102,28 +102,28 @@ async def async_create_notification_automation(hass: HomeAssistant) -> tuple[boo
                     "platform": "state",
                     "entity_id": f"sensor.{PREFIX}today",
                     "to": "charge",
-                    "from": ["discharge", "idle", "off"],
+                    "from": ["discharge", "normal", "off"],
                     "id": "charge_start"
                 },
                 {
                     "platform": "state",
                     "entity_id": f"sensor.{PREFIX}today",
                     "to": "discharge",
-                    "from": ["charge", "idle", "off"],
+                    "from": ["charge", "normal", "off"],
                     "id": "discharge_start"
                 },
                 {
                     "platform": "state",
                     "entity_id": f"sensor.{PREFIX}today",
-                    "to": "idle",
+                    "to": "normal",
                     "from": ["charge", "discharge", "off"],
-                    "id": "idle_start"
+                    "id": "normal_start"
                 },
                 {
                     "platform": "state",
                     "entity_id": f"sensor.{PREFIX}today",
                     "to": "off",
-                    "from": ["charge", "discharge", "idle"],
+                    "from": ["charge", "discharge", "normal"],
                     "id": "automation_disabled"
                 }
             ],
@@ -171,7 +171,7 @@ async def async_create_notification_automation(hass: HomeAssistant) -> tuple[boo
                         },
                         {
                             "conditions": [
-                                {"condition": "trigger", "id": "idle_start"}
+                                {"condition": "trigger", "id": "normal_start"}
                             ],
                             "sequence": [
                                 {
@@ -179,11 +179,11 @@ async def async_create_notification_automation(hass: HomeAssistant) -> tuple[boo
                                     "data": {
                                         "title": "CEW Battery Action Needed",
                                         "message": (
-                                            "⚠️ IDLE trigger fired but no battery action configured.\n\n"
-                                            "Edit this automation and add your battery IDLE action here.\n"
+                                            "⚠️ NORMAL trigger fired but no battery action configured.\n\n"
+                                            "Edit this automation and add your battery NORMAL action here.\n"
                                             "Example: Set battery to standby mode, 0W charge/discharge, etc."
                                         ),
-                                        "notification_id": "cew_idle_action_needed"
+                                        "notification_id": "cew_normal_action_needed"
                                     }
                                 }
                             ]
@@ -353,7 +353,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
 
         # Map mode to text entity
         mode_entity_map = {
-            "idle": f"text.{PREFIX}battery_idle_action",
+            "normal": f"text.{PREFIX}battery_normal_action",
             "charge": f"text.{PREFIX}battery_charge_action",
             "discharge": f"text.{PREFIX}battery_discharge_action",
             "off": f"text.{PREFIX}battery_off_action",
@@ -409,7 +409,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         "trigger_battery_action",
         handle_trigger_battery_action,
         schema=vol.Schema({
-            vol.Required("mode"): vol.In(["idle", "charge", "discharge", "off"]),
+            vol.Required("mode"): vol.In(["normal", "charge", "discharge", "off"]),
         }),
     )
 

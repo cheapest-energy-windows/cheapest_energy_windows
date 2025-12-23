@@ -23,7 +23,7 @@ CONF_BATTERY_DISCHARGE_SENSOR: Final = "battery_daily_discharge_sensor"
 CONF_BATTERY_POWER_SENSOR: Final = "battery_power_sensor"
 CONF_BASE_USAGE: Final = "base_usage"
 CONF_BASE_USAGE_CHARGE_STRATEGY: Final = "base_usage_charge_strategy"
-CONF_BASE_USAGE_IDLE_STRATEGY: Final = "base_usage_idle_strategy"
+CONF_BASE_USAGE_NORMAL_STRATEGY: Final = "base_usage_normal_strategy"
 CONF_BASE_USAGE_DISCHARGE_STRATEGY: Final = "base_usage_discharge_strategy"
 
 # Buffer/chronological calculation configuration keys
@@ -78,7 +78,7 @@ DEFAULT_CALCULATION_WINDOW_START: Final = "00:00:00"
 DEFAULT_CALCULATION_WINDOW_END: Final = "23:59:59"
 DEFAULT_BASE_USAGE: Final = 500
 DEFAULT_BASE_USAGE_CHARGE_STRATEGY: Final = "grid_covers_both"
-DEFAULT_BASE_USAGE_IDLE_STRATEGY: Final = "battery_covers_limited"
+DEFAULT_BASE_USAGE_NORMAL_STRATEGY: Final = "battery_covers_limited"
 DEFAULT_BASE_USAGE_DISCHARGE_STRATEGY: Final = "subtract_base"
 
 # Buffer/chronological calculation defaults
@@ -124,7 +124,7 @@ DEFAULT_SELL_FORMULA_PARAM_B: Final = 1.0    # Multiplier (B)
 
 # Base usage strategy options
 BASE_USAGE_CHARGE_OPTIONS: Final = ["grid_covers_both", "battery_covers_base"]
-BASE_USAGE_IDLE_OPTIONS: Final = ["grid_covers", "battery_covers"]
+BASE_USAGE_NORMAL_OPTIONS: Final = ["grid_covers", "battery_covers"]
 BASE_USAGE_DISCHARGE_OPTIONS: Final = ["already_included", "subtract_base"]
 
 # Update intervals
@@ -133,19 +133,19 @@ UPDATE_INTERVAL: Final = timedelta(seconds=10)
 # Sensor states
 STATE_CHARGE: Final = "charge"
 STATE_DISCHARGE: Final = "discharge"
-STATE_IDLE: Final = "idle"
+STATE_NORMAL: Final = "normal"
 STATE_OFF: Final = "off"
 STATE_AVAILABLE: Final = "available"
 STATE_UNAVAILABLE: Final = "unavailable"
 
 # Battery modes for time overrides
-MODE_IDLE: Final = "idle"
+MODE_NORMAL: Final = "normal"
 MODE_CHARGE: Final = "charge"
 MODE_DISCHARGE: Final = "discharge"
 MODE_OFF: Final = "off"
 
 # Time override modes list
-TIME_OVERRIDE_MODES: Final = [MODE_IDLE, MODE_CHARGE, MODE_DISCHARGE, MODE_OFF]
+TIME_OVERRIDE_MODES: Final = [MODE_NORMAL, MODE_CHARGE, MODE_DISCHARGE, MODE_OFF]
 
 # Pricing window duration options
 PRICING_15_MINUTES: Final = "15_minutes"
@@ -240,7 +240,7 @@ CALCULATION_AFFECTING_KEYS: Final = {
     # Base usage
     "base_usage",
     "base_usage_charge_strategy",
-    "base_usage_idle_strategy",
+    "base_usage_normal_strategy",
     "base_usage_discharge_strategy",
 
     # Battery settings
@@ -334,7 +334,7 @@ NON_CALCULATION_KEYS: Final = {
     "notify_automation_disabled",
     "notify_charging",
     "notify_discharge",
-    "notify_idle",
+    "notify_normal",
     "notify_off",
 
     # Battery system tracking (display only)

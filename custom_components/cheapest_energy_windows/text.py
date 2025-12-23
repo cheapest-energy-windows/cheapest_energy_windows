@@ -96,9 +96,9 @@ async def async_setup_entry(
         CEWText(
             hass,
             config_entry,
-            "battery_idle_action",
-            "Battery Idle Action",
-            config_entry.options.get("battery_idle_action", "not_configured"),
+            "battery_normal_action",
+            "Battery Normal Action",
+            config_entry.options.get("battery_normal_action", "not_configured"),
             "mdi:robot",
             r"^(automation\.|script\.|scene\.)[a-z0-9_]+$|^not_configured$"
         ),

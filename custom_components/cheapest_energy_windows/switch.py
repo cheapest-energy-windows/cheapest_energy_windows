@@ -45,7 +45,7 @@ async def async_setup_entry(
         ("notify_automation_disabled", "Notify Automation Disabled", True, "mdi:bell-off"),
         ("notify_charging", "Notify Charging", True, "mdi:battery-charging"),
         ("notify_discharge", "Notify Discharge", True, "mdi:battery-arrow-up"),
-        ("notify_idle", "Notify Idle", True, "mdi:battery"),
+        ("notify_normal", "Notify Normal", True, "mdi:battery"),
         ("notify_off", "Notify Off", True, "mdi:battery-off"),
         ("use_min_sell_price", "Use Minimum Sell Price", False, "mdi:cash-check"),
         ("min_sell_price_bypass_spread", "Min Sell Price Bypasses Spread", False, "mdi:skip-forward"),
@@ -58,7 +58,7 @@ async def async_setup_entry(
         ("use_solar_forecast", "Use Solar Forecast", True, "mdi:solar-power"),
         ("use_solar_forecast_sensor", "Use Solar Forecast Sensor", False, "mdi:connection"),
         # RTE-aware discharge (global battery setting)
-        ("rte_aware_discharge", "RTE-Aware Idle Discharge", True, "mdi:battery-sync"),
+        ("rte_aware_discharge", "RTE-Aware Normal Discharge", True, "mdi:battery-sync"),
         ("rte_aware_include_solar", "RTE Include Solar kWh", False, "mdi:solar-power-variant"),
         # Note: Arbitrage Protection removed in v1.2.0
         # Profit thresholds now naturally control window qualification

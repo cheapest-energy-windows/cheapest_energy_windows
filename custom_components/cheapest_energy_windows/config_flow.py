@@ -17,7 +17,7 @@ from .const import (
     CONF_PRICE_SENSOR,
     CONF_BASE_USAGE,
     CONF_BASE_USAGE_CHARGE_STRATEGY,
-    CONF_BASE_USAGE_IDLE_STRATEGY,
+    CONF_BASE_USAGE_NORMAL_STRATEGY,
     CONF_BASE_USAGE_DISCHARGE_STRATEGY,
     CONF_PRICE_COUNTRY,
     CONF_BUY_FORMULA_PARAM_A,
@@ -39,7 +39,7 @@ from .const import (
     DEFAULT_PRICE_SENSOR,
     DEFAULT_BASE_USAGE,
     DEFAULT_BASE_USAGE_CHARGE_STRATEGY,
-    DEFAULT_BASE_USAGE_IDLE_STRATEGY,
+    DEFAULT_BASE_USAGE_NORMAL_STRATEGY,
     DEFAULT_BASE_USAGE_DISCHARGE_STRATEGY,
     DEFAULT_PRICE_COUNTRY,
     DEFAULT_BUY_FORMULA_PARAM_A,
@@ -53,7 +53,7 @@ from .const import (
     DEFAULT_TAX,
     DEFAULT_ADDITIONAL_COST,
     BASE_USAGE_CHARGE_OPTIONS,
-    BASE_USAGE_IDLE_OPTIONS,
+    BASE_USAGE_NORMAL_OPTIONS,
     BASE_USAGE_DISCHARGE_OPTIONS,
     DEFAULT_CHARGE_POWER,
     DEFAULT_DISCHARGE_POWER,
@@ -454,14 +454,14 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         translation_key="base_usage_charge_strategy",
                     )
                 ),
-                vol.Optional(CONF_BASE_USAGE_IDLE_STRATEGY, default=DEFAULT_BASE_USAGE_IDLE_STRATEGY): selector.SelectSelector(
+                vol.Optional(CONF_BASE_USAGE_NORMAL_STRATEGY, default=DEFAULT_BASE_USAGE_NORMAL_STRATEGY): selector.SelectSelector(
                     selector.SelectSelectorConfig(
                         options=[
                             {"label": "Battery powers house", "value": "battery_covers"},
                             {"label": "Grid powers house", "value": "grid_covers"},
                         ],
                         mode=selector.SelectSelectorMode.DROPDOWN,
-                        translation_key="base_usage_idle_strategy",
+                        translation_key="base_usage_normal_strategy",
                     )
                 ),
                 vol.Optional(CONF_BASE_USAGE_DISCHARGE_STRATEGY, default=DEFAULT_BASE_USAGE_DISCHARGE_STRATEGY): selector.SelectSelector(
@@ -485,7 +485,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                        "**During Charging** - Who powers the house while battery charges?\n"
                        "• Grid powers house + charging: Grid provides all power (default)\n"
                        "• Battery powers house: Battery covers household, grid only charges\n\n"
-                       "**During Idle** - Who powers the house when battery is idle?\n"
+                       "**During Normal** - Who powers the house when battery is in normal mode?\n"
                        "• Grid powers house: Normal grid consumption (default)\n"
                        "• Battery powers house: Battery covers base load (zero-meter strategy)\n\n"
                        "**During Discharge** - How is export calculated?\n"
@@ -710,7 +710,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             # Set default "not_configured" for any empty/missing fields
             battery_ops = {
-                "battery_idle_action": user_input.get("battery_idle_action", "not_configured"),
+                "battery_normal_action": user_input.get("battery_normal_action", "not_configured"),
                 "battery_charge_action": user_input.get("battery_charge_action", "not_configured"),
                 "battery_discharge_action": user_input.get("battery_discharge_action", "not_configured"),
                 "battery_off_action": user_input.get("battery_off_action", "not_configured"),
@@ -721,7 +721,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="battery_operations",
             data_schema=vol.Schema({
-                vol.Optional("battery_idle_action"): selector.EntitySelector(
+                vol.Optional("battery_normal_action"): selector.EntitySelector(
                     selector.EntitySelectorConfig(
                         domain=["automation", "script", "scene"],
                         multiple=False,
@@ -784,7 +784,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 "info": "🤖 **Create Battery Control Automation**\n\n"
                        "A battery control automation will be created automatically for you.\n\n"
                        "**What it provides:**\n"
-                       "- Triggers on CEW state changes (charge, discharge, idle, off)\n"
+                       "- Triggers on CEW state changes (charge, discharge, normal, off)\n"
                        "- Automatically calls YOUR linked automations/scripts/scenes\n"
                        "- Handles notifications (configured via dashboard switches)\n\n"
                        "**What it does NOT provide:**\n"
