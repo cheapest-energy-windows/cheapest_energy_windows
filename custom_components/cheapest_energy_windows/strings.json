@@ -280,14 +280,14 @@
         "name": "Auto Optimize Strategy",
         "state": {
           "off": "Off (Manual)",
-          "minimize_cost": "Minimize Daily Cost"
+          "minimize_cost": "Maximum Arbitrage"
         }
       },
       "auto_optimize_strategy_tomorrow": {
         "name": "Auto Optimize Strategy Tomorrow",
         "state": {
           "off": "Off (Manual)",
-          "minimize_cost": "Minimize Daily Cost"
+          "minimize_cost": "Maximum Arbitrage"
         }
       }
     }
@@ -327,7 +327,7 @@
     "auto_optimize_strategy": {
       "options": {
         "off": "Off (Manual)",
-        "minimize_cost": "Minimize Daily Cost"
+        "minimize_cost": "Maximum Arbitrage"
       }
     }
   }

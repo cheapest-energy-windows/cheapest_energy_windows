@@ -1365,6 +1365,12 @@ class WindowCalculationEngine:
         sell_param_a = config.get("sell_formula_param_a", DEFAULT_SELL_FORMULA_PARAM_A)
         sell_param_b = config.get("sell_formula_param_b", DEFAULT_SELL_FORMULA_PARAM_B)
 
+        # Extract discharge window sell prices for RTE-aware idle logic
+        # Used to calculate opportunity cost when no grid charging occurred
+        actual_discharge_sell_prices = [
+            p["sell_price"] for p in timeline if p.get("window_type") == "discharge"
+        ]
+
         # Log first few and last few windows to verify order
         if timeline and limit_discharge:
             first_windows = timeline[:5]
@@ -1770,10 +1776,10 @@ class WindowCalculationEngine:
                                 # total_charged == 0: No grid charge (solar excluded from RTE pool)
                                 # If discharge windows exist, protect battery for scheduled discharge
                                 # Use average discharge sell price as opportunity cost
-                                if actual_discharge_times and len(actual_discharge_times) > 0:
+                                if actual_discharge_sell_prices and len(actual_discharge_sell_prices) > 0:
                                     # Battery has solar energy that should be saved for discharge windows
                                     # Calculate synthetic breakeven from discharge window sell prices
-                                    avg_discharge_sell = sum(actual_discharge_sell_prices) / len(actual_discharge_sell_prices) if actual_discharge_sell_prices else 0
+                                    avg_discharge_sell = sum(actual_discharge_sell_prices) / len(actual_discharge_sell_prices)
 
                                     if avg_discharge_sell > 0:
                                         # Protect battery: only use if current price > avg discharge price

@@ -1,10 +1,10 @@
 """Window optimizer for automatic window count selection.
 
 Uses a two-phase grid search to minimize planned_total_cost:
-- Phase 1 (Coarse): ~175 iterations with step=2
+- Phase 1 (Coarse): ~585 iterations with step=1
 - Phase 2 (Fine): ~27 iterations around the best coarse result
 
-Total: ~200 iterations, designed for sub-3-second execution.
+Total: ~600 iterations, designed for sub-5-second execution.
 """
 from __future__ import annotations
 
@@ -55,10 +55,10 @@ class WindowOptimizer:
     more energy than is available from (buffer + solar + charging).
     """
 
-    # Phase 1: Coarse grid search
+    # Phase 1: Grid search (step=1 for comprehensive coverage)
     PERCENTILE_COARSE = [10, 20, 30, 40, 50]
-    CHARGE_STEP_COARSE = 2
-    DISCHARGE_STEP_COARSE = 2
+    CHARGE_STEP_COARSE = 1
+    DISCHARGE_STEP_COARSE = 1
     MAX_CHARGE = 12
     MAX_DISCHARGE = 8
 
@@ -97,9 +97,11 @@ class WindowOptimizer:
         # Get battery buffer (energy already in battery)
         buffer_kwh = float(config.get("battery_buffer_kwh", 0))
 
-        # Get expected solar production
-        solar_key = f"expected_solar_kwh{suffix}" if suffix else "expected_solar_kwh"
-        solar_kwh = float(config.get(solar_key, 0))
+        # Get expected solar production (only if solar forecast is enabled)
+        solar_kwh = 0.0
+        if config.get("use_solar_forecast", True):
+            solar_key = f"expected_solar_kwh{suffix}" if suffix else "expected_solar_kwh"
+            solar_kwh = float(config.get(solar_key, 0))
 
         # Calculate charge energy (accounting for RTE loss during storage)
         window_duration = self._get_window_duration_hours(config)

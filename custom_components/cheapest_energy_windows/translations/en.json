@@ -280,6 +280,20 @@
       },
       "buy_formula_param_b": {
         "name": "Multiplier (B)"
+      },
+      "auto_optimize_strategy": {
+        "name": "Today's Strategy",
+        "state": {
+          "off": "Off (Manual)",
+          "minimize_cost": "Maximum Arbitrage"
+        }
+      },
+      "auto_optimize_strategy_tomorrow": {
+        "name": "Tomorrow's Strategy",
+        "state": {
+          "off": "Off (Manual)",
+          "minimize_cost": "Maximum Arbitrage"
+        }
       }
     }
   },

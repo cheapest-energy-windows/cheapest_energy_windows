@@ -259,16 +259,17 @@ class CEWTodaySensor(CEWBaseSensor):
                     self.config_entry.entry_id, {}
                 ).get("force_recalculation", False)
 
+                # Don't optimize on regular scheduled updates, but force_recalc overrides this
+                skip_due_to_schedule = scheduled_update and not force_recalc
                 needs_optimization = (
                     is_first_load or
                     price_data_changed or
                     calc_config_changed or
                     force_recalc
-                )
+                ) and not skip_due_to_schedule
 
-                # Clear the force flag if set
+                # Log if manual recalculation requested (flag cleared by Tomorrow sensor)
                 if force_recalc:
-                    self.hass.data[DOMAIN][self.config_entry.entry_id]["force_recalculation"] = False
                     _LOGGER.info("Today: Manual recalculation requested")
 
                 if not needs_optimization:
@@ -635,6 +636,17 @@ class CEWTomorrowSensor(CEWBaseSensor):
         tomorrow_valid = self.coordinator.data.get("tomorrow_valid", False)
         raw_tomorrow = self.coordinator.data.get("raw_tomorrow", [])
 
+        # Check for manual recalculation trigger (button press)
+        # Must be done BEFORE tomorrow_valid check to ensure flag is always cleared
+        force_recalc = self.hass.data.get(DOMAIN, {}).get(
+            self.config_entry.entry_id, {}
+        ).get("force_recalculation", False)
+
+        if force_recalc:
+            _LOGGER.info("Tomorrow: Manual recalculation requested, clearing flag")
+            # Clear the flag after both sensors have read it
+            self.hass.data[DOMAIN][self.config_entry.entry_id]["force_recalculation"] = False
+
         if tomorrow_valid and raw_tomorrow:
             # Use today's projected end-of-day as tomorrow's starting buffer (if enabled)
             if config.get("use_projected_buffer_tomorrow", False):
@@ -650,20 +662,15 @@ class CEWTomorrowSensor(CEWBaseSensor):
                 # Auto-optimization enabled
                 # CRITICAL: Only run optimizer when data/config actually changed
                 # Skip on scheduled_update (time-based state transitions only)
-                # Also check for manual recalculation trigger (button press)
-                force_recalc = self.hass.data.get(DOMAIN, {}).get(
-                    self.config_entry.entry_id, {}
-                ).get("force_recalculation", False)
 
+                # Don't optimize on regular scheduled updates, but force_recalc overrides this
+                skip_due_to_schedule = scheduled_update and not force_recalc
                 needs_optimization = (
                     is_first_load or
                     price_data_changed or
                     calc_config_changed or
                     force_recalc
-                )
-
-                if force_recalc:
-                    _LOGGER.info("Tomorrow: Manual recalculation requested")
+                ) and not skip_due_to_schedule
 
                 if not needs_optimization:
                     # Tomorrow sensor: just skip, no state transitions needed

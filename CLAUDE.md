@@ -33,17 +33,24 @@ View all recent logs:
 curl -s "http://10.50.0.9:8125/api/error_log" -H "Authorization: Bearer <token>" | tail -100
 ```
 
-Reload integration:
+Reload CEW integration:
 ```bash
-curl -X POST "http://10.50.0.9:8125/api/services/homeassistant/reload_config_entry" -H "Authorization: Bearer <token>" -H "Content-Type: application/json" -d '{"entry_id": "<config_entry_id>"}'
+curl -X POST "http://10.50.0.9:8125/api/config/config_entries/entry/01KCGS2XZDP1TNBWKZB8FXTWYG/reload" -H "Authorization: Bearer <token>" -H "Content-Type: application/json"
 ```
 
-## File Sync
+## File Sync & Reload Workflow
 
-Sync changes to dev environment:
+**IMPORTANT:** After syncing files, ALWAYS reload the integration to apply changes!
+
 ```bash
+# 1. Sync changes to dev environment
 rsync -av /Users/antonio/Documents/Github/cheapest_energy_windows/custom_components/cheapest_energy_windows/ /Volumes/docker/homeassistant_dev/custom_components/cheapest_energy_windows/
+
+# 2. Reload integration (required for code changes to take effect)
+curl -X POST "http://10.50.0.9:8125/api/config/config_entries/entry/01KCGS2XZDP1TNBWKZB8FXTWYG/reload" -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiI1NzhmOWE3NjE0MDI0ODQ3OGE4Nzc4ZWU3NjhkYjhiZiIsImlhdCI6MTc2NjQzMjQ2NSwiZXhwIjoyMDgxNzkyNDY1fQ.DM725h43dPRb_bOIYXTX7TZwYeBv-xwLoC_B853tfLs" -H "Content-Type: application/json"
 ```
+
+Config Entry ID: `01KCGS2XZDP1TNBWKZB8FXTWYG`
 
 ## Key Files
 
