@@ -2458,85 +2458,85 @@ class WindowCalculationEngine:
                 f"{len(feasible_charge)} cheapest selected (max={num_charge_windows})"
             )
 
-        if skipped_charge or (all_charge_candidates and len(all_charge_candidates) > len(charge_windows)):
-            actual_charge = feasible_charge
-            # REBUILD grouped windows with filtered charge windows (for dashboard display)
-            grouped_charge_windows = self._group_consecutive_windows(
-                actual_charge, avg_expensive_sell, is_discharge=False
-            )
-            # RECALCULATE completed_charge from filtered windows (was calculated before filtering)
-            completed_charge = sum(
-                1 for w in actual_charge
-                if w["timestamp"] + timedelta(minutes=w["duration"]) <= current_time
-            )
-            # RECALCULATE completed_charge_cost from filtered windows
-            completed_charge_cost = 0
-            for w in actual_charge:
-                if w["timestamp"] + timedelta(minutes=w["duration"]) <= current_time:
-                    duration_hours = w["duration"] / 60
-                    if charge_strategy == "grid_covers_both":
-                        completed_charge_cost += w["price"] * duration_hours * (charge_power + base_usage)
-                    else:  # battery_covers_base
-                        completed_charge_cost += w["price"] * duration_hours * charge_power
-            # RECALCULATE completed_rte_loss from filtered windows
-            completed_rte_loss_kwh = 0
-            completed_rte_loss_value = 0
-            for w in actual_charge:
-                if w["timestamp"] + timedelta(minutes=w["duration"]) <= current_time:
-                    duration_hours = w["duration"] / 60
-                    charge_kwh_to_battery = duration_hours * charge_power
-                    rte_loss_kwh = charge_kwh_to_battery * (1 - battery_rte)
-                    completed_rte_loss_kwh += rte_loss_kwh
-                    # Look up verified buy price from price_lookup (w["price"] may have spot price in some cases)
-                    price_data = price_lookup.get(w["timestamp"], {})
-                    buy_price = price_data.get("price", w["price"])  # Fallback to w["price"] if not found
-                    completed_rte_loss_value += rte_loss_kwh * buy_price
-            _LOGGER.info(
-                f"Charge windows filtered: original={original_charge_count}, "
-                f"feasible={len(actual_charge)}, skipped={len(skipped_charge)} (battery full), "
-                f"completed={completed_charge}"
-            )
+        # ALWAYS use feasible charge windows from chronological simulation
+        # This ensures we never show charge windows that couldn't execute (battery full, etc.)
+        actual_charge = feasible_charge
+        # REBUILD grouped windows with filtered charge windows (for dashboard display)
+        grouped_charge_windows = self._group_consecutive_windows(
+            actual_charge, avg_expensive_sell, is_discharge=False
+        )
+        # RECALCULATE completed_charge from filtered windows (was calculated before filtering)
+        completed_charge = sum(
+            1 for w in actual_charge
+            if w["timestamp"] + timedelta(minutes=w["duration"]) <= current_time
+        )
+        # RECALCULATE completed_charge_cost from filtered windows
+        completed_charge_cost = 0
+        for w in actual_charge:
+            if w["timestamp"] + timedelta(minutes=w["duration"]) <= current_time:
+                duration_hours = w["duration"] / 60
+                if charge_strategy == "grid_covers_both":
+                    completed_charge_cost += w["price"] * duration_hours * (charge_power + base_usage)
+                else:  # battery_covers_base
+                    completed_charge_cost += w["price"] * duration_hours * charge_power
+        # RECALCULATE completed_rte_loss from filtered windows
+        completed_rte_loss_kwh = 0
+        completed_rte_loss_value = 0
+        for w in actual_charge:
+            if w["timestamp"] + timedelta(minutes=w["duration"]) <= current_time:
+                duration_hours = w["duration"] / 60
+                charge_kwh_to_battery = duration_hours * charge_power
+                rte_loss_kwh = charge_kwh_to_battery * (1 - battery_rte)
+                completed_rte_loss_kwh += rte_loss_kwh
+                # Look up verified buy price from price_lookup (w["price"] may have spot price in some cases)
+                price_data = price_lookup.get(w["timestamp"], {})
+                buy_price = price_data.get("price", w["price"])  # Fallback to w["price"] if not found
+                completed_rte_loss_value += rte_loss_kwh * buy_price
+        _LOGGER.info(
+            f"Charge windows filtered: original={original_charge_count}, "
+            f"feasible={len(actual_charge)}, skipped={len(skipped_charge)} (battery full), "
+            f"completed={completed_charge}"
+        )
 
-        # When conservative discharge mode is enabled, replace discharge windows with only feasible ones
-        if limit_discharge:
-            original_discharge_count = len(actual_discharge)
-            actual_discharge = chrono_result["feasible_discharge_windows"]
+        # ALWAYS use feasible discharge windows from chronological simulation
+        # This ensures we never show discharge windows that couldn't execute (empty battery, etc.)
+        original_discharge_count = len(actual_discharge)
+        actual_discharge = chrono_result["feasible_discharge_windows"]
 
-            # REBUILD grouped windows with filtered discharge windows (for dashboard display)
-            grouped_discharge_windows = self._group_consecutive_windows(
-                actual_discharge, avg_cheap_buy, is_discharge=True
-            )
+        # REBUILD grouped windows with filtered discharge windows (for dashboard display)
+        grouped_discharge_windows = self._group_consecutive_windows(
+            actual_discharge, avg_cheap_buy, is_discharge=True
+        )
 
-            # RECALCULATE completed_discharge from filtered windows (was calculated before filtering)
-            completed_discharge = sum(
-                1 for w in actual_discharge
-                if w["timestamp"] + timedelta(minutes=w["duration"]) <= current_time
-            )
-            # RECALCULATE completed_discharge_revenue from filtered windows
-            completed_discharge_revenue = 0
-            for w in actual_discharge:
-                if w["timestamp"] + timedelta(minutes=w["duration"]) <= current_time:
-                    duration_hours = w["duration"] / 60
-                    # Calculate sell price for this window
-                    price_data = price_lookup.get(w["timestamp"], {})
-                    raw_price = price_data.get("raw_price", w["price"])
-                    sell_price = self._calculate_sell_price(
-                        raw_price, w["price"], sell_country, sell_param_a, sell_param_b
-                    )
-                    if discharge_strategy == "already_included":
-                        completed_discharge_revenue += sell_price * duration_hours * discharge_power
-                    else:  # subtract_base
-                        net_export = max(0, discharge_power - base_usage)
-                        completed_discharge_revenue += sell_price * duration_hours * net_export
+        # RECALCULATE completed_discharge from filtered windows (was calculated before filtering)
+        completed_discharge = sum(
+            1 for w in actual_discharge
+            if w["timestamp"] + timedelta(minutes=w["duration"]) <= current_time
+        )
+        # RECALCULATE completed_discharge_revenue from filtered windows
+        completed_discharge_revenue = 0
+        for w in actual_discharge:
+            if w["timestamp"] + timedelta(minutes=w["duration"]) <= current_time:
+                duration_hours = w["duration"] / 60
+                # Calculate sell price for this window
+                price_data = price_lookup.get(w["timestamp"], {})
+                raw_price = price_data.get("raw_price", w["price"])
+                sell_price = self._calculate_sell_price(
+                    raw_price, w["price"], sell_country, sell_param_a, sell_param_b
+                )
+                if discharge_strategy == "already_included":
+                    completed_discharge_revenue += sell_price * duration_hours * discharge_power
+                else:  # subtract_base
+                    net_export = max(0, discharge_power - base_usage)
+                    completed_discharge_revenue += sell_price * duration_hours * net_export
 
-            _LOGGER.info(
-                f"Conservative mode ACTIVE: buffer={buffer_energy:.2f} kWh, "
-                f"original={original_discharge_count} windows, "
-                f"feasible={len(actual_discharge)} windows, "
-                f"skipped={len(chrono_result['skipped_discharge_windows'])} windows, "
-                f"completed={completed_discharge}, "
-                f"final_battery={chrono_result['final_battery_state']:.2f} kWh"
-            )
+        _LOGGER.info(
+            f"Discharge windows filtered: original={original_discharge_count} windows, "
+            f"feasible={len(actual_discharge)} windows, "
+            f"skipped={len(chrono_result['skipped_discharge_windows'])} windows, "
+            f"completed={completed_discharge}, "
+            f"final_battery={chrono_result['final_battery_state']:.2f} kWh"
+        )
 
         # RE-RUN chrono with ELECTED windows after capacity-first selection
         # The first chrono run used ALL candidates to determine feasibility
@@ -2594,6 +2594,21 @@ class WindowCalculationEngine:
             chrono_result["rte_preserved_kwh"] = elected_chrono_result.get("rte_preserved_kwh", 0.0)
             chrono_result["rte_preserved_periods"] = elected_chrono_result.get("rte_preserved_periods", [])
             chrono_result["rte_breakeven_price"] = elected_chrono_result.get("rte_breakeven_price", 0.0)
+
+            # CRITICAL: Update actual_discharge from re-run's feasible windows
+            # The first run used ALL charge candidates, so some discharge windows may have been
+            # feasible with that extra charge. With only ELECTED charge windows, those discharge
+            # windows may no longer be feasible (battery not charged enough).
+            elected_feasible_discharge = elected_chrono_result.get("feasible_discharge_windows", [])
+            if len(elected_feasible_discharge) < len(actual_discharge):
+                _LOGGER.info(
+                    f"Re-run filtered discharge: {len(actual_discharge)} → {len(elected_feasible_discharge)} windows"
+                )
+                actual_discharge = elected_feasible_discharge
+                # Rebuild grouped windows for dashboard
+                grouped_discharge_windows = self._group_consecutive_windows(
+                    actual_discharge, avg_cheap_buy, is_discharge=True
+                )
 
             # Re-lookup current battery state from the new trajectory
             current_battery_state = buffer_energy

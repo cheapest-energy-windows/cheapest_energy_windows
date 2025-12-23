@@ -208,10 +208,11 @@ class WindowOptimizer:
         """
         bypassed = config.copy()
 
-        # Bypass profit thresholds
-        bypassed[f"min_profit_charge{suffix}"] = 0
-        bypassed[f"min_profit_discharge{suffix}"] = 0
-        bypassed["min_price_difference"] = 0
+        # Bypass profit thresholds - use very negative values to allow any profit level
+        # (1-hour windows can have negative profit due to RTE losses)
+        bypassed[f"min_profit_charge{suffix}"] = -1000
+        bypassed[f"min_profit_discharge{suffix}"] = -1000
+        bypassed["min_price_difference"] = -1000
 
         # Bypass min sell price restrictions
         bypassed["use_min_sell_price"] = False
@@ -251,9 +252,10 @@ class WindowOptimizer:
         test_config = self._bypass_thresholds(config, suffix)
 
         # Get configuration values for decision tree header
-        num_prices = len(raw_prices)
         pricing_mode = config.get("pricing_window_duration", "15_minutes")
         pricing_label = "15-min" if pricing_mode == "15_minutes" else "hourly"
+        # Calculate actual periods (hourly mode aggregates 15-min prices)
+        num_prices = 24 if pricing_mode == "1_hour" else len(raw_prices)
         window_hours = self._get_window_duration_hours(config)
         charge_power = float(config.get("charge_power", 2500))
         discharge_power = float(config.get("discharge_power", 2500))
