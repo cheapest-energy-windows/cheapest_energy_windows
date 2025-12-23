@@ -33,6 +33,11 @@ class OptimizationResult:
     result: Dict[str, Any]
     decision_tree: List[str] = field(default_factory=list)
     below_min_savings: bool = False
+    # What optimizer found before threshold check (same as optimal_* if threshold met)
+    found_charge_windows: int = 0
+    found_discharge_windows: int = 0
+    found_percentile: int = 25
+    found_savings: float = 0.0
 
 
 class WindowOptimizer:
@@ -391,6 +396,12 @@ class WindowOptimizer:
         savings = baseline_cost - best_cost
         below_min_savings = savings < min_daily_savings and best_config != (0, 0, 25)
 
+        # Capture what was found BEFORE threshold may revert to baseline
+        found_charge = best_config[0]
+        found_discharge = best_config[1]
+        found_percentile = best_config[2]
+        found_savings = savings
+
         # Decision section
         decision_tree.append("--- Decision ---")
         decision_tree.append(f"Potential savings: €{savings:.4f}")
@@ -442,5 +453,9 @@ class WindowOptimizer:
             optimization_time_ms=elapsed_ms,
             result=best_result,
             decision_tree=decision_tree,
-            below_min_savings=below_min_savings
+            below_min_savings=below_min_savings,
+            found_charge_windows=found_charge,
+            found_discharge_windows=found_discharge,
+            found_percentile=found_percentile,
+            found_savings=found_savings,
         )
