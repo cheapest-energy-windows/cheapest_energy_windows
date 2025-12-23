@@ -285,14 +285,16 @@
         "name": "Today's Strategy",
         "state": {
           "off": "Off (Manual)",
-          "minimize_cost": "Maximum Arbitrage"
+          "minimize_cost": "Minimize Cost",
+          "maximize_value": "Maximize Value"
         }
       },
       "auto_optimize_strategy_tomorrow": {
         "name": "Tomorrow's Strategy",
         "state": {
           "off": "Off (Manual)",
-          "minimize_cost": "Maximum Arbitrage"
+          "minimize_cost": "Minimize Cost",
+          "maximize_value": "Maximize Value"
         }
       }
     }

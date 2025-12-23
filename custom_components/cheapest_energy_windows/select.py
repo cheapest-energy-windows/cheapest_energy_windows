@@ -54,8 +54,8 @@ async def async_setup_entry(
         # Solar production priority strategy
         ("solar_priority_strategy", "Solar Priority", ["base_then_grid", "base_then_battery"], DEFAULT_SOLAR_PRIORITY_STRATEGY, "mdi:solar-power-variant"),
         # Auto-optimization strategy
-        ("auto_optimize_strategy", "Auto Optimize Strategy", ["off", "minimize_cost"], "off", "mdi:auto-fix"),
-        ("auto_optimize_strategy_tomorrow", "Auto Optimize Strategy Tomorrow", ["off", "minimize_cost"], "off", "mdi:auto-fix"),
+        ("auto_optimize_strategy", "Auto Optimize Strategy", ["off", "minimize_cost", "maximize_value"], "off", "mdi:auto-fix"),
+        ("auto_optimize_strategy_tomorrow", "Auto Optimize Strategy Tomorrow", ["off", "minimize_cost", "maximize_value"], "off", "mdi:auto-fix"),
     ]
 
     for key, name, options, default, icon in select_configs:

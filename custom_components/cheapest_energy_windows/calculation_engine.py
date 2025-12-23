@@ -2804,6 +2804,13 @@ class WindowCalculationEngine:
             "planned_total_cost": planned_total_cost,
             "planned_charge_cost": round(planned_charge_cost, 3),
             "planned_discharge_revenue": round(planned_discharge_revenue, 3),
+            # Total value for maximize_value optimization strategy
+            # total_value = savings + EOD battery value
+            # savings = baseline_cost - planned_total_cost
+            "total_value": round(
+                (baseline_cost - planned_total_cost) + battery_state_end_of_day_value,
+                4
+            ),
             "net_planned_charge_kwh": net_planned_charge_kwh,
             "net_planned_discharge_kwh": net_planned_discharge_kwh,
             "effective_base_usage_kwh": effective_base_usage_kwh,
@@ -3051,6 +3058,7 @@ class WindowCalculationEngine:
             "planned_total_cost": 0,
             "planned_charge_cost": 0,
             "planned_discharge_revenue": 0,
+            "total_value": 0,
             "net_planned_charge_kwh": 0,
             "net_planned_discharge_kwh": 0,
             "effective_base_usage_kwh": 0,
