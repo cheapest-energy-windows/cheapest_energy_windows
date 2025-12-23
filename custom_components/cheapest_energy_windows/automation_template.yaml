@@ -180,7 +180,44 @@ action:
                         Please configure the battery available energy sensor in Settings or disable buffer limiting.
                   - stop: "Buffer limiting enabled but energy sensor not configured"
 
-              # Case 2: Buffer limiting enabled and energy at or below limit
+              # Case 2: Buffer limiting enabled but energy sensor unavailable/unknown
+              - conditions:
+                  - condition: state
+                    entity_id: switch.cew_limit_discharge_to_buffer
+                    state: 'on'
+                  - condition: template
+                    value_template: >-
+                      {% set sensor = states('text.cew_battery_available_energy_sensor') %}
+                      {% set current_energy = states(sensor) | float(-999) %}
+                      {{ sensor not in ['not_configured', ''] and current_energy == -999 }}
+                sequence:
+                  - condition: and
+                    conditions:
+                      - condition: state
+                        entity_id: switch.cew_notifications_enabled
+                        state: 'on'
+                      - condition: or
+                        conditions:
+                          - condition: state
+                            entity_id: switch.cew_quiet_hours_enabled
+                            state: 'off'
+                          - condition: template
+                            value_template: >-
+                              {% set now_time = now().strftime('%H:%M') %}
+                              {% set quiet_start = states('time.cew_quiet_hours_start') %}
+                              {% set quiet_end = states('time.cew_quiet_hours_end') %}
+                              {{ now_time < quiet_start or now_time >= quiet_end }}
+                  - service: notify.notify
+                    data:
+                      title: "⚠️ CEW: Battery Sensor Unavailable"
+                      message: >-
+                        {% set sensor = states('text.cew_battery_available_energy_sensor') %}
+                        Battery energy sensor ({{ sensor }}) is unavailable or returning invalid data.
+
+                        Discharge blocked to protect battery reserve. Check your sensor configuration.
+                  - stop: "Battery energy sensor unavailable"
+
+              # Case 3: Buffer limiting enabled and energy at or below limit
               - conditions:
                   - condition: state
                     entity_id: switch.cew_limit_discharge_to_buffer
