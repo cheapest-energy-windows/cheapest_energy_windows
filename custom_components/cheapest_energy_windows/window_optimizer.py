@@ -9,6 +9,7 @@ Total: ~600 iterations, designed for sub-5-second execution.
 from __future__ import annotations
 
 import logging
+import math
 import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
@@ -57,8 +58,9 @@ class WindowOptimizer:
     PERCENTILE_COARSE = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50]
     CHARGE_STEP_COARSE = 1
     DISCHARGE_STEP_COARSE = 1
-    MAX_CHARGE = 12
-    MAX_DISCHARGE = 8
+    # Fallback limits when battery_capacity not configured
+    FALLBACK_MAX_CHARGE = 12
+    FALLBACK_MAX_DISCHARGE = 8
 
     # Phase 2: Fine refinement (+/- 1 around best)
     FINE_OFFSET = 1
@@ -73,6 +75,47 @@ class WindowOptimizer:
         """Get window duration in hours based on pricing mode."""
         pricing_mode = config.get("pricing_window_duration", "15_minutes")
         return 0.25 if pricing_mode == "15_minutes" else 1.0
+
+    def _calculate_window_limits(self, config: Dict[str, Any]) -> Tuple[int, int]:
+        """Calculate max charge/discharge windows based on battery config.
+
+        Returns dynamic limits if battery_capacity is configured,
+        otherwise falls back to hardcoded defaults.
+
+        Returns:
+            Tuple of (max_charge_windows, max_discharge_windows)
+        """
+        battery_capacity = float(config.get("battery_capacity", 100.0))
+
+        # If using default placeholder (100 kWh), use fallback limits
+        if battery_capacity >= 100.0:
+            return self.FALLBACK_MAX_CHARGE, self.FALLBACK_MAX_DISCHARGE
+
+        window_hours = self._get_window_duration_hours(config)
+        charge_power_kw = float(config.get("charge_power", 2500)) / 1000
+        discharge_power_kw = float(config.get("discharge_power", 2500)) / 1000
+        battery_rte = float(config.get("battery_rte", 85)) / 100
+
+        # kWh per charge window (usable after RTE)
+        usable_per_charge = charge_power_kw * window_hours * battery_rte
+        if usable_per_charge > 0:
+            max_charge = math.ceil(battery_capacity / usable_per_charge)
+        else:
+            max_charge = self.FALLBACK_MAX_CHARGE
+
+        # kWh per discharge window
+        kwh_per_discharge = discharge_power_kw * window_hours
+        if kwh_per_discharge > 0:
+            max_discharge = math.ceil(battery_capacity / kwh_per_discharge)
+        else:
+            max_discharge = self.FALLBACK_MAX_DISCHARGE
+
+        # Cap to reasonable maximum (avoid explosion with tiny power values)
+        # 96 windows = 24 hours in 15-min mode
+        max_charge = min(max_charge, 96)
+        max_discharge = min(max_discharge, 96)
+
+        return max_charge, max_discharge
 
     def _calculate_available_discharge_kwh(
         self,
@@ -346,13 +389,17 @@ class WindowOptimizer:
         best_config: Tuple[int, int, int] = (0, 0, 25)  # (charge, discharge, percentile)
         best_result: Dict[str, Any] = baseline_result
 
+        # Calculate dynamic window limits based on battery config
+        max_charge, max_discharge = self._calculate_window_limits(config)
+        _LOGGER.debug(f"Dynamic window limits: max_charge={max_charge}, max_discharge={max_discharge}")
+
         # Phase 1: Coarse grid search
         decision_tree.append("--- Phase 1: Coarse Grid Search ---")
         decision_tree.append("Search space:")
-        decision_tree.append(f"  Charge: 0-{self.MAX_CHARGE} windows")
-        decision_tree.append(f"  Discharge: 0-{self.MAX_DISCHARGE} windows")
+        decision_tree.append(f"  Charge: 0-{max_charge} windows")
+        decision_tree.append(f"  Discharge: 0-{max_discharge} windows")
         decision_tree.append(f"  Percentile: {self.PERCENTILE_COARSE}")
-        total_coarse = (self.MAX_CHARGE + 1) * (self.MAX_DISCHARGE + 1) * len(self.PERCENTILE_COARSE)
+        total_coarse = (max_charge + 1) * (max_discharge + 1) * len(self.PERCENTILE_COARSE)
         decision_tree.append(f"  Max configs: {total_coarse}")
         decision_tree.append("")
         decision_tree.append(f"Baseline (0C/0D): €{baseline_cost:.4f}")
@@ -362,8 +409,8 @@ class WindowOptimizer:
         skipped_infeasible = 0
 
         for percentile in self.PERCENTILE_COARSE:
-            for num_charge in range(0, self.MAX_CHARGE + 1, self.CHARGE_STEP_COARSE):
-                for num_discharge in range(0, self.MAX_DISCHARGE + 1, self.DISCHARGE_STEP_COARSE):
+            for num_charge in range(0, max_charge + 1, self.CHARGE_STEP_COARSE):
+                for num_discharge in range(0, max_discharge + 1, self.DISCHARGE_STEP_COARSE):
                     if num_charge == 0 and num_discharge == 0:
                         continue  # Already calculated as baseline
 
@@ -429,20 +476,20 @@ class WindowOptimizer:
 
             # Define fine search ranges
             charge_min = max(0, coarse_charge - self.FINE_OFFSET)
-            charge_max = min(self.MAX_CHARGE, coarse_charge + self.FINE_OFFSET)
+            charge_max_fine = min(max_charge, coarse_charge + self.FINE_OFFSET)
             discharge_min = max(0, coarse_discharge - self.FINE_OFFSET)
-            discharge_max = min(self.MAX_DISCHARGE, coarse_discharge + self.FINE_OFFSET)
+            discharge_max_fine = min(max_discharge, coarse_discharge + self.FINE_OFFSET)
             percentile_min = max(5, coarse_percentile - 3)
             percentile_max = min(50, coarse_percentile + 3)
 
-            charge_range = range(charge_min, charge_max + 1)
-            discharge_range = range(discharge_min, discharge_max + 1)
+            charge_range = range(charge_min, charge_max_fine + 1)
+            discharge_range = range(discharge_min, discharge_max_fine + 1)
             percentile_range = range(percentile_min, percentile_max + 1, 3)
 
             decision_tree.append("--- Phase 2: Fine Refinement ---")
             decision_tree.append(f"Search around: {coarse_charge}C/{coarse_discharge}D @ {coarse_percentile}%")
-            decision_tree.append(f"  Charge: {charge_min}-{charge_max}")
-            decision_tree.append(f"  Discharge: {discharge_min}-{discharge_max}")
+            decision_tree.append(f"  Charge: {charge_min}-{charge_max_fine}")
+            decision_tree.append(f"  Discharge: {discharge_min}-{discharge_max_fine}")
             decision_tree.append(f"  Percentile: {list(percentile_range)}")
             decision_tree.append("")
 
