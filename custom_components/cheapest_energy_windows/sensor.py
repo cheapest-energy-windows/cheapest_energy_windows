@@ -245,6 +245,7 @@ class CEWTodaySensor(CEWBaseSensor):
             _LOGGER.info("Today: Calculation config changed, recalculating")
 
         raw_today = self.coordinator.data.get("raw_today", [])
+        energy_statistics = self.coordinator.data.get("energy_statistics", {})
 
         if raw_today:
             # Check if auto-optimization is enabled
@@ -345,13 +346,14 @@ class CEWTodaySensor(CEWBaseSensor):
 
                 # Schedule the async optimization
                 self.coordinator.hass.async_create_task(
-                    self._async_run_optimization(raw_today, config)
+                    self._async_run_optimization(raw_today, config, energy_statistics)
                 )
                 return  # Don't continue - the async task will handle the rest
             else:
                 # Manual mode - use direct calculation
                 result = self._calculation_engine.calculate_windows(
-                    raw_today, config, is_tomorrow=False, hass=self.coordinator.hass
+                    raw_today, config, is_tomorrow=False, hass=self.coordinator.hass,
+                    energy_statistics=energy_statistics
                 )
                 result["auto_optimized"] = False
 
@@ -389,7 +391,10 @@ class CEWTodaySensor(CEWBaseSensor):
             self._persistent_sensor_state["previous_automation_enabled"] = current_automation_enabled
             self._persistent_sensor_state["previous_calc_config_hash"] = current_calc_config_hash
 
-    async def _async_run_optimization(self, raw_prices: List[Dict[str, Any]], config: Dict[str, Any]) -> None:
+    async def _async_run_optimization(
+        self, raw_prices: List[Dict[str, Any]], config: Dict[str, Any],
+        energy_statistics: Dict[str, Any] = None
+    ) -> None:
         """Run optimization in executor and update sensor state."""
         try:
             strategy = config.get("auto_optimize_strategy", "minimize_cost")
@@ -401,7 +406,8 @@ class CEWTodaySensor(CEWBaseSensor):
                 config,
                 strategy,
                 False,  # is_tomorrow
-                self.coordinator.hass
+                self.coordinator.hass,
+                energy_statistics or {}
             )
 
             # Use the optimized result
@@ -592,6 +598,25 @@ class CEWTodaySensor(CEWBaseSensor):
             "found_discharge_windows": result.get("found_discharge_windows", 0),
             "found_percentile": result.get("found_percentile", 25),
             "found_savings": result.get("found_savings", 0.0),
+            # HA Energy Dashboard integration status
+            "energy_stats_available": result.get("energy_stats_available", False),
+            "energy_consumption_hours": result.get("energy_consumption_hours", 0),
+            "energy_consumption_sensor": result.get("energy_consumption_sensor", "none"),
+            "energy_consumption_source": result.get("energy_consumption_source", "today"),
+            "energy_avg_hourly_consumption": result.get("energy_avg_hourly_consumption", 0.0),
+            "energy_solar_sensor": result.get("energy_solar_sensor", "none"),
+            "energy_solar_source": result.get("energy_solar_source", "today"),
+            "energy_avg_hourly_solar": result.get("energy_avg_hourly_solar", 0.0),
+            "energy_battery_sensor": result.get("energy_battery_sensor", "none"),
+            "energy_battery_charge_source": result.get("energy_battery_charge_source", "today"),
+            "energy_avg_hourly_battery_charge": result.get("energy_avg_hourly_battery_charge", 0.0),
+            "energy_battery_discharge_source": result.get("energy_battery_discharge_source", "today"),
+            "energy_avg_hourly_battery_discharge": result.get("energy_avg_hourly_battery_discharge", 0.0),
+            # Energy consumption diagnostic tracking
+            "energy_actual_kwh": result.get("energy_actual_kwh", 0.0),
+            "energy_estimated_kwh": result.get("energy_estimated_kwh", 0.0),
+            "energy_hours_with_actual": result.get("energy_hours_with_actual", 0),
+            "energy_hours_with_estimate": result.get("energy_hours_with_estimate", 0),
         }
 
 
@@ -646,6 +671,7 @@ class CEWTomorrowSensor(CEWBaseSensor):
         # Price data changed OR first run - proceed with recalculation
         tomorrow_valid = self.coordinator.data.get("tomorrow_valid", False)
         raw_tomorrow = self.coordinator.data.get("raw_tomorrow", [])
+        energy_statistics = self.coordinator.data.get("energy_statistics", {})
 
         # Check for manual recalculation trigger (button press)
         # Must be done BEFORE tomorrow_valid check to ensure flag is always cleared
@@ -698,13 +724,14 @@ class CEWTomorrowSensor(CEWBaseSensor):
 
                 # Schedule the async optimization
                 self.coordinator.hass.async_create_task(
-                    self._async_run_optimization(raw_tomorrow, config)
+                    self._async_run_optimization(raw_tomorrow, config, energy_statistics)
                 )
                 return  # Don't continue - the async task will handle the rest
             else:
                 # Manual mode - use direct calculation
                 result = self._calculation_engine.calculate_windows(
-                    raw_tomorrow, config, is_tomorrow=True, hass=self.coordinator.hass
+                    raw_tomorrow, config, is_tomorrow=True, hass=self.coordinator.hass,
+                    energy_statistics=energy_statistics
                 )
                 result["auto_optimized"] = False
 
@@ -737,7 +764,10 @@ class CEWTomorrowSensor(CEWBaseSensor):
             self._persistent_sensor_state["previous_automation_enabled"] = current_automation_enabled
             self._persistent_sensor_state["previous_calc_config_hash"] = current_calc_config_hash
 
-    async def _async_run_optimization(self, raw_prices: List[Dict[str, Any]], config: Dict[str, Any]) -> None:
+    async def _async_run_optimization(
+        self, raw_prices: List[Dict[str, Any]], config: Dict[str, Any],
+        energy_statistics: Dict[str, Any] = None
+    ) -> None:
         """Run optimization in executor and update sensor state."""
         try:
             strategy = config.get("auto_optimize_strategy_tomorrow", "minimize_cost")
@@ -749,7 +779,8 @@ class CEWTomorrowSensor(CEWBaseSensor):
                 config,
                 strategy,
                 True,  # is_tomorrow
-                self.coordinator.hass
+                self.coordinator.hass,
+                energy_statistics or {}
             )
 
             # Use the optimized result
@@ -920,6 +951,25 @@ class CEWTomorrowSensor(CEWBaseSensor):
             "found_discharge_windows": result.get("found_discharge_windows", 0),
             "found_percentile": result.get("found_percentile", 25),
             "found_savings": result.get("found_savings", 0.0),
+            # HA Energy Dashboard integration status
+            "energy_stats_available": result.get("energy_stats_available", False),
+            "energy_consumption_hours": result.get("energy_consumption_hours", 0),
+            "energy_consumption_sensor": result.get("energy_consumption_sensor", "none"),
+            "energy_consumption_source": result.get("energy_consumption_source", "today"),
+            "energy_avg_hourly_consumption": result.get("energy_avg_hourly_consumption", 0.0),
+            "energy_solar_sensor": result.get("energy_solar_sensor", "none"),
+            "energy_solar_source": result.get("energy_solar_source", "today"),
+            "energy_avg_hourly_solar": result.get("energy_avg_hourly_solar", 0.0),
+            "energy_battery_sensor": result.get("energy_battery_sensor", "none"),
+            "energy_battery_charge_source": result.get("energy_battery_charge_source", "today"),
+            "energy_avg_hourly_battery_charge": result.get("energy_avg_hourly_battery_charge", 0.0),
+            "energy_battery_discharge_source": result.get("energy_battery_discharge_source", "today"),
+            "energy_avg_hourly_battery_discharge": result.get("energy_avg_hourly_battery_discharge", 0.0),
+            # Energy consumption diagnostic tracking
+            "energy_actual_kwh": result.get("energy_actual_kwh", 0.0),
+            "energy_estimated_kwh": result.get("energy_estimated_kwh", 0.0),
+            "energy_hours_with_actual": result.get("energy_hours_with_actual", 0),
+            "energy_hours_with_estimate": result.get("energy_hours_with_estimate", 0),
         }
 
 
