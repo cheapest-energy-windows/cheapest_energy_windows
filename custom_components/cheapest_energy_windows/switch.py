@@ -64,6 +64,8 @@ async def async_setup_entry(
         # Profit thresholds now naturally control window qualification
         # Optimizer search space
         ("fast_search", "Fast Search", True, "mdi:lightning-bolt"),
+        # HA Energy Dashboard integration (v2.2: single binary toggle)
+        ("use_ha_energy_dashboard", "Use HA Energy Dashboard", False, "mdi:meter-electric"),
     ]
 
     for key, name, default, icon in switch_configs:

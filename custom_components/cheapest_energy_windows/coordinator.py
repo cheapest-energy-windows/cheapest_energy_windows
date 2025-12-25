@@ -8,6 +8,7 @@ from typing import Any, Dict, Optional
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
@@ -34,6 +35,8 @@ from .const import (
     DEFAULT_ADDITIONAL_COST,
     PREFIX,
 )
+from .statistics_helper import fetch_day_statistics, get_sensor_state_at_midnight
+from .energy_prefs_helper import get_energy_preferences
 
 _LOGGER = logging.getLogger(LOGGER_NAME)
 
@@ -63,6 +66,7 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 "last_price_update": None,
                 "last_config_update": None,
                 "previous_config_hash": None,
+                "previous_energy_hash": None,  # v2.2.3: Track energy stats changes
             }
         self._persistent_state = hass.data[persistent_key]
 
@@ -72,6 +76,7 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         self._last_price_update: Optional[datetime] = self._persistent_state["last_price_update"]
         self._last_config_update: Optional[datetime] = self._persistent_state["last_config_update"]
         self._previous_config_hash: Optional[str] = self._persistent_state["previous_config_hash"]
+        self._previous_energy_hash: Optional[str] = self._persistent_state.get("previous_energy_hash")
 
     async def _async_update_data(self) -> Dict[str, Any]:
         """Fetch data from price sensor."""
@@ -161,6 +166,146 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             self._persistent_state["previous_raw_tomorrow"] = self._previous_raw_tomorrow
             self._persistent_state["previous_config_hash"] = current_config_hash
 
+            # Fetch HA Energy Dashboard statistics if unified toggle is enabled (v2.2)
+            energy_statistics = {}
+            solar_forecast_today = None
+            solar_forecast_tomorrow = None
+            energy_stats_changed = False  # v2.2.3: Track energy stats changes
+
+            if config.get("use_ha_energy_dashboard", False):
+                try:
+                    energy_statistics = await fetch_day_statistics(self.hass, config)
+                    _LOGGER.debug("HA Energy Dashboard: stats_available=%s", energy_statistics.get("stats_available"))
+                except Exception as e:
+                    _LOGGER.warning("Failed to fetch HA Energy statistics: %s", e)
+                    energy_statistics = {"stats_available": False}
+
+            # v2.2.3: Detect energy stats changes (new hourly data available)
+            def _energy_stats_hash(stats):
+                """Hash based on which hours have data."""
+                if not stats:
+                    return ""
+                grid_hours = sorted(stats.get("grid_import_hourly", {}).keys())
+                solar_hours = sorted(stats.get("solar_hourly", {}).keys())
+                return f"g{len(grid_hours)}_{grid_hours}_s{len(solar_hours)}_{solar_hours}"
+
+            current_energy_hash = _energy_stats_hash(energy_statistics)
+            previous_energy_hash = self._previous_energy_hash or ""
+            energy_stats_changed = current_energy_hash != previous_energy_hash and current_energy_hash != ""
+
+            if energy_stats_changed:
+                _LOGGER.info("Coordinator: Energy stats changed (new hourly data)")
+                self._previous_energy_hash = current_energy_hash
+                self._persistent_state["previous_energy_hash"] = current_energy_hash
+
+                # v2.2.3: Fetch solar forecast from HA Energy Dashboard
+                try:
+                    energy_prefs = await get_energy_preferences(self.hass)
+                    forecast_config_entry = energy_prefs.get("solar_forecast_config_entry")
+
+                    if forecast_config_entry:
+                        # Find entities from this config entry (typically Forecast.Solar)
+                        # v2.2.3 FIX: forecast_config_entry is an array of config entry IDs
+                        entity_registry = er.async_get(self.hass)
+                        for entity in entity_registry.entities.values():
+                            if entity.config_entry_id in forecast_config_entry:
+                                entity_id = entity.entity_id
+                                entity_lower = entity_id.lower()
+                                # Look for today/tomorrow forecast sensors
+                                # Exclude "remaining" entities - we want total forecast, not remaining
+                                if "remaining" in entity_lower:
+                                    continue
+                                if solar_forecast_today is None and "today" in entity_lower and "energy" in entity_lower:
+                                    state = self.hass.states.get(entity_id)
+                                    if state and state.state not in ("unknown", "unavailable"):
+                                        try:
+                                            solar_forecast_today = float(state.state)
+                                            _LOGGER.debug("Solar forecast today from %s: %.2f kWh", entity_id, solar_forecast_today)
+                                        except (ValueError, TypeError):
+                                            pass
+                                elif solar_forecast_tomorrow is None and "tomorrow" in entity_lower and "energy" in entity_lower:
+                                    state = self.hass.states.get(entity_id)
+                                    if state and state.state not in ("unknown", "unavailable"):
+                                        try:
+                                            solar_forecast_tomorrow = float(state.state)
+                                            _LOGGER.debug("Solar forecast tomorrow from %s: %.2f kWh", entity_id, solar_forecast_tomorrow)
+                                        except (ValueError, TypeError):
+                                            pass
+                except Exception as e:
+                    _LOGGER.debug("Could not fetch solar forecast from HA Energy: %s", e)
+
+                # Add solar forecast to energy_statistics for calculation_engine
+                energy_statistics["solar_forecast_today"] = solar_forecast_today
+                energy_statistics["solar_forecast_tomorrow"] = solar_forecast_tomorrow
+
+                # v2.2.3: Fetch HOURLY solar forecast from HA Energy Dashboard
+                # This allows proper per-hour distribution instead of flat average
+                solar_forecast_hourly_today = {}
+                solar_forecast_hourly_tomorrow = {}
+
+                if forecast_config_entry:
+                    try:
+                        # v2.2.3: Import from energy submodule (not main module)
+                        from homeassistant.components.forecast_solar.energy import async_get_solar_forecast
+
+                        _LOGGER.debug("Fetching hourly solar forecast for entries: %s", forecast_config_entry)
+                        today_date = now.date()
+                        tomorrow_date = today_date + timedelta(days=1)
+
+                        # Call async_get_solar_forecast for each config entry
+                        for entry_id in forecast_config_entry:
+                            try:
+                                forecast_data = await async_get_solar_forecast(self.hass, entry_id)
+                                _LOGGER.debug("Hourly forecast data for %s: %s", entry_id, "received" if forecast_data else "None")
+
+                                if forecast_data:
+                                    wh_hours = forecast_data.get("wh_hours", {}) or {}
+                                    for timestamp_str, wh_value in wh_hours.items():
+                                        try:
+                                            ts = datetime.fromisoformat(timestamp_str)
+                                            hour = ts.hour
+                                            kwh = wh_value / 1000.0
+
+                                            if ts.date() == today_date:
+                                                solar_forecast_hourly_today[hour] = solar_forecast_hourly_today.get(hour, 0) + kwh
+                                            elif ts.date() == tomorrow_date:
+                                                solar_forecast_hourly_tomorrow[hour] = solar_forecast_hourly_tomorrow.get(hour, 0) + kwh
+                                        except (ValueError, TypeError):
+                                            continue
+                            except Exception as e:
+                                _LOGGER.debug("Could not fetch forecast for entry %s: %s", entry_id, e)
+
+                        if solar_forecast_hourly_today:
+                            _LOGGER.debug("Hourly solar forecast today: %d hours, total %.2f kWh",
+                                        len(solar_forecast_hourly_today), sum(solar_forecast_hourly_today.values()))
+                        if solar_forecast_hourly_tomorrow:
+                            _LOGGER.debug("Hourly solar forecast tomorrow: %d hours, total %.2f kWh",
+                                        len(solar_forecast_hourly_tomorrow), sum(solar_forecast_hourly_tomorrow.values()))
+
+                    except ImportError:
+                        _LOGGER.debug("async_get_solar_forecast not available in this HA version")
+                    except Exception as e:
+                        _LOGGER.debug("Could not fetch hourly solar forecast: %s", e)
+
+                energy_statistics["solar_forecast_hourly_today"] = solar_forecast_hourly_today
+                energy_statistics["solar_forecast_hourly_tomorrow"] = solar_forecast_hourly_tomorrow
+
+            # v2.1 FIX: Fetch midnight battery state for accurate full-day simulation
+            # When battery sensor is enabled, get its value at midnight (start of day)
+            # This ensures the simulation starts from the correct battery level
+            midnight_battery_state = None
+            if config.get("use_battery_buffer_sensor", False):
+                sensor_entity = config.get("battery_available_energy_sensor", "")
+                if sensor_entity and sensor_entity != "not_configured":
+                    try:
+                        midnight_battery_state = await get_sensor_state_at_midnight(
+                            self.hass, sensor_entity
+                        )
+                        if midnight_battery_state is not None:
+                            _LOGGER.debug("Battery midnight state: %.2f kWh", midnight_battery_state)
+                    except Exception as e:
+                        _LOGGER.warning("Failed to fetch midnight battery state: %s", e)
+
             # Process the data with metadata
             return {
                 "price_sensor": price_sensor,
@@ -174,8 +319,16 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 "config_changed": config_changed,
                 "is_first_load": is_first_load,
                 "scheduled_update": scheduled_update,
+                "energy_stats_changed": energy_stats_changed,  # v2.2.3: Energy stats change detection
                 "last_price_update": self._last_price_update,
                 "last_config_update": self._last_config_update,
+                # HA Energy Dashboard statistics
+                "energy_statistics": energy_statistics,
+                # v2.2.3: Solar forecast from HA Energy Dashboard
+                "solar_forecast_today": solar_forecast_today,
+                "solar_forecast_tomorrow": solar_forecast_tomorrow,
+                # v2.1 FIX: Midnight battery state for full-day simulation
+                "midnight_battery_state": midnight_battery_state,
             }
 
         except Exception as e:
@@ -326,6 +479,9 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             "min_daily_savings": float(options.get("min_daily_savings", 0.50)),
             "fast_search": options.get("fast_search", True),
 
+            # HA Energy Dashboard integration (v2.2: single binary toggle)
+            "use_ha_energy_dashboard": bool(options.get("use_ha_energy_dashboard", False)),
+
             # Time values
             "time_override_start": options.get("time_override_start", DEFAULT_TIME_OVERRIDE_START),
             "time_override_end": options.get("time_override_end", DEFAULT_TIME_OVERRIDE_END),
@@ -364,4 +520,7 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             "config": config,
             "last_update": dt_util.now(),
             "error": reason,
+            "energy_statistics": {},
+            "solar_forecast_today": None,
+            "solar_forecast_tomorrow": None,
         }

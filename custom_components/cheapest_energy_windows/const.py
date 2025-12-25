@@ -320,6 +320,9 @@ CALCULATION_AFFECTING_KEYS: Final = {
 
     # Optimizer search space
     "fast_search",
+
+    # HA Energy Dashboard integration (v2.2: single binary toggle)
+    "use_ha_energy_dashboard",
 }
 
 # Configuration keys that DON'T affect calculation (UI/notification settings)

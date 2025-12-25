@@ -1065,9 +1065,14 @@ class WindowCalculationEngine:
     def _get_buffer_energy(self, config: Dict[str, Any], is_tomorrow: bool, hass: Any = None) -> float:
         """Get battery starting state for the calculation period.
 
-        Priority (when use_battery_buffer_sensor is ON):
-        1. Battery available energy sensor (if configured and valid)
-        2. Fall back to manual buffer_kwh value
+        Priority for TODAY (when use_battery_buffer_sensor is ON):
+        1. Midnight battery state (fetched from recorder history)
+        2. Current battery sensor value (if midnight state unavailable)
+        3. Fall back to manual buffer_kwh value
+
+        Priority for TOMORROW:
+        1. Projected buffer from today's calculation
+        2. Manual buffer_kwh_tomorrow value
 
         Priority (when use_battery_buffer_sensor is OFF):
         1. Manual buffer_kwh value (per-day: today or tomorrow)
@@ -1093,7 +1098,16 @@ class WindowCalculationEngine:
         suffix = "_tomorrow" if is_tomorrow and config.get("tomorrow_settings_enabled", False) else ""
         buffer_kwh = config.get(f"battery_buffer_kwh{suffix}", 0.0)
 
-        # If using sensor and we have a valid sensor entity
+        # v2.1 FIX: For TODAY with sensor enabled, prefer midnight state for full-day simulation
+        # This ensures the simulation starts from the actual battery state at midnight,
+        # not the current state (which may be mid-day)
+        # Note: Negative values are valid (e.g., below battery reserve threshold)
+        if use_sensor and not is_tomorrow:
+            midnight_state = config.get("_midnight_battery_state")
+            if midnight_state is not None:
+                return float(midnight_state)
+
+        # If using sensor and we have a valid sensor entity (fallback to current value)
         if use_sensor and sensor_entity and hass:
             try:
                 sensor_state = hass.states.get(sensor_entity)
@@ -1158,18 +1172,31 @@ class WindowCalculationEngine:
 
         return timeline
 
-    def _get_expected_solar(self, config: Dict[str, Any], is_tomorrow: bool, hass: Any = None) -> float:
+    def _get_expected_solar(self, config: Dict[str, Any], is_tomorrow: bool, hass: Any = None, energy_statistics: Dict[str, Any] = None) -> float:
         """Get expected solar production for the calculation period.
 
         Args:
             config: Configuration dictionary
             is_tomorrow: Whether calculating for tomorrow
             hass: Home Assistant instance (for sensor value lookup)
+            energy_statistics: HA Energy Dashboard statistics (v2.2.3)
 
         Returns:
             Expected solar production in kWh
         """
-        # Check if solar forecast is enabled
+        # v2.2.3 FIX: Check HA Energy Dashboard FIRST (bypasses use_solar_forecast toggle)
+        # When HA Energy Dashboard is enabled, use its forecast regardless of manual toggle
+        energy_stats = energy_statistics or {}
+        if config.get("use_ha_energy_dashboard", False):
+            if is_tomorrow:
+                forecast = energy_stats.get("solar_forecast_tomorrow")
+            else:
+                forecast = energy_stats.get("solar_forecast_today")
+            if forecast is not None:
+                _LOGGER.debug(f"Solar forecast from HA Energy Dashboard ({'tomorrow' if is_tomorrow else 'today'}): {forecast} kWh")
+                return float(forecast)
+
+        # Check if solar forecast is enabled (only for non-HA-Energy modes)
         if not config.get("use_solar_forecast", True):
             return 0.0
 
@@ -1202,23 +1229,70 @@ class WindowCalculationEngine:
         timestamp: datetime,
         duration_minutes: int,
         config: Dict[str, Any],
-        expected_solar_kwh: float
+        expected_solar_kwh: float,
+        energy_statistics: Dict[str, Any] = None,
+        is_tomorrow: bool = False
     ) -> float:
         """Get solar production for a specific time period.
 
-        Distributes expected solar evenly across the solar window.
+        v2.2.3: Uses actual hourly data for completed hours when HA Energy is enabled.
+        Distributes remaining forecast across future solar window hours.
 
         Args:
             timestamp: Start of the period
             duration_minutes: Period duration in minutes
             config: Configuration dict with solar window settings
             expected_solar_kwh: Total expected solar for the day
+            energy_statistics: HA Energy Dashboard statistics (v2.2.3)
+            is_tomorrow: Whether calculating for tomorrow (v2.2.3)
 
         Returns:
             Solar power in kW for this period (0 if outside window)
         """
         if expected_solar_kwh <= 0:
             return 0.0
+
+        # v2.2.3: Use actual hourly solar data for completed hours when HA Energy enabled
+        energy_stats = energy_statistics or {}
+        use_ha_energy = config.get("use_ha_energy_dashboard", False) and energy_stats.get("stats_available", False)
+
+        if use_ha_energy and not is_tomorrow:
+            solar_hourly = energy_stats.get("solar_hourly", {})
+            current_hour = dt_util.now().hour
+            period_hour = timestamp.hour
+
+            if period_hour <= current_hour and period_hour in solar_hourly:
+                # ACTUAL solar for completed hour - return as kW (hourly data is in kWh)
+                return solar_hourly[period_hour]
+            elif period_hour > current_hour:
+                # FORECAST for future hour
+                # v2.2.3: Use HOURLY forecast if available (instead of flat average)
+                forecast_key = "solar_forecast_hourly_tomorrow" if is_tomorrow else "solar_forecast_hourly_today"
+                hourly_forecast = energy_stats.get(forecast_key, {})
+
+                if period_hour in hourly_forecast:
+                    # Return actual hourly forecast value (already in kWh)
+                    return hourly_forecast[period_hour]
+
+                # Fallback: distribute remaining forecast across remaining window
+                actual_solar_so_far = sum(solar_hourly.values())
+                remaining_forecast = max(0, expected_solar_kwh - actual_solar_so_far)
+
+                if remaining_forecast <= 0:
+                    return 0.0
+
+                # Use remaining_forecast instead of expected_solar_kwh for future hours
+                expected_solar_kwh = remaining_forecast
+
+        # v2.2.3: For tomorrow or when no stats available, try hourly forecast directly
+        if config.get("use_ha_energy_dashboard", False):
+            forecast_key = "solar_forecast_hourly_tomorrow" if is_tomorrow else "solar_forecast_hourly_today"
+            hourly_forecast = energy_stats.get(forecast_key, {})
+            period_hour = timestamp.hour
+
+            if period_hour in hourly_forecast:
+                # Return actual hourly forecast value (already in kWh)
+                return hourly_forecast[period_hour]
 
         # Parse solar window times
         try:
@@ -1308,12 +1382,20 @@ class WindowCalculationEngine:
         base_usage = config.get("base_usage", 0) / 1000
         battery_rte = config.get("battery_rte", 85) / 100
 
-        # HA Energy Dashboard integration - per-hour consumption lookup
+        # HA Energy Dashboard integration (v2.2: single binary toggle)
+        # When use_ha_energy_dashboard is ON: use ALL data from HA Energy Dashboard
+        #   - Real consumption from formula: solar + grid_import - grid_export + battery_discharge - battery_charge
+        #   - Solar production, battery flows all from HA
+        # When OFF: 100% v1.3.5 behavior with manual base_usage and forecasts
         energy_stats = energy_statistics or {}
-        use_energy_consumption = config.get("energy_use_consumption", False) and energy_stats.get("stats_available", False)
-        consumption_hourly = energy_stats.get("consumption_hourly", {}) if use_energy_consumption else {}
-        avg_hourly_consumption = energy_stats.get("avg_hourly_consumption", 0.0) if use_energy_consumption else 0.0
+        use_ha_energy = config.get("use_ha_energy_dashboard", False) and energy_stats.get("stats_available", False)
+        # Use real consumption (formula result) instead of just grid import
+        real_consumption_hourly = energy_stats.get("real_consumption_hourly", {}) if use_ha_energy else {}
+        avg_real_consumption = energy_stats.get("avg_real_consumption", 0.0) if use_ha_energy else 0.0
         current_hour = energy_stats.get("current_hour", 23)  # For past/future determination
+        # Legacy compatibility aliases
+        consumption_hourly = real_consumption_hourly
+        avg_hourly_consumption = avg_real_consumption
 
         # Strategies
         charge_strategy = config.get("base_usage_charge_strategy", "grid_covers_both")
@@ -1343,7 +1425,7 @@ class WindowCalculationEngine:
         grid_kwh_total = 0.0  # Cumulative grid kWh (charge + uncovered base)
 
         # Solar configuration and tracking
-        expected_solar_kwh = self._get_expected_solar(config, is_tomorrow, hass)
+        expected_solar_kwh = self._get_expected_solar(config, is_tomorrow, hass, energy_statistics)
         solar_priority = config.get("solar_priority_strategy", "base_then_grid")
         solar_to_battery_kwh = 0.0
         solar_offset_base_kwh = 0.0
@@ -1403,36 +1485,39 @@ class WindowCalculationEngine:
             battery_before = battery_state
 
             # Calculate effective base usage for this period (HA Energy Dashboard integration)
-            # For past hours: use actual consumption data
-            # For future hours: use average or fall back to configured base_usage
-            effective_base_usage_kw = base_usage  # Default to configured value
+            # When HA Energy ON: use ONLY HA Energy data (NO fallback to manual)
+            # When HA Energy OFF: use manual base_usage only
+            effective_base_usage_kw = base_usage  # Default to configured manual value
             used_actual_data = False
-            if use_energy_consumption:
+            if use_ha_energy:
+                # HA Energy enabled - use ONLY HA Energy data (no manual fallback)
                 period_ts = period.get("timestamp")
                 if period_ts:
                     period_hour = period_ts.hour if hasattr(period_ts, 'hour') else 0
                     if is_tomorrow:
-                        # Tomorrow is all future - use average
-                        effective_base_usage_kw = avg_hourly_consumption if avg_hourly_consumption > 0 else base_usage
+                        # Tomorrow is all future - use HA Energy average
+                        effective_base_usage_kw = avg_hourly_consumption
                         energy_estimated_kwh += effective_base_usage_kw * duration_hours
                         energy_hours_with_estimate += 1
-                    elif period_hour < current_hour:
-                        # Past hour - use actual if available
+                    elif period_hour <= current_hour:
+                        # Past or current hour - use actual if available
+                        # Note: current_hour data may be partial but still more accurate than estimate
                         if period_hour in consumption_hourly:
                             effective_base_usage_kw = consumption_hourly[period_hour]  # kWh/hour = kW
                             energy_actual_kwh += effective_base_usage_kw * duration_hours
                             energy_hours_with_actual += 1
                             used_actual_data = True
                         else:
-                            # Past hour but no data - use estimate
-                            effective_base_usage_kw = avg_hourly_consumption if avg_hourly_consumption > 0 else base_usage
+                            # Past/current hour but no data - use HA Energy average (no manual fallback)
+                            effective_base_usage_kw = avg_hourly_consumption
                             energy_estimated_kwh += effective_base_usage_kw * duration_hours
                             energy_hours_with_estimate += 1
                     else:
-                        # Future hour - use average or fallback
-                        effective_base_usage_kw = avg_hourly_consumption if avg_hourly_consumption > 0 else base_usage
+                        # Future hour - use HA Energy average (no manual fallback)
+                        effective_base_usage_kw = avg_hourly_consumption
                         energy_estimated_kwh += effective_base_usage_kw * duration_hours
                         energy_hours_with_estimate += 1
+            # else: HA Energy disabled - use manual base_usage (already set as default)
 
             if window_type == "charge":
                 # Calculate how much we CAN charge (limited by capacity)
@@ -1445,7 +1530,9 @@ class WindowCalculationEngine:
                     period["timestamp"],
                     period["duration"],
                     config,
-                    expected_solar_kwh
+                    expected_solar_kwh,
+                    energy_statistics,
+                    is_tomorrow
                 )
                 solar_available = solar_kw * duration_hours
 
@@ -1564,7 +1651,9 @@ class WindowCalculationEngine:
                     period["timestamp"],
                     period["duration"],
                     config,
-                    expected_solar_kwh
+                    expected_solar_kwh,
+                    energy_statistics,
+                    is_tomorrow
                 )
                 solar_available = solar_kw * duration_hours
 
@@ -1726,7 +1815,9 @@ class WindowCalculationEngine:
                     period["timestamp"],
                     period["duration"],
                     config,
-                    expected_solar_kwh
+                    expected_solar_kwh,
+                    energy_statistics,
+                    is_tomorrow
                 )
                 solar_available = solar_kw * duration_hours  # kWh available this period
 
@@ -2042,6 +2133,29 @@ class WindowCalculationEngine:
         base_usage = config.get("base_usage", 0) / 1000
         battery_rte = config.get("battery_rte", 85) / 100  # Convert to decimal
 
+        # v2.1 FIX: Use same data source logic as _simulate_chronological_costs for completed calculations
+        # This ensures completed metrics match the simulation
+        # v2.2: Use unified HA Energy Dashboard toggle
+        energy_stats = energy_statistics or {}
+        use_ha_energy = config.get("use_ha_energy_dashboard", False) and energy_stats.get("stats_available", False)
+        real_consumption_hourly = energy_stats.get("real_consumption_hourly", {}) if use_ha_energy else {}
+        avg_real_consumption = energy_stats.get("avg_real_consumption", 0.0) if use_ha_energy else 0.0
+        # v2.2.3: Extract actual grid/solar hourly data for completed hours calculation
+        grid_import_hourly = energy_stats.get("grid_import_hourly", {}) if use_ha_energy else {}
+        grid_export_hourly = energy_stats.get("grid_export_hourly", {}) if use_ha_energy else {}
+        solar_hourly = energy_stats.get("solar_hourly", {}) if use_ha_energy else {}
+        current_hour = dt_util.now().hour
+
+        def get_effective_base_usage(timestamp):
+            """Get base usage for a specific period, using HA Energy data if available."""
+            if use_ha_energy:
+                period_hour = timestamp.hour if hasattr(timestamp, 'hour') else 0
+                if period_hour in real_consumption_hourly:
+                    return real_consumption_hourly[period_hour]  # kWh/hour = kW
+                elif avg_real_consumption > 0:
+                    return avg_real_consumption
+            return base_usage
+
         # Get strategies
         charge_strategy = config.get("base_usage_charge_strategy", "grid_covers_both")
         normal_strategy = config.get("base_usage_normal_strategy", "grid_covers")
@@ -2084,15 +2198,17 @@ class WindowCalculationEngine:
                 buy_price = price_data.get("price", w["price"])  # Fallback to w["price"] if not found
                 completed_rte_loss_value += rte_loss_kwh * buy_price  # Cost of lost energy
 
+                # v2.1 FIX: Use effective base usage (HA Energy or manual)
+                effective_base = get_effective_base_usage(w["timestamp"])
                 if charge_strategy == "grid_covers_both":
                     # Grid provides charge power + base usage
-                    completed_charge_cost += w["price"] * duration_hours * (charge_power + base_usage)
-                    completed_charge_kwh += duration_hours * (charge_power + base_usage)
+                    completed_charge_cost += w["price"] * duration_hours * (charge_power + effective_base)
+                    completed_charge_kwh += duration_hours * (charge_power + effective_base)
                 else:  # battery_covers_base
                     # Grid provides charge power only, battery covers base
                     completed_charge_cost += w["price"] * duration_hours * charge_power
                     completed_charge_kwh += duration_hours * charge_power
-                    completed_base_usage_battery += duration_hours * base_usage
+                    completed_base_usage_battery += duration_hours * effective_base
 
         # DISCHARGE windows: Apply discharge strategy
         for w in actual_discharge:
@@ -2106,16 +2222,18 @@ class WindowCalculationEngine:
                     raw_price, w["price"], sell_country, sell_param_a, sell_param_b
                 )
 
+                # v2.1 FIX: Use effective base usage (HA Energy or manual)
+                effective_base = get_effective_base_usage(w["timestamp"])
                 if discharge_strategy == "already_included":
                     # Full discharge power generates revenue at SELL price
                     completed_discharge_revenue += sell_price * duration_hours * discharge_power
                     completed_discharge_kwh += duration_hours * discharge_power
                 else:  # subtract_base (NoM)
                     # Battery covers base first, exports the rest at SELL price
-                    net_export = max(0, discharge_power - base_usage)
+                    net_export = max(0, discharge_power - effective_base)
                     completed_discharge_revenue += sell_price * duration_hours * net_export
                     completed_discharge_kwh += duration_hours * net_export
-                    completed_base_usage_battery += duration_hours * base_usage
+                    completed_base_usage_battery += duration_hours * effective_base
 
         # NORMAL periods: Apply normal strategy
         # Build sets of timestamps for active windows
@@ -2137,13 +2255,15 @@ class WindowCalculationEngine:
 
                 if not is_active:
                     duration_hours = price_data["duration"] / 60
+                    # v2.1 FIX: Use effective base usage (HA Energy or manual)
+                    effective_base = get_effective_base_usage(timestamp)
                     if normal_strategy == "grid_covers":
                         # Grid provides base usage, add to cost
-                        completed_base_usage_cost += price_data["price"] * duration_hours * base_usage
-                        completed_base_grid_kwh += duration_hours * base_usage
+                        completed_base_usage_cost += price_data["price"] * duration_hours * effective_base
+                        completed_base_grid_kwh += duration_hours * effective_base
                     else:  # battery_covers or battery_covers_limited
                         # Battery provides base usage, tracking battery draining
-                        base_kwh_needed = duration_hours * base_usage
+                        base_kwh_needed = duration_hours * effective_base
 
                         if remaining_battery_for_base >= base_kwh_needed:
                             # Battery can cover full period
@@ -2153,14 +2273,14 @@ class WindowCalculationEngine:
                             # Battery covers partial, grid covers rest
                             completed_base_usage_battery += remaining_battery_for_base
                             grid_kwh = base_kwh_needed - remaining_battery_for_base
-                            grid_hours = grid_kwh / base_usage
-                            completed_base_usage_cost += price_data["price"] * grid_hours * base_usage
+                            grid_hours = grid_kwh / effective_base if effective_base > 0 else 0
+                            completed_base_usage_cost += price_data["price"] * grid_hours * effective_base
                             completed_base_grid_kwh += grid_kwh
                             remaining_battery_for_base = 0
                         else:
                             # Battery empty, grid covers all
-                            completed_base_usage_cost += price_data["price"] * duration_hours * base_usage
-                            completed_base_grid_kwh += duration_hours * base_usage
+                            completed_base_usage_cost += price_data["price"] * duration_hours * effective_base
+                            completed_base_grid_kwh += duration_hours * effective_base
 
         # Calculate planned total cost for ALL windows (for tomorrow's estimate)
         # Unlike total_cost which only counts completed windows, this estimates the full day
@@ -2411,30 +2531,26 @@ class WindowCalculationEngine:
             config
         )
 
-        # When using sensor for TODAY, filter to only FUTURE windows
-        # Past windows are already reflected in the sensor reading - don't re-simulate them
+        # Determine simulation mode based on battery sensor and HA Energy toggles
         use_sensor = config.get("use_battery_buffer_sensor", False)
         sensor_entity = config.get("battery_available_energy_sensor", "")
         using_sensor_for_today = not is_tomorrow and use_sensor and sensor_entity and hass
 
-        if using_sensor_for_today:
-            now = dt_util.now()
-            # Keep only windows that haven't started yet (or are currently active)
-            # Use a small buffer (1 minute) to include the current window
-            future_timeline = []
-            for entry in chrono_timeline:
-                entry_ts = entry["timestamp"]
-                if isinstance(entry_ts, str):
-                    entry_ts = dt_util.parse_datetime(entry_ts)
-                # Include if window end time is after now (window duration matters)
-                window_end = entry_ts + timedelta(minutes=entry["duration"])
-                if window_end > now:
-                    future_timeline.append(entry)
+        # Check if HA Energy Dashboard is enabled (v2.2: single binary toggle)
+        use_ha_energy = config.get("use_ha_energy_dashboard", False)
 
-            chrono_timeline = future_timeline
+        # v2.1 FIX: Always simulate FULL day regardless of sensor/HA Energy mode
+        # The past vs future distinction now only affects DATA SOURCE within _simulate_chronological_costs:
+        # - HA Energy ON: past hours use actual consumption from statistics, future use average
+        # - HA Energy OFF: all hours use manual base_usage (v1.3.5 behavior)
+        # This ensures:
+        # - Completed metrics are calculated from the same simulation as planned
+        # - Battery trajectory shows full day history
+        # - Net grid totals are consistent
+        simulation_timeline = chrono_timeline
 
         chrono_result = self._simulate_chronological_costs(
-            chrono_timeline, config, buffer_energy, limit_discharge, is_tomorrow, hass,
+            simulation_timeline, config, buffer_energy, limit_discharge, is_tomorrow, hass,
             energy_statistics=energy_statistics
         )
 
@@ -2539,15 +2655,26 @@ class WindowCalculationEngine:
             1 for w in actual_charge
             if w["timestamp"] + timedelta(minutes=w["duration"]) <= current_time
         )
-        # RECALCULATE completed_charge_cost from filtered windows
+        # RECALCULATE completed_charge_cost from filtered windows (v2.2.1: use HA Energy data)
         completed_charge_cost = 0
         for w in actual_charge:
             if w["timestamp"] + timedelta(minutes=w["duration"]) <= current_time:
                 duration_hours = w["duration"] / 60
+                effective_base = get_effective_base_usage(w["timestamp"])
                 if charge_strategy == "grid_covers_both":
-                    completed_charge_cost += w["price"] * duration_hours * (charge_power + base_usage)
+                    completed_charge_cost += w["price"] * duration_hours * (charge_power + effective_base)
                 else:  # battery_covers_base
                     completed_charge_cost += w["price"] * duration_hours * charge_power
+        # RECALCULATE completed_charge_kwh from filtered windows (v2.2.1: added for consistency)
+        completed_charge_kwh = 0
+        for w in actual_charge:
+            if w["timestamp"] + timedelta(minutes=w["duration"]) <= current_time:
+                duration_hours = w["duration"] / 60
+                effective_base = get_effective_base_usage(w["timestamp"])
+                if charge_strategy == "grid_covers_both":
+                    completed_charge_kwh += duration_hours * (charge_power + effective_base)
+                else:
+                    completed_charge_kwh += duration_hours * charge_power
         # RECALCULATE completed_rte_loss from filtered windows
         completed_rte_loss_kwh = 0
         completed_rte_loss_value = 0
@@ -2582,7 +2709,7 @@ class WindowCalculationEngine:
             1 for w in actual_discharge
             if w["timestamp"] + timedelta(minutes=w["duration"]) <= current_time
         )
-        # RECALCULATE completed_discharge_revenue from filtered windows
+        # RECALCULATE completed_discharge_revenue from filtered windows (v2.2.1: use HA Energy data)
         completed_discharge_revenue = 0
         for w in actual_discharge:
             if w["timestamp"] + timedelta(minutes=w["duration"]) <= current_time:
@@ -2593,11 +2720,23 @@ class WindowCalculationEngine:
                 sell_price = self._calculate_sell_price(
                     raw_price, w["price"], sell_country, sell_param_a, sell_param_b
                 )
+                effective_base = get_effective_base_usage(w["timestamp"])
                 if discharge_strategy == "already_included":
                     completed_discharge_revenue += sell_price * duration_hours * discharge_power
                 else:  # subtract_base
-                    net_export = max(0, discharge_power - base_usage)
+                    net_export = max(0, discharge_power - effective_base)
                     completed_discharge_revenue += sell_price * duration_hours * net_export
+        # RECALCULATE completed_discharge_kwh from filtered windows (v2.2.1: added for consistency)
+        completed_discharge_kwh = 0
+        for w in actual_discharge:
+            if w["timestamp"] + timedelta(minutes=w["duration"]) <= current_time:
+                duration_hours = w["duration"] / 60
+                effective_base = get_effective_base_usage(w["timestamp"])
+                if discharge_strategy == "already_included":
+                    completed_discharge_kwh += duration_hours * discharge_power
+                else:
+                    net_export = max(0, discharge_power - effective_base)
+                    completed_discharge_kwh += duration_hours * net_export
 
         _LOGGER.info(
             f"Discharge windows filtered: original={original_discharge_count} windows, "
@@ -2618,13 +2757,8 @@ class WindowCalculationEngine:
                 actual_discharge,
                 config
             )
-            # Apply same future-only filter if using sensor
-            if using_sensor_for_today:
-                now = dt_util.now()
-                elected_timeline = [
-                    entry for entry in elected_timeline
-                    if entry["timestamp"] + timedelta(minutes=entry["duration"]) > now
-                ]
+            # v2.1 FIX: Keep full elected timeline (removed future-only filter)
+            # This ensures battery trajectory and elected window simulation covers full day
             # Re-run chrono to get correct trajectory for elected windows
             elected_chrono_result = self._simulate_chronological_costs(
                 elected_timeline, config, buffer_energy, limit_discharge, is_tomorrow, hass,
@@ -2868,6 +3002,21 @@ class WindowCalculationEngine:
             rte_preserved_periods=chrono_result.get("rte_preserved_periods", [])
         )
 
+        # v2.2.3: Calculate completed_net_grid_kwh using actual HA data when available
+        # With HA Energy data, the meter already measured the net result - no reconstruction needed
+        if use_ha_energy and grid_import_hourly and grid_export_hourly:
+            # Actual net grid from meter: import - export for completed hours
+            completed_net_grid_kwh = (
+                sum(v for h, v in grid_import_hourly.items() if h <= current_hour) -
+                sum(v for h, v in grid_export_hourly.items() if h <= current_hour)
+            )
+        else:
+            # Simulation mode: reconstruct from individual components
+            completed_net_grid_kwh = (
+                completed_charge_kwh + completed_base_grid_kwh -
+                completed_discharge_kwh - completed_solar_export_kwh - completed_solar_base_kwh
+            )
+
         # Build result
         result = {
             "state": current_state,
@@ -2894,7 +3043,7 @@ class WindowCalculationEngine:
             "completed_base_grid_kwh": round(completed_base_grid_kwh, 3),
             "completed_solar_base_kwh": round(completed_solar_base_kwh, 3),
             "completed_solar_export_kwh": round(completed_solar_export_kwh, 3),
-            "completed_net_grid_kwh": round(completed_charge_kwh + completed_base_grid_kwh - completed_discharge_kwh - completed_solar_export_kwh - completed_solar_base_kwh, 3),
+            "completed_net_grid_kwh": round(completed_net_grid_kwh, 3),
             "uncovered_base_usage_kwh": round(uncovered_kwh, 3),
             "uncovered_base_usage_cost": round(uncovered_cost, 3),
             "completed_solar_grid_savings": round(completed_solar_grid_savings, 3),
@@ -3031,16 +3180,35 @@ class WindowCalculationEngine:
             "energy_stats_available": (energy_statistics or {}).get("stats_available", False),
             "energy_consumption_hours": len((energy_statistics or {}).get("consumption_hourly", {})),
             "energy_consumption_sensor": (energy_statistics or {}).get("consumption_sensor", "none"),
-            "energy_consumption_source": (energy_statistics or {}).get("consumption_source", "today"),
+            "energy_consumption_source": (energy_statistics or {}).get("consumption_source", "manual"),
             "energy_avg_hourly_consumption": (energy_statistics or {}).get("avg_hourly_consumption", 0.0),
             "energy_solar_sensor": (energy_statistics or {}).get("solar_sensor", "none"),
             "energy_solar_source": (energy_statistics or {}).get("solar_source", "today"),
             "energy_avg_hourly_solar": (energy_statistics or {}).get("avg_hourly_solar", 0.0),
+            "energy_total_solar_production_kwh": (energy_statistics or {}).get("total_solar_production_kwh", 0.0),  # v2.2.3
+            "energy_solar_forecast_today": (energy_statistics or {}).get("solar_forecast_today"),  # v2.2.3
+            "energy_solar_forecast_tomorrow": (energy_statistics or {}).get("solar_forecast_tomorrow"),  # v2.2.3
+            # v2.2.3: Hourly solar forecast data for verification
+            "energy_solar_forecast_hourly_today": (energy_statistics or {}).get("solar_forecast_hourly_today", {}),
+            "energy_solar_forecast_hourly_tomorrow": (energy_statistics or {}).get("solar_forecast_hourly_tomorrow", {}),
             "energy_battery_sensor": (energy_statistics or {}).get("battery_sensor", "none"),
             "energy_battery_charge_source": (energy_statistics or {}).get("battery_charge_source", "today"),
             "energy_avg_hourly_battery_charge": (energy_statistics or {}).get("avg_hourly_battery_charge", 0.0),
+            "energy_total_battery_charge_kwh": (energy_statistics or {}).get("total_battery_charge_kwh", 0.0),  # v2.2.2
             "energy_battery_discharge_source": (energy_statistics or {}).get("battery_discharge_source", "today"),
             "energy_avg_hourly_battery_discharge": (energy_statistics or {}).get("avg_hourly_battery_discharge", 0.0),
+            "energy_total_battery_discharge_kwh": (energy_statistics or {}).get("total_battery_discharge_kwh", 0.0),  # v2.2.2
+            # Real consumption (formula result) - new in v2
+            "energy_real_consumption_hourly": (energy_statistics or {}).get("real_consumption_hourly", {}),
+            "energy_avg_real_consumption": (energy_statistics or {}).get("avg_real_consumption", 0.0),
+            # Grid import/export raw data
+            "energy_grid_import_hourly": (energy_statistics or {}).get("grid_import_hourly", {}),
+            "energy_grid_export_hourly": (energy_statistics or {}).get("grid_export_hourly", {}),
+            "energy_avg_grid_import": (energy_statistics or {}).get("avg_grid_import", 0.0),
+            "energy_avg_grid_export": (energy_statistics or {}).get("avg_grid_export", 0.0),
+            # Discovered sensors
+            "energy_sensors": (energy_statistics or {}).get("sensors", {}),
+            "energy_hours_with_data": (energy_statistics or {}).get("hours_with_data", 0),
             # Energy consumption diagnostic tracking from simulation
             "energy_actual_kwh": chrono_result.get("energy_actual_kwh", 0.0),
             "energy_estimated_kwh": chrono_result.get("energy_estimated_kwh", 0.0),
@@ -3270,16 +3438,34 @@ class WindowCalculationEngine:
             "energy_stats_available": False,
             "energy_consumption_hours": 0,
             "energy_consumption_sensor": "none",
-            "energy_consumption_source": "today",
+            "energy_consumption_source": "manual",
             "energy_avg_hourly_consumption": 0.0,
             "energy_solar_sensor": "none",
             "energy_solar_source": "today",
             "energy_avg_hourly_solar": 0.0,
+            "energy_total_solar_production_kwh": 0.0,  # v2.2.3
+            "energy_solar_forecast_today": None,  # v2.2.3
+            "energy_solar_forecast_tomorrow": None,  # v2.2.3
+            "energy_solar_forecast_hourly_today": {},  # v2.2.3
+            "energy_solar_forecast_hourly_tomorrow": {},  # v2.2.3
             "energy_battery_sensor": "none",
             "energy_battery_charge_source": "today",
             "energy_avg_hourly_battery_charge": 0.0,
+            "energy_total_battery_charge_kwh": 0.0,  # v2.2.2
             "energy_battery_discharge_source": "today",
             "energy_avg_hourly_battery_discharge": 0.0,
+            "energy_total_battery_discharge_kwh": 0.0,  # v2.2.2
+            # Real consumption (formula result) - new in v2
+            "energy_real_consumption_hourly": {},
+            "energy_avg_real_consumption": 0.0,
+            # Grid import/export raw data
+            "energy_grid_import_hourly": {},
+            "energy_grid_export_hourly": {},
+            "energy_avg_grid_import": 0.0,
+            "energy_avg_grid_export": 0.0,
+            # Discovered sensors
+            "energy_sensors": {},
+            "energy_hours_with_data": 0,
             # Energy consumption diagnostic tracking
             "energy_actual_kwh": 0.0,
             "energy_estimated_kwh": 0.0,

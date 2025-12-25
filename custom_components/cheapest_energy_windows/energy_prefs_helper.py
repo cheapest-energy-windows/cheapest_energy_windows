@@ -34,6 +34,8 @@ async def get_energy_preferences(hass: HomeAssistant) -> Dict[str, Any]:
         "solar_production_sensors": [],
         "battery_charge_sensors": [],
         "battery_discharge_sensors": [],
+        # v2.2.3: Solar forecast config entry (Forecast.Solar or similar)
+        "solar_forecast_config_entry": None,
     }
 
     try:
@@ -67,6 +69,10 @@ async def get_energy_preferences(hass: HomeAssistant) -> Dict[str, Any]:
                 stat_id = source.get("stat_energy_from")
                 if stat_id:
                     result["solar_production_sensors"].append(stat_id)
+                # v2.2.3: Solar forecast config entry (Forecast.Solar or similar)
+                forecast_entry = source.get("config_entry_solar_forecast")
+                if forecast_entry and not result["solar_forecast_config_entry"]:
+                    result["solar_forecast_config_entry"] = forecast_entry
 
             elif source_type == "battery":
                 # Battery charge = energy TO battery (stat_energy_to)
@@ -79,11 +85,12 @@ async def get_energy_preferences(hass: HomeAssistant) -> Dict[str, Any]:
                     result["battery_discharge_sensors"].append(discharge_id)
 
         _LOGGER.debug(
-            "Energy Dashboard sensors discovered: %d grid, %d solar, %d battery charge, %d battery discharge",
+            "Energy Dashboard sensors discovered: %d grid, %d solar, %d battery charge, %d battery discharge, forecast=%s",
             len(result["grid_consumption_sensors"]),
             len(result["solar_production_sensors"]),
             len(result["battery_charge_sensors"]),
             len(result["battery_discharge_sensors"]),
+            result["solar_forecast_config_entry"],
         )
 
         return result

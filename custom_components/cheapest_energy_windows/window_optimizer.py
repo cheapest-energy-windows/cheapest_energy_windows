@@ -127,7 +127,8 @@ class WindowOptimizer:
         self,
         num_charge: int,
         config: Dict[str, Any],
-        suffix: str = ""
+        suffix: str = "",
+        energy_statistics: Dict[str, Any] = None
     ) -> float:
         """Calculate maximum available energy for discharge.
 
@@ -178,7 +179,14 @@ class WindowOptimizer:
                 solar_hours = 10.0  # Default fallback
 
             # Base usage during solar hours consumes solar first
-            base_usage_kw = float(config.get("base_usage", 0)) / 1000.0
+            # Use actual consumption from HA Energy Dashboard if available (v2.2: unified toggle)
+            energy_stats = energy_statistics or {}
+            use_ha_energy = config.get("use_ha_energy_dashboard", False) and energy_stats.get("stats_available", False)
+            if use_ha_energy:
+                avg_real = energy_stats.get("avg_real_consumption", 0.0)
+                base_usage_kw = avg_real if avg_real > 0 else float(config.get("base_usage", 0)) / 1000.0
+            else:
+                base_usage_kw = float(config.get("base_usage", 0)) / 1000.0
             base_usage_during_solar = base_usage_kw * solar_hours
 
             # Only excess solar goes to battery
@@ -216,7 +224,8 @@ class WindowOptimizer:
         num_charge: int,
         num_discharge: int,
         config: Dict[str, Any],
-        suffix: str = ""
+        suffix: str = "",
+        energy_statistics: Dict[str, Any] = None
     ) -> bool:
         """Check if configuration is physically feasible (energy balance).
 
@@ -234,7 +243,7 @@ class WindowOptimizer:
         if num_discharge == 0:
             return True  # No discharge = always feasible
 
-        available_kwh = self._calculate_available_discharge_kwh(num_charge, config, suffix)
+        available_kwh = self._calculate_available_discharge_kwh(num_charge, config, suffix, energy_statistics)
         required_kwh = self._calculate_required_discharge_kwh(num_discharge, config)
 
         # Apply safety margin - don't plan to use 100% of available energy
@@ -304,7 +313,8 @@ class WindowOptimizer:
         config: Dict[str, Any],
         strategy: str = "minimize_cost",
         is_tomorrow: bool = False,
-        hass: Any = None
+        hass: Any = None,
+        energy_statistics: Dict[str, Any] = None
     ) -> OptimizationResult:
         """Find optimal window configuration via two-phase grid search.
 
@@ -383,7 +393,7 @@ class WindowOptimizer:
         baseline_config[f"expensive_windows{suffix}"] = 0
 
         baseline_result = self._calculation_engine.calculate_windows(
-            raw_prices, baseline_config, is_tomorrow, hass
+            raw_prices, baseline_config, is_tomorrow, hass, energy_statistics
         )
         baseline_cost = baseline_result.get("planned_total_cost", float('inf'))
         baseline_score = self._get_optimization_score(baseline_result, strategy)
@@ -421,7 +431,7 @@ class WindowOptimizer:
                         continue  # Already calculated as baseline
 
                     # CRITICAL: Skip infeasible configurations (energy balance constraint)
-                    if not self._is_energy_feasible(num_charge, num_discharge, test_config, suffix):
+                    if not self._is_energy_feasible(num_charge, num_discharge, test_config, suffix, energy_statistics):
                         skipped_infeasible += 1
                         continue
 
@@ -431,7 +441,7 @@ class WindowOptimizer:
                     iter_config[f"percentile_threshold{suffix}"] = percentile
 
                     result = self._calculation_engine.calculate_windows(
-                        raw_prices, iter_config, is_tomorrow, hass
+                        raw_prices, iter_config, is_tomorrow, hass, energy_statistics
                     )
                     iterations += 1
                     score = self._get_optimization_score(result, strategy)
@@ -509,7 +519,7 @@ class WindowOptimizer:
                             continue
 
                         # CRITICAL: Skip infeasible configurations (energy balance constraint)
-                        if not self._is_energy_feasible(num_charge, num_discharge, test_config, suffix):
+                        if not self._is_energy_feasible(num_charge, num_discharge, test_config, suffix, energy_statistics):
                             continue
 
                         iter_config = test_config.copy()
@@ -518,7 +528,7 @@ class WindowOptimizer:
                         iter_config[f"percentile_threshold{suffix}"] = percentile
 
                         result = self._calculation_engine.calculate_windows(
-                            raw_prices, iter_config, is_tomorrow, hass
+                            raw_prices, iter_config, is_tomorrow, hass, energy_statistics
                         )
                         iterations += 1
                         fine_iterations += 1
@@ -597,7 +607,7 @@ class WindowOptimizer:
         decision_tree.append(f"Completed in {elapsed_ms:.0f}ms ({iterations} iterations)")
 
         # Log energy balance info for transparency
-        available_kwh = self._calculate_available_discharge_kwh(best_config[0], test_config, suffix)
+        available_kwh = self._calculate_available_discharge_kwh(best_config[0], test_config, suffix, energy_statistics)
         required_kwh = self._calculate_required_discharge_kwh(best_config[1], test_config)
 
         # Calculate total_value from best_result
