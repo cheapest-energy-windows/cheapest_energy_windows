@@ -1195,6 +1195,13 @@ class WindowCalculationEngine:
             if forecast is not None:
                 _LOGGER.debug(f"Solar forecast from HA Energy Dashboard ({'tomorrow' if is_tomorrow else 'today'}): {forecast} kWh")
                 return float(forecast)
+            # v2.2.4 FIX: If HA Energy enabled but forecast unavailable (e.g., at HA restart),
+            # fall back to manual config. Do NOT check use_solar_forecast - that's a separate toggle.
+            suffix = "_tomorrow" if is_tomorrow and config.get("tomorrow_settings_enabled", False) else ""
+            manual_solar = float(config.get(f"expected_solar_kwh{suffix}", 0.0))
+            if manual_solar > 0:
+                _LOGGER.warning(f"HA Energy solar forecast unavailable, using manual config: {manual_solar:.2f} kWh")
+                return manual_solar
 
         # Check if solar forecast is enabled (only for non-HA-Energy modes)
         if not config.get("use_solar_forecast", True):
@@ -2952,9 +2959,12 @@ class WindowCalculationEngine:
                 planned_total_cost = round(planned_total_cost + uncovered_cost, 3)
 
             # Recalculate savings
-            # FIXED: baseline_cost should be base_usage only, not total grid (which includes charging)
-            # This is what we'd pay without battery optimization - just covering household usage
-            baseline_cost = base_usage_kwh * day_avg_price
+            # v2.2.4 FIX: baseline_cost should account for solar offsetting base usage
+            # Even without battery optimization, solar would still reduce grid costs
+            # solar_offset_base_kwh represents solar that directly offsets household usage
+            solar_offset_base_kwh = chrono_result.get("solar_offset_base_kwh", 0.0)
+            solar_base_savings = solar_offset_base_kwh * day_avg_price
+            baseline_cost = base_usage_kwh * day_avg_price - solar_base_savings
             estimated_savings = baseline_cost - planned_total_cost
             # True savings = savings on what we KEPT (base usage + end-of-day buffer)
             # Use final_battery_state from chrono (more accurate than actual_remaining_kwh)
@@ -3017,6 +3027,41 @@ class WindowCalculationEngine:
                 completed_discharge_kwh - completed_solar_export_kwh - completed_solar_base_kwh
             )
 
+        # v2.2.4: Calculate actual_total_cost from HA Energy data when available
+        # This gives the TRUE cost paid so far, regardless of optimizer settings
+        actual_total_cost = None
+        if use_ha_energy and grid_import_hourly:
+            # Build hour-to-price lookup from price_lookup (keyed by timestamp)
+            hour_prices = {}  # hour_int -> (buy_price, sell_price)
+            for ts, price_data in price_lookup.items():
+                hour_int = ts.hour
+                buy_price = price_data.get("price", 0)
+                raw_price = price_data.get("raw_price", buy_price)
+                sell_price = self._calculate_sell_price(raw_price, buy_price, sell_country, sell_param_a, sell_param_b)
+                # Average if multiple periods per hour (15-min pricing)
+                if hour_int not in hour_prices:
+                    hour_prices[hour_int] = {"buy": [], "sell": []}
+                hour_prices[hour_int]["buy"].append(buy_price)
+                hour_prices[hour_int]["sell"].append(sell_price)
+
+            # Calculate actual cost from grid import/export × prices
+            actual_total_cost = 0.0
+            for hour_str, import_kwh in grid_import_hourly.items():
+                hour_int = int(hour_str)
+                if hour_int <= current_hour and hour_int in hour_prices:
+                    avg_buy_price = sum(hour_prices[hour_int]["buy"]) / len(hour_prices[hour_int]["buy"])
+                    actual_total_cost += import_kwh * avg_buy_price
+
+            # Subtract export revenue
+            if grid_export_hourly:
+                for hour_str, export_kwh in grid_export_hourly.items():
+                    hour_int = int(hour_str)
+                    if hour_int <= current_hour and hour_int in hour_prices:
+                        avg_sell_price = sum(hour_prices[hour_int]["sell"]) / len(hour_prices[hour_int]["sell"])
+                        actual_total_cost -= export_kwh * avg_sell_price
+
+            _LOGGER.debug(f"Actual total cost from HA Energy: €{actual_total_cost:.3f} (vs calculated: €{completed_charge_cost + completed_base_usage_cost - completed_discharge_revenue - completed_solar_export_revenue - completed_solar_grid_savings:.3f})")
+
         # Build result
         result = {
             "state": current_state,
@@ -3047,7 +3092,13 @@ class WindowCalculationEngine:
             "uncovered_base_usage_kwh": round(uncovered_kwh, 3),
             "uncovered_base_usage_cost": round(uncovered_cost, 3),
             "completed_solar_grid_savings": round(completed_solar_grid_savings, 3),
-            "total_cost": round(completed_charge_cost + completed_base_usage_cost - completed_discharge_revenue - completed_solar_export_revenue - completed_solar_grid_savings, 3),
+            # v2.2.4: Use actual_total_cost from HA Energy when available (reflects TRUE grid costs)
+            # Falls back to calculated value when HA Energy data unavailable
+            "total_cost": round(
+                actual_total_cost if actual_total_cost is not None
+                else (completed_charge_cost + completed_base_usage_cost - completed_discharge_revenue - completed_solar_export_revenue - completed_solar_grid_savings),
+                3
+            ),
             "planned_total_cost": planned_total_cost,
             "planned_charge_cost": round(planned_charge_cost, 3),
             "planned_discharge_revenue": round(planned_discharge_revenue, 3),
@@ -3117,7 +3168,7 @@ class WindowCalculationEngine:
             "battery_arbitrage_value": round(battery_arbitrage_value, 3),
             # Estimated Savings presentation (clearer format)
             "actual_price_kwh": round(planned_total_cost / net_grid_kwh, 5) if net_grid_kwh > 0 else 0,
-            "cost_difference": round((base_usage_kwh * day_avg_price) - planned_total_cost, 2),
+            "cost_difference": round(baseline_cost - planned_total_cost, 2),  # v2.2.4: Use solar-adjusted baseline
             # Power in kW (reduces repetitive W->kW conversion)
             "charge_power_kw": round(charge_power, 3),
             "discharge_power_kw": round(discharge_power, 3),

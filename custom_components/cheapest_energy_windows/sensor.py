@@ -329,8 +329,8 @@ class CEWTodaySensor(CEWBaseSensor):
                                 for period in rte_preserved:
                                     try:
                                         period_time = datetime.fromisoformat(period["timestamp"]) if isinstance(period["timestamp"], str) else period["timestamp"]
-                                        duration = period.get("duration", 0.25)
-                                        period_end = period_time + timedelta(hours=duration)
+                                        duration = period.get("duration", 15)  # Duration is in minutes
+                                        period_end = period_time + timedelta(minutes=duration)  # v2.2.3 FIX: was hours
                                         if period_time <= now < period_end:
                                             new_state = STATE_OFF
                                             break
