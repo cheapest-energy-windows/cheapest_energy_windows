@@ -581,7 +581,12 @@ class CEWTodaySensor(CEWBaseSensor):
             "expected_solar_kwh": result.get("expected_solar_kwh", 0.0),
             # v2.1 FIX: Solar forecast visibility attributes
             "solar_forecast_enabled": config.get("use_solar_forecast", True),
-            "solar_forecast_source": "sensor" if config.get("use_solar_forecast_sensor", False) else "manual",
+            # v2.2.5: Include "ha_energy" as source when HA Energy Dashboard is enabled
+            "solar_forecast_source": (
+                "ha_energy" if config.get("use_ha_energy_dashboard", False)
+                else "sensor" if config.get("use_solar_forecast_sensor", False)
+                else "manual"
+            ),
             # Detailed battery tracking for energy flow report
             "battery_charged_from_grid_kwh": result.get("battery_charged_from_grid_kwh", 0.0),
             "battery_charged_from_grid_cost": result.get("battery_charged_from_grid_cost", 0.0),
@@ -960,7 +965,12 @@ class CEWTomorrowSensor(CEWBaseSensor):
             "expected_solar_kwh": result.get("expected_solar_kwh", 0.0),
             # v2.1 FIX: Solar forecast visibility attributes
             "solar_forecast_enabled": config.get("use_solar_forecast", True),
-            "solar_forecast_source": "sensor" if config.get("use_solar_forecast_sensor", False) else "manual",
+            # v2.2.5: Include "ha_energy" as source when HA Energy Dashboard is enabled
+            "solar_forecast_source": (
+                "ha_energy" if config.get("use_ha_energy_dashboard", False)
+                else "sensor" if config.get("use_solar_forecast_sensor", False)
+                else "manual"
+            ),
             # Detailed battery tracking for energy flow report
             "battery_charged_from_grid_kwh": result.get("battery_charged_from_grid_kwh", 0.0),
             "battery_charged_from_grid_cost": result.get("battery_charged_from_grid_cost", 0.0),

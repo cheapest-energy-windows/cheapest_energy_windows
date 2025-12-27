@@ -342,29 +342,36 @@ async def fetch_day_statistics(
             _LOGGER.debug("Grid export: avg %.3f kWh/hr", result["avg_grid_export"])
 
     # Solar production
+    # v2.2.5 FIX: Solar should NOT inherit yesterday fallback from grid consumption
+    # At midnight, grid might have no data (triggering fallback), but solar should show 0
+    # because it's a new day with no sun yet. Solar should only use yesterday's data
+    # if explicitly needed for forecasting, not for "production today" display.
     sensors = energy_prefs.get("solar_production_sensors", [])
     if sensors:
         result["sensors"]["solar"] = sensors
         result["solar_sensor"] = sensors[0] if len(sensors) == 1 else f"{len(sensors)} sensors"
 
-        if not use_yesterday_fallback:
-            result["solar_hourly"] = await fetch_combined_hourly_statistics(
-                hass, sensors, stats_start, now
-            )
-        else:
-            result["solar_hourly"] = await fetch_combined_hourly_statistics(
-                hass, sensors, yesterday_start, yesterday_end
-            )
+        # Always try to fetch today's solar first (independent of grid fallback)
+        result["solar_hourly"] = await fetch_combined_hourly_statistics(
+            hass, sensors, stats_start, now
+        )
 
         if result["solar_hourly"]:
             result["stats_available"] = True
-            result["solar_source"] = "today" if not use_yesterday_fallback else "yesterday"
+            result["solar_source"] = "today"
             total = sum(result["solar_hourly"].values())
             hours = len(result["solar_hourly"])
             result["avg_solar"] = total / hours if hours > 0 else 0
             result["avg_hourly_solar"] = result["avg_solar"]
             result["total_solar_production_kwh"] = total  # v2.2.3: Add total for display
             _LOGGER.debug("Solar: total %.3f kWh, avg %.3f kWh/hr", total, result["avg_solar"])
+        else:
+            # No solar data for today (normal at night/early morning)
+            result["solar_source"] = "today"
+            result["total_solar_production_kwh"] = 0.0
+            result["avg_solar"] = 0.0
+            result["avg_hourly_solar"] = 0.0
+            _LOGGER.debug("Solar: no data for today yet (0 kWh)")
 
     # Battery charge/discharge
     charge_sensors = energy_prefs.get("battery_charge_sensors", [])

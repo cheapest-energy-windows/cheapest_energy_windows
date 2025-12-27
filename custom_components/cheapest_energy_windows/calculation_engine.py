@@ -1184,10 +1184,11 @@ class WindowCalculationEngine:
         Returns:
             Expected solar production in kWh
         """
-        # v2.2.3 FIX: Check HA Energy Dashboard FIRST (bypasses use_solar_forecast toggle)
-        # When HA Energy Dashboard is enabled, use its forecast regardless of manual toggle
+        # v2.2.5 FIX: When HA Energy Dashboard is enabled, use HA Energy data sources only
+        # Priority: 1. Solar forecast sensor  2. Actual solar production  3. Return 0 (no manual fallback)
         energy_stats = energy_statistics or {}
         if config.get("use_ha_energy_dashboard", False):
+            # Priority 1: Use solar forecast from HA Energy Dashboard (Forecast.Solar)
             if is_tomorrow:
                 forecast = energy_stats.get("solar_forecast_tomorrow")
             else:
@@ -1195,13 +1196,16 @@ class WindowCalculationEngine:
             if forecast is not None:
                 _LOGGER.debug(f"Solar forecast from HA Energy Dashboard ({'tomorrow' if is_tomorrow else 'today'}): {forecast} kWh")
                 return float(forecast)
-            # v2.2.4 FIX: If HA Energy enabled but forecast unavailable (e.g., at HA restart),
-            # fall back to manual config. Do NOT check use_solar_forecast - that's a separate toggle.
-            suffix = "_tomorrow" if is_tomorrow and config.get("tomorrow_settings_enabled", False) else ""
-            manual_solar = float(config.get(f"expected_solar_kwh{suffix}", 0.0))
-            if manual_solar > 0:
-                _LOGGER.warning(f"HA Energy solar forecast unavailable, using manual config: {manual_solar:.2f} kWh")
-                return manual_solar
+
+            # Priority 2: Use actual solar production for today (not available for tomorrow)
+            if not is_tomorrow:
+                actual_solar = energy_stats.get("total_solar_production_kwh", 0.0)
+                if actual_solar and actual_solar > 0:
+                    _LOGGER.debug(f"No solar forecast, using actual production from HA Energy: {actual_solar} kWh")
+                    return float(actual_solar)
+
+            # No HA Energy data available - return 0 (no manual fallback when HA Energy is enabled)
+            return 0.0
 
         # Check if solar forecast is enabled (only for non-HA-Energy modes)
         if not config.get("use_solar_forecast", True):
@@ -1266,7 +1270,16 @@ class WindowCalculationEngine:
         if use_ha_energy and not is_tomorrow:
             solar_hourly = energy_stats.get("solar_hourly", {})
             current_hour = dt_util.now().hour
-            period_hour = timestamp.hour
+            # v2.2.5 FIX: Ensure period_hour is in LOCAL timezone (solar_hourly uses local hours)
+            local_timestamp = dt_util.as_local(timestamp) if timestamp.tzinfo else timestamp
+            period_hour = local_timestamp.hour
+
+            # v2.2.5 DEBUG: Log solar data usage
+            if solar_hourly and period_hour <= current_hour:
+                _LOGGER.debug(
+                    f"Solar for period {period_hour}:00 (local): actual={solar_hourly.get(period_hour, 'N/A')}, "
+                    f"available_hours={list(solar_hourly.keys())}, current_hour={current_hour}"
+                )
 
             if period_hour <= current_hour and period_hour in solar_hourly:
                 # ACTUAL solar for completed hour - return as kW (hourly data is in kWh)
@@ -1277,9 +1290,11 @@ class WindowCalculationEngine:
                 forecast_key = "solar_forecast_hourly_tomorrow" if is_tomorrow else "solar_forecast_hourly_today"
                 hourly_forecast = energy_stats.get(forecast_key, {})
 
+                # v2.2.5 FIX: Forecast keys may be strings, try both int and str
                 if period_hour in hourly_forecast:
-                    # Return actual hourly forecast value (already in kWh)
                     return hourly_forecast[period_hour]
+                elif str(period_hour) in hourly_forecast:
+                    return hourly_forecast[str(period_hour)]
 
                 # Fallback: distribute remaining forecast across remaining window
                 actual_solar_so_far = sum(solar_hourly.values())
@@ -1295,11 +1310,15 @@ class WindowCalculationEngine:
         if config.get("use_ha_energy_dashboard", False):
             forecast_key = "solar_forecast_hourly_tomorrow" if is_tomorrow else "solar_forecast_hourly_today"
             hourly_forecast = energy_stats.get(forecast_key, {})
-            period_hour = timestamp.hour
+            # v2.2.5 FIX: Use local time for period_hour
+            local_ts = dt_util.as_local(timestamp) if timestamp.tzinfo else timestamp
+            period_hour = local_ts.hour
 
+            # v2.2.5 FIX: Forecast keys may be strings, try both int and str
             if period_hour in hourly_forecast:
-                # Return actual hourly forecast value (already in kWh)
                 return hourly_forecast[period_hour]
+            elif str(period_hour) in hourly_forecast:
+                return hourly_forecast[str(period_hour)]
 
         # Parse solar window times
         try:
@@ -2851,6 +2870,72 @@ class WindowCalculationEngine:
                 f"final={final_battery_state:.2f} kWh"
             )
 
+        # v2.2.5 FIX: Run FUTURE-ONLY projection starting from CURRENT battery state
+        # Problem: Simulation always starts from midnight buffer state (~0 kWh for today)
+        # This makes planned_total_cost and battery_state_end_of_day diverge from reality
+        # when actual battery has charged (e.g., from solar) during the day.
+        #
+        # Solution: For today with HA Energy Dashboard enabled, run a second projection
+        # from current time using current_battery_state as starting point.
+        # planned_total_cost = completed_costs (actual) + future_costs (projection)
+        future_projection_applied = False
+        future_total_cost = 0.0
+        if not is_tomorrow and use_ha_energy and current_battery_state != buffer_energy:
+            # Filter timeline to FUTURE periods only (from current time onwards)
+            now = dt_util.now()
+            future_timeline = [entry for entry in simulation_timeline if entry["timestamp"] >= now]
+
+            _LOGGER.info(
+                f"Future projection check: use_ha_energy={use_ha_energy}, "
+                f"current_battery={current_battery_state:.2f}, buffer_energy={buffer_energy:.2f}, "
+                f"future_periods={len(future_timeline)}, now={now}"
+            )
+
+            if not future_timeline:
+                # No future periods left - EOD IS the current state
+                _LOGGER.info(
+                    f"No future periods - EOD battery = current battery = {current_battery_state:.2f} kWh"
+                )
+                final_battery_state = current_battery_state
+                chrono_result["final_battery_state"] = final_battery_state
+                future_projection_applied = True
+                future_total_cost = 0.0  # No future costs when no future periods
+                buffer_delta = 0.0
+            else:
+                _LOGGER.info(
+                    f"Future projection: Starting from current_battery_state={current_battery_state:.2f} kWh "
+                    f"(midnight buffer was {buffer_energy:.2f} kWh), {len(future_timeline)} future periods"
+                )
+
+                # Run future-only chrono with current battery state as starting point
+                future_chrono_result = self._simulate_chronological_costs(
+                    future_timeline, config, current_battery_state, limit_discharge, is_tomorrow, hass,
+                    energy_statistics=energy_statistics
+                )
+
+                future_projection_applied = True
+                future_total_cost = future_chrono_result.get("planned_total_cost", 0.0)
+
+                # Update EOD battery state (projection from current, not midnight)
+                final_battery_state = future_chrono_result["final_battery_state"]
+                chrono_result["final_battery_state"] = final_battery_state
+
+                # Update solar metrics for future projection
+                # The future projection shows correct solar→battery from current state
+                chrono_result["solar_to_battery_kwh"] = future_chrono_result.get("solar_to_battery_kwh", 0.0)
+                chrono_result["solar_exported_kwh"] = future_chrono_result.get("solar_exported_kwh", 0.0)
+                chrono_result["solar_export_revenue"] = future_chrono_result.get("solar_export_revenue", 0.0)
+                chrono_result["grid_savings_from_solar"] = future_chrono_result.get("grid_savings_from_solar", 0.0)
+                chrono_result["solar_offset_base_kwh"] = future_chrono_result.get("solar_offset_base_kwh", 0.0)
+
+                buffer_delta = final_battery_state - current_battery_state  # Delta from NOW, not midnight
+
+                _LOGGER.info(
+                    f"Future projection complete: EOD battery={final_battery_state:.2f} kWh, "
+                    f"buffer_delta_from_now={buffer_delta:.2f} kWh, "
+                    f"future_total_cost={future_total_cost:.3f}"
+                )
+
         # ALWAYS recalculate metrics using chrono_result as single source of truth
         # The chrono simulation correctly tracks battery capacity and RTE
         # Initial calculations (before chrono) use bulk formulas that ignore capacity limits
@@ -2950,10 +3035,32 @@ class WindowCalculationEngine:
             # grid_savings_from_solar: Avoided grid costs from solar covering base usage
             solar_export_revenue = chrono_result.get("solar_export_revenue", 0.0)
             grid_savings_from_solar = chrono_result.get("grid_savings_from_solar", 0.0)
-            planned_total_cost = round(planned_charge_cost + planned_base_usage_cost - planned_discharge_revenue - solar_export_revenue - completed_solar_export_revenue - grid_savings_from_solar, 3)
+
+            # v2.2.5 FIX: When future projection is applied, use:
+            # planned_total_cost = completed_costs + future_costs
+            # This gives accurate projection from current battery state
+            if future_projection_applied:
+                # completed_total = what has already happened (actual costs)
+                completed_total = (
+                    completed_charge_cost + completed_base_usage_cost
+                    - completed_discharge_revenue - completed_solar_export_revenue
+                    - completed_solar_grid_savings
+                )
+                planned_total_cost = round(completed_total + future_total_cost, 3)
+                _LOGGER.info(
+                    f"Planned total cost from future projection: "
+                    f"completed={completed_total:.3f} + future={future_total_cost:.3f} = {planned_total_cost:.3f}"
+                )
+            else:
+                # Original calculation: estimate from windows (full day simulation)
+                planned_total_cost = round(
+                    planned_charge_cost + planned_base_usage_cost - planned_discharge_revenue
+                    - solar_export_revenue - completed_solar_export_revenue - grid_savings_from_solar, 3
+                )
 
             # Recalculate uncovered cost after chrono filtering (battery_covers_limited fallback to grid)
-            if limit_savings_enabled and usable_kwh < base_usage_kwh:
+            # v2.2.5: Skip this when future projection shows no future periods (all costs are completed)
+            if limit_savings_enabled and usable_kwh < base_usage_kwh and not future_projection_applied:
                 uncovered_kwh = base_usage_kwh - usable_kwh
                 uncovered_cost = uncovered_kwh * day_avg_price
                 planned_total_cost = round(planned_total_cost + uncovered_cost, 3)

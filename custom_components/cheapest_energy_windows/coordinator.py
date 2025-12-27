@@ -198,6 +198,10 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 self._previous_energy_hash = current_energy_hash
                 self._persistent_state["previous_energy_hash"] = current_energy_hash
 
+            # v2.2.5 FIX: Fetch solar forecast ALWAYS when HA Energy Dashboard is enabled
+            # Previously this was inside energy_stats_changed block, causing None values
+            # when energy stats didn't change (e.g., on scheduled updates)
+            if config.get("use_ha_energy_dashboard", False):
                 # v2.2.3: Fetch solar forecast from HA Energy Dashboard
                 try:
                     energy_prefs = await get_energy_preferences(self.hass)
