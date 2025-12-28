@@ -1379,6 +1379,108 @@ class WindowCalculationEngine:
 
         return average_solar_kw
 
+    def _calculate_actual_battery_flows(
+        self,
+        energy_statistics: Dict[str, Any],
+        prices: List[Dict[str, Any]],
+        config: Dict[str, Any],
+        current_hour: int
+    ) -> Dict[str, float]:
+        """Calculate actual battery flows from HA Energy hourly data.
+
+        Determines grid vs solar charging and base vs grid discharging
+        by analyzing concurrent energy flows for each hour.
+        This captures ALL actual charging including manual charging outside windows.
+
+        Args:
+            energy_statistics: Dict with battery_charge_hourly, grid_import_hourly, etc.
+            prices: List of price dicts with timestamp, price, raw_price
+            config: Config dict for sell price calculation
+            current_hour: Current hour (0-23) to limit to completed hours
+
+        Returns:
+            Dict with charged_from_grid_kwh, charged_from_solar_kwh, charged_from_grid_cost,
+            discharged_to_base_kwh, discharged_to_grid_kwh, discharged_revenue
+        """
+        result = {
+            "charged_from_grid_kwh": 0.0,
+            "charged_from_grid_cost": 0.0,
+            "charged_from_solar_kwh": 0.0,
+            "discharged_to_base_kwh": 0.0,
+            "discharged_to_grid_kwh": 0.0,
+            "discharged_revenue": 0.0,
+        }
+
+        if not energy_statistics or not energy_statistics.get("stats_available"):
+            return result
+
+        battery_charge = energy_statistics.get("battery_charge_hourly", {})
+        battery_discharge = energy_statistics.get("battery_discharge_hourly", {})
+        grid_import = energy_statistics.get("grid_import_hourly", {})
+        grid_export = energy_statistics.get("grid_export_hourly", {})
+        solar = energy_statistics.get("solar_hourly", {})
+        real_consumption = energy_statistics.get("real_consumption_hourly", {})
+
+        # Build price lookup by hour
+        price_by_hour = {}
+        for p in prices:
+            ts = p.get("timestamp")
+            if ts and hasattr(ts, "hour"):
+                price_by_hour[ts.hour] = p
+
+        # Get sell price config
+        sell_country = config.get("price_country", DEFAULT_PRICE_COUNTRY)
+        sell_param_a = config.get("sell_formula_param_a", DEFAULT_SELL_FORMULA_PARAM_A)
+        sell_param_b = config.get("sell_formula_param_b", DEFAULT_SELL_FORMULA_PARAM_B)
+
+        # Analyze each completed hour
+        for hour in range(current_hour + 1):
+            # Handle both int and str keys
+            charge_kwh = battery_charge.get(hour, battery_charge.get(str(hour), 0.0))
+            discharge_kwh = battery_discharge.get(hour, battery_discharge.get(str(hour), 0.0))
+            import_kwh = grid_import.get(hour, grid_import.get(str(hour), 0.0))
+            export_kwh = grid_export.get(hour, grid_export.get(str(hour), 0.0))
+            solar_kwh = solar.get(hour, solar.get(str(hour), 0.0))
+
+            # Get prices for this hour
+            price_data = price_by_hour.get(hour, {})
+            buy_price = price_data.get("price", 0.25)
+            raw_price = price_data.get("raw_price", buy_price)
+            sell_price = self._calculate_sell_price(raw_price, buy_price, sell_country, sell_param_a, sell_param_b)
+
+            # Charging: determine grid vs solar source
+            # Logic: Grid import first covers base load consumption, only remainder goes to battery
+            # This correctly accounts for concurrent household consumption during charging hours
+            if charge_kwh > 0:
+                # Get base load consumption for this hour
+                consumption_kwh = real_consumption.get(hour, real_consumption.get(str(hour), 0.0))
+
+                # Grid power available for battery = grid import - base load consumption
+                # (base load must be covered first before battery can charge from grid)
+                grid_available_for_battery = max(0, import_kwh - consumption_kwh)
+
+                # Grid contribution to battery is the lesser of available and actual charge
+                grid_charge = min(grid_available_for_battery, charge_kwh)
+                solar_charge = max(0, charge_kwh - grid_charge)
+
+                result["charged_from_grid_kwh"] += grid_charge
+                result["charged_from_grid_cost"] += grid_charge * buy_price
+                result["charged_from_solar_kwh"] += solar_charge
+
+            # Discharging: determine base offset vs grid export
+            # Logic: If there's grid export during discharge, that amount went to grid
+            # The rest offset base consumption
+            if discharge_kwh > 0:
+                # Grid export portion is the lesser of export and discharge
+                grid_discharge = min(export_kwh, discharge_kwh)
+                base_discharge = max(0, discharge_kwh - grid_discharge)
+
+                result["discharged_to_grid_kwh"] += grid_discharge
+                result["discharged_revenue"] += grid_discharge * sell_price
+                result["discharged_to_base_kwh"] += base_discharge
+
+        return result
+
     def _simulate_chronological_costs(
         self,
         timeline: List[Dict[str, Any]],
@@ -2170,7 +2272,23 @@ class WindowCalculationEngine:
         grid_import_hourly = energy_stats.get("grid_import_hourly", {}) if use_ha_energy else {}
         grid_export_hourly = energy_stats.get("grid_export_hourly", {}) if use_ha_energy else {}
         solar_hourly = energy_stats.get("solar_hourly", {}) if use_ha_energy else {}
+        # v2.3: Extract battery charge/discharge hourly data for completed hours calculation
+        # This includes ALL actual charging (scheduled + manual)
+        battery_charge_hourly = energy_stats.get("battery_charge_hourly", {}) if use_ha_energy else {}
+        battery_discharge_hourly = energy_stats.get("battery_discharge_hourly", {}) if use_ha_energy else {}
         current_hour = dt_util.now().hour
+
+        # v2.3: Calculate actual battery flows from HA Energy data (includes manual charging)
+        actual_battery_flows = self._calculate_actual_battery_flows(
+            energy_statistics, all_prices, config, current_hour
+        ) if use_ha_energy and not is_tomorrow else {
+            "charged_from_grid_kwh": 0.0,
+            "charged_from_grid_cost": 0.0,
+            "charged_from_solar_kwh": 0.0,
+            "discharged_to_base_kwh": 0.0,
+            "discharged_to_grid_kwh": 0.0,
+            "discharged_revenue": 0.0,
+        }
 
         def get_effective_base_usage(timestamp):
             """Get base usage for a specific period, using HA Energy data if available."""
@@ -2212,54 +2330,91 @@ class WindowCalculationEngine:
         completed_rte_loss_value = 0  # Cost of energy lost to RTE during charging
 
         # CHARGE windows: Apply charge strategy
-        for w in actual_charge:
-            if w["timestamp"] + timedelta(minutes=w["duration"]) <= current_time:
-                duration_hours = w["duration"] / 60
-                # RTE loss applies to charge power going to battery (not base usage which goes directly to house)
-                charge_kwh_to_battery = duration_hours * charge_power
-                rte_loss_kwh = charge_kwh_to_battery * (1 - battery_rte)
-                completed_rte_loss_kwh += rte_loss_kwh
-                # Look up verified buy price from price_lookup (w["price"] may have spot price in some cases)
-                price_data = price_lookup.get(w["timestamp"], {})
-                buy_price = price_data.get("price", w["price"])  # Fallback to w["price"] if not found
-                completed_rte_loss_value += rte_loss_kwh * buy_price  # Cost of lost energy
+        # v2.3: Use HA Energy data for completed charging when available
+        # This includes ALL actual charging (scheduled + manual)
+        if use_ha_energy and battery_charge_hourly:
+            # Sum actual battery charging for hours that have completed
+            for hour, charge_kwh in battery_charge_hourly.items():
+                hour_int = int(hour) if isinstance(hour, str) else hour
+                if hour_int < current_hour:  # Only fully completed hours
+                    completed_charge_kwh += charge_kwh
+                    # Find price for this hour to calculate cost
+                    for price_data in all_prices:
+                        if price_data["timestamp"].hour == hour_int:
+                            completed_charge_cost += charge_kwh * price_data["price"]
+                            # Calculate RTE loss for this hour's charging
+                            rte_loss_kwh = charge_kwh * (1 - battery_rte)
+                            completed_rte_loss_kwh += rte_loss_kwh
+                            completed_rte_loss_value += rte_loss_kwh * price_data["price"]
+                            break
+        else:
+            # Fallback to scheduled window calculation
+            for w in actual_charge:
+                if w["timestamp"] + timedelta(minutes=w["duration"]) <= current_time:
+                    duration_hours = w["duration"] / 60
+                    # RTE loss applies to charge power going to battery (not base usage which goes directly to house)
+                    charge_kwh_to_battery = duration_hours * charge_power
+                    rte_loss_kwh = charge_kwh_to_battery * (1 - battery_rte)
+                    completed_rte_loss_kwh += rte_loss_kwh
+                    # Look up verified buy price from price_lookup (w["price"] may have spot price in some cases)
+                    price_data = price_lookup.get(w["timestamp"], {})
+                    buy_price = price_data.get("price", w["price"])  # Fallback to w["price"] if not found
+                    completed_rte_loss_value += rte_loss_kwh * buy_price  # Cost of lost energy
 
-                # v2.1 FIX: Use effective base usage (HA Energy or manual)
-                effective_base = get_effective_base_usage(w["timestamp"])
-                if charge_strategy == "grid_covers_both":
-                    # Grid provides charge power + base usage
-                    completed_charge_cost += w["price"] * duration_hours * (charge_power + effective_base)
-                    completed_charge_kwh += duration_hours * (charge_power + effective_base)
-                else:  # battery_covers_base
-                    # Grid provides charge power only, battery covers base
-                    completed_charge_cost += w["price"] * duration_hours * charge_power
-                    completed_charge_kwh += duration_hours * charge_power
-                    completed_base_usage_battery += duration_hours * effective_base
+                    # v2.1 FIX: Use effective base usage (HA Energy or manual)
+                    effective_base = get_effective_base_usage(w["timestamp"])
+                    if charge_strategy == "grid_covers_both":
+                        # Grid provides charge power + base usage
+                        completed_charge_cost += w["price"] * duration_hours * (charge_power + effective_base)
+                        completed_charge_kwh += duration_hours * (charge_power + effective_base)
+                    else:  # battery_covers_base
+                        # Grid provides charge power only, battery covers base
+                        completed_charge_cost += w["price"] * duration_hours * charge_power
+                        completed_charge_kwh += duration_hours * charge_power
+                        completed_base_usage_battery += duration_hours * effective_base
 
         # DISCHARGE windows: Apply discharge strategy
-        for w in actual_discharge:
-            if w["timestamp"] + timedelta(minutes=w["duration"]) <= current_time:
-                duration_hours = w["duration"] / 60
+        # v2.3: Use HA Energy data for completed discharging when available
+        if use_ha_energy and battery_discharge_hourly:
+            # Sum actual battery discharging for hours that have completed
+            for hour, discharge_kwh in battery_discharge_hourly.items():
+                hour_int = int(hour) if isinstance(hour, str) else hour
+                if hour_int < current_hour:  # Only fully completed hours
+                    completed_discharge_kwh += discharge_kwh
+                    # Find price for this hour to calculate revenue
+                    for price_data in all_prices:
+                        if price_data["timestamp"].hour == hour_int:
+                            raw_price = price_data.get("raw_price", price_data["price"])
+                            sell_price = self._calculate_sell_price(
+                                raw_price, price_data["price"], sell_country, sell_param_a, sell_param_b
+                            )
+                            completed_discharge_revenue += discharge_kwh * sell_price
+                            break
+        else:
+            # Fallback to scheduled window calculation
+            for w in actual_discharge:
+                if w["timestamp"] + timedelta(minutes=w["duration"]) <= current_time:
+                    duration_hours = w["duration"] / 60
 
-                # Calculate sell price for this window
-                price_data = price_lookup.get(w["timestamp"], {})
-                raw_price = price_data.get("raw_price", w["price"])
-                sell_price = self._calculate_sell_price(
-                    raw_price, w["price"], sell_country, sell_param_a, sell_param_b
-                )
+                    # Calculate sell price for this window
+                    price_data = price_lookup.get(w["timestamp"], {})
+                    raw_price = price_data.get("raw_price", w["price"])
+                    sell_price = self._calculate_sell_price(
+                        raw_price, w["price"], sell_country, sell_param_a, sell_param_b
+                    )
 
-                # v2.1 FIX: Use effective base usage (HA Energy or manual)
-                effective_base = get_effective_base_usage(w["timestamp"])
-                if discharge_strategy == "already_included":
-                    # Full discharge power generates revenue at SELL price
-                    completed_discharge_revenue += sell_price * duration_hours * discharge_power
-                    completed_discharge_kwh += duration_hours * discharge_power
-                else:  # subtract_base (NoM)
-                    # Battery covers base first, exports the rest at SELL price
-                    net_export = max(0, discharge_power - effective_base)
-                    completed_discharge_revenue += sell_price * duration_hours * net_export
-                    completed_discharge_kwh += duration_hours * net_export
-                    completed_base_usage_battery += duration_hours * effective_base
+                    # v2.1 FIX: Use effective base usage (HA Energy or manual)
+                    effective_base = get_effective_base_usage(w["timestamp"])
+                    if discharge_strategy == "already_included":
+                        # Full discharge power generates revenue at SELL price
+                        completed_discharge_revenue += sell_price * duration_hours * discharge_power
+                        completed_discharge_kwh += duration_hours * discharge_power
+                    else:  # subtract_base (NoM)
+                        # Battery covers base first, exports the rest at SELL price
+                        net_export = max(0, discharge_power - effective_base)
+                        completed_discharge_revenue += sell_price * duration_hours * net_export
+                        completed_discharge_kwh += duration_hours * net_export
+                        completed_base_usage_battery += duration_hours * effective_base
 
         # NORMAL periods: Apply normal strategy
         # Build sets of timestamps for active windows
@@ -2682,25 +2837,45 @@ class WindowCalculationEngine:
             if w["timestamp"] + timedelta(minutes=w["duration"]) <= current_time
         )
         # RECALCULATE completed_charge_cost from filtered windows (v2.2.1: use HA Energy data)
+        # v2.3: Use HA Energy data when available (includes manual charging)
         completed_charge_cost = 0
-        for w in actual_charge:
-            if w["timestamp"] + timedelta(minutes=w["duration"]) <= current_time:
-                duration_hours = w["duration"] / 60
-                effective_base = get_effective_base_usage(w["timestamp"])
-                if charge_strategy == "grid_covers_both":
-                    completed_charge_cost += w["price"] * duration_hours * (charge_power + effective_base)
-                else:  # battery_covers_base
-                    completed_charge_cost += w["price"] * duration_hours * charge_power
+        if use_ha_energy and battery_charge_hourly:
+            # Calculate cost from actual battery charging hourly data
+            for hour, charge_kwh in battery_charge_hourly.items():
+                hour_int = int(hour) if isinstance(hour, str) else hour
+                if hour_int < current_hour:
+                    # Find price for this hour
+                    for price_data in all_prices:
+                        if price_data["timestamp"].hour == hour_int:
+                            completed_charge_cost += charge_kwh * price_data["price"]
+                            break
+        else:
+            for w in actual_charge:
+                if w["timestamp"] + timedelta(minutes=w["duration"]) <= current_time:
+                    duration_hours = w["duration"] / 60
+                    effective_base = get_effective_base_usage(w["timestamp"])
+                    if charge_strategy == "grid_covers_both":
+                        completed_charge_cost += w["price"] * duration_hours * (charge_power + effective_base)
+                    else:  # battery_covers_base
+                        completed_charge_cost += w["price"] * duration_hours * charge_power
         # RECALCULATE completed_charge_kwh from filtered windows (v2.2.1: added for consistency)
+        # v2.3: Use HA Energy data when available (includes manual charging)
         completed_charge_kwh = 0
-        for w in actual_charge:
-            if w["timestamp"] + timedelta(minutes=w["duration"]) <= current_time:
-                duration_hours = w["duration"] / 60
-                effective_base = get_effective_base_usage(w["timestamp"])
-                if charge_strategy == "grid_covers_both":
-                    completed_charge_kwh += duration_hours * (charge_power + effective_base)
-                else:
-                    completed_charge_kwh += duration_hours * charge_power
+        if use_ha_energy and battery_charge_hourly:
+            # Sum actual battery charging for completed hours
+            for hour, charge_kwh in battery_charge_hourly.items():
+                hour_int = int(hour) if isinstance(hour, str) else hour
+                if hour_int < current_hour:
+                    completed_charge_kwh += charge_kwh
+        else:
+            for w in actual_charge:
+                if w["timestamp"] + timedelta(minutes=w["duration"]) <= current_time:
+                    duration_hours = w["duration"] / 60
+                    effective_base = get_effective_base_usage(w["timestamp"])
+                    if charge_strategy == "grid_covers_both":
+                        completed_charge_kwh += duration_hours * (charge_power + effective_base)
+                    else:
+                        completed_charge_kwh += duration_hours * charge_power
         # RECALCULATE completed_rte_loss from filtered windows
         completed_rte_loss_kwh = 0
         completed_rte_loss_value = 0
@@ -2880,7 +3055,10 @@ class WindowCalculationEngine:
         # planned_total_cost = completed_costs (actual) + future_costs (projection)
         future_projection_applied = False
         future_total_cost = 0.0
-        if not is_tomorrow and use_ha_energy and current_battery_state != buffer_energy:
+        # Skip future projection for optimizer baseline (0/0 windows)
+        # Baseline should simulate entire day with 0 windows, not mix actual past + simulated future
+        skip_future_projection = config.get("_skip_future_projection", False)
+        if not skip_future_projection and not is_tomorrow and use_ha_energy and current_battery_state != buffer_energy:
             # Filter timeline to FUTURE periods only (from current time onwards)
             now = dt_util.now()
             future_timeline = [entry for entry in simulation_timeline if entry["timestamp"] >= now]
@@ -3198,6 +3376,8 @@ class WindowCalculationEngine:
             "completed_net_grid_kwh": round(completed_net_grid_kwh, 3),
             "uncovered_base_usage_kwh": round(uncovered_kwh, 3),
             "uncovered_base_usage_cost": round(uncovered_cost, 3),
+            # Debug: chrono simulation's planned_total_cost (before recalculation)
+            "chrono_planned_total_cost": chrono_result.get("planned_total_cost", 0),
             "completed_solar_grid_savings": round(completed_solar_grid_savings, 3),
             # v2.2.4: Use actual_total_cost from HA Energy when available (reflects TRUE grid costs)
             # Falls back to calculated value when HA Energy data unavailable
@@ -3323,6 +3503,14 @@ class WindowCalculationEngine:
             "battery_discharged_to_base_kwh": chrono_result.get("battery_discharged_to_base_kwh", 0.0),
             "battery_discharged_to_grid_kwh": chrono_result.get("battery_discharged_to_grid_kwh", 0.0),
             "battery_discharged_avg_price": chrono_result.get("battery_discharged_avg_price", 0.0),
+            # v2.3: Actual battery flows from HA Energy (includes ALL charging incl. manual)
+            # These use actual HA Energy data, not simulation, so they reflect reality
+            "actual_battery_charged_from_grid_kwh": round(actual_battery_flows["charged_from_grid_kwh"], 3),
+            "actual_battery_charged_from_solar_kwh": round(actual_battery_flows["charged_from_solar_kwh"], 3),
+            "actual_battery_charge_cost": round(actual_battery_flows["charged_from_grid_cost"], 3),
+            "actual_battery_discharged_to_base_kwh": round(actual_battery_flows["discharged_to_base_kwh"], 3),
+            "actual_battery_discharged_to_grid_kwh": round(actual_battery_flows["discharged_to_grid_kwh"], 3),
+            "actual_battery_discharge_revenue": round(actual_battery_flows["discharged_revenue"], 3),
             # RTE (Round-Trip Efficiency) loss tracking
             # kWh: Only add completed when using sensor (chrono doesn't include completed windows)
             # When NOT using sensor, chrono already includes ALL RTE loss kWh (avoid double counting)
@@ -3589,6 +3777,13 @@ class WindowCalculationEngine:
             "battery_discharged_to_base_kwh": 0.0,
             "battery_discharged_to_grid_kwh": 0.0,
             "battery_discharged_avg_price": 0.0,
+            # v2.3: Actual battery flows (fallback - no HA Energy data)
+            "actual_battery_charged_from_grid_kwh": 0.0,
+            "actual_battery_charged_from_solar_kwh": 0.0,
+            "actual_battery_charge_cost": 0.0,
+            "actual_battery_discharged_to_base_kwh": 0.0,
+            "actual_battery_discharged_to_grid_kwh": 0.0,
+            "actual_battery_discharge_revenue": 0.0,
             # RTE loss tracking
             "rte_loss_kwh": 0.0,
             "rte_loss_value": 0.0,

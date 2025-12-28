@@ -595,6 +595,13 @@ class CEWTodaySensor(CEWBaseSensor):
             "battery_discharged_to_base_kwh": result.get("battery_discharged_to_base_kwh", 0.0),
             "battery_discharged_to_grid_kwh": result.get("battery_discharged_to_grid_kwh", 0.0),
             "battery_discharged_avg_price": result.get("battery_discharged_avg_price", 0.0),
+            # v2.3: Actual battery flows from HA Energy (includes ALL charging incl. manual)
+            "actual_battery_charged_from_grid_kwh": result.get("actual_battery_charged_from_grid_kwh", 0.0),
+            "actual_battery_charged_from_solar_kwh": result.get("actual_battery_charged_from_solar_kwh", 0.0),
+            "actual_battery_charge_cost": result.get("actual_battery_charge_cost", 0.0),
+            "actual_battery_discharged_to_base_kwh": result.get("actual_battery_discharged_to_base_kwh", 0.0),
+            "actual_battery_discharged_to_grid_kwh": result.get("actual_battery_discharged_to_grid_kwh", 0.0),
+            "actual_battery_discharge_revenue": result.get("actual_battery_discharge_revenue", 0.0),
             # RTE (Round-Trip Efficiency) loss tracking
             "rte_loss_kwh": result.get("rte_loss_kwh", 0.0),
             "rte_loss_value": result.get("rte_loss_value", 0.0),
@@ -979,6 +986,13 @@ class CEWTomorrowSensor(CEWBaseSensor):
             "battery_discharged_to_base_kwh": result.get("battery_discharged_to_base_kwh", 0.0),
             "battery_discharged_to_grid_kwh": result.get("battery_discharged_to_grid_kwh", 0.0),
             "battery_discharged_avg_price": result.get("battery_discharged_avg_price", 0.0),
+            # v2.3: Actual battery flows from HA Energy (includes ALL charging incl. manual)
+            "actual_battery_charged_from_grid_kwh": result.get("actual_battery_charged_from_grid_kwh", 0.0),
+            "actual_battery_charged_from_solar_kwh": result.get("actual_battery_charged_from_solar_kwh", 0.0),
+            "actual_battery_charge_cost": result.get("actual_battery_charge_cost", 0.0),
+            "actual_battery_discharged_to_base_kwh": result.get("actual_battery_discharged_to_base_kwh", 0.0),
+            "actual_battery_discharged_to_grid_kwh": result.get("actual_battery_discharged_to_grid_kwh", 0.0),
+            "actual_battery_discharge_revenue": result.get("actual_battery_discharge_revenue", 0.0),
             # RTE (Round-Trip Efficiency) loss tracking
             "rte_loss_kwh": result.get("rte_loss_kwh", 0.0),
             "rte_loss_value": result.get("rte_loss_value", 0.0),
