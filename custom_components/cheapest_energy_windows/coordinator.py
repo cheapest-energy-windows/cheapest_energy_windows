@@ -191,10 +191,14 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 
             current_energy_hash = _energy_stats_hash(energy_statistics)
             previous_energy_hash = self._previous_energy_hash or ""
-            energy_stats_changed = current_energy_hash != previous_energy_hash and current_energy_hash != ""
+            # Detect changes in both directions: ON→OFF (cleared) and OFF→ON (populated)
+            energy_stats_changed = current_energy_hash != previous_energy_hash
 
             if energy_stats_changed:
-                _LOGGER.info("Coordinator: Energy stats changed (new hourly data)")
+                if current_energy_hash == "":
+                    _LOGGER.info("Coordinator: Energy stats cleared (HA Energy disabled)")
+                else:
+                    _LOGGER.info("Coordinator: Energy stats changed (new hourly data)")
                 self._previous_energy_hash = current_energy_hash
                 self._persistent_state["previous_energy_hash"] = current_energy_hash
 
@@ -396,7 +400,6 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             # RTE-aware discharge (global battery setting)
             "rte_aware_discharge": bool(options.get("rte_aware_discharge", True)),
             "rte_discharge_margin": float(options.get("rte_discharge_margin", 2)),  # 2% default (as percentage)
-            "rte_aware_include_solar": bool(options.get("rte_aware_include_solar", False)),
             "base_usage": float(options.get("base_usage", DEFAULT_BASE_USAGE)),
             "base_usage_charge_strategy": options.get("base_usage_charge_strategy", DEFAULT_BASE_USAGE_CHARGE_STRATEGY),
             "base_usage_normal_strategy": options.get("base_usage_normal_strategy", DEFAULT_BASE_USAGE_NORMAL_STRATEGY),

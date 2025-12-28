@@ -616,12 +616,12 @@ class WindowCalculationEngine:
             if len(selected) >= num_windows:
                 break
 
-            # Calculate spread and profit: (avg_sell - avg_buy) / avg_buy * 100
+            # Calculate spread and profit using THIS candidate's individual sell price
+            # Compare candidate's sell price against average charge window buy price
             # Profit = spread - RTE loss (accounts for battery efficiency)
-            # Note: min_price_diff only applies to charge windows (buy-buy comparison)
-            # For discharge, profit threshold is sufficient
+            # This mirrors charge window logic which uses individual candidate prices
             if cheap_avg > 0:
-                spread_pct = ((expensive_avg - cheap_avg) / cheap_avg) * 100
+                spread_pct = ((candidate["sell_price"] - cheap_avg) / cheap_avg) * 100
                 profit_pct = spread_pct - rte_loss  # Apply RTE loss to get true profit
 
                 if profit_pct >= min_profit:
@@ -1933,6 +1933,10 @@ class WindowCalculationEngine:
                     if actual_net_export > 0:
                         grid_discharging_prices.append(sell_price)
 
+                    # Include window in optimistic mode (limit_discharge=False)
+                    # Without this, feasible_discharge_windows stays empty!
+                    feasible_discharge_windows.append(period)
+
                 battery_state = max(0, battery_state)  # Ensure non-negative
 
             else:  # normal
@@ -2016,22 +2020,11 @@ class WindowCalculationEngine:
 
                         if rte_aware_discharge and battery_state > 0:
                             # Calculate breakeven price based on what we paid to charge
-                            rte_include_solar = config.get("rte_aware_include_solar", False)
-
-                            if rte_include_solar:
-                                # Include solar with opportunity cost in RTE protection
-                                total_charged = battery_charged_from_grid_kwh + solar_to_battery_kwh
-                                day_avg_price = config.get("day_avg_price", 0.25)
-                                avg_charge_price = (
-                                    battery_charged_from_grid_cost +
-                                    solar_to_battery_kwh * day_avg_price
-                                ) / total_charged if total_charged > 0 else 0
-                            else:
-                                # Only grid energy in RTE pool - solar freely used
-                                total_charged = battery_charged_from_grid_kwh
-                                avg_charge_price = (
-                                    battery_charged_from_grid_cost / total_charged
-                                ) if total_charged > 0 else 0
+                            # Only grid energy in RTE pool - solar freely used
+                            total_charged = battery_charged_from_grid_kwh
+                            avg_charge_price = (
+                                battery_charged_from_grid_cost / total_charged
+                            ) if total_charged > 0 else 0
 
                             if total_charged > 0:
                                 # Apply RTE and margin to get breakeven
@@ -2719,6 +2712,11 @@ class WindowCalculationEngine:
 
         # Check if HA Energy Dashboard is enabled (v2.2: single binary toggle)
         use_ha_energy = config.get("use_ha_energy_dashboard", False)
+
+        # When HA Energy is enabled, force battery-aware mode for accurate tracking
+        # This ensures discharge windows only scheduled when battery can actually fulfill them
+        if use_ha_energy:
+            limit_discharge = True
 
         # v2.1 FIX: Always simulate FULL day regardless of sensor/HA Energy mode
         # The past vs future distinction now only affects DATA SOURCE within _simulate_chronological_costs:

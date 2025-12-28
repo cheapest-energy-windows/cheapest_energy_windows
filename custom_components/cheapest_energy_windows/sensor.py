@@ -194,6 +194,9 @@ class CEWBaseSensor(CoordinatorEntity, SensorEntity):
             config.get("min_daily_savings", 0.50),
         ])
 
+        # Add HA Energy Dashboard setting - toggling this changes data source
+        calc_values.append(config.get("use_ha_energy_dashboard", False))
+
         # Create hash from all values
         return str(hash(tuple(str(v) for v in calc_values)))
 
