@@ -19,7 +19,6 @@ from .const import (
     DEFAULT_CHARGING_WINDOWS,
     DEFAULT_EXPENSIVE_WINDOWS,
     DEFAULT_PERCENTILE_THRESHOLD,
-    # Profit thresholds (v1.2.0+)
     DEFAULT_MIN_PROFIT_CHARGE,
     DEFAULT_MIN_PROFIT_DISCHARGE,
     DEFAULT_MIN_PRICE_DIFFERENCE,
@@ -75,7 +74,7 @@ async def async_setup_entry(
             1, 50, DEFAULT_PERCENTILE_THRESHOLD, 1, "%",
             "mdi:percent", NumberMode.BOX
         ),
-        # Profit thresholds (v1.2.0+): profit = spread - RTE_loss
+        # Profit thresholds
         CEWNumber(
             hass, config_entry, "min_profit_charge", "Min Profit Charge",
             -100, 200, DEFAULT_MIN_PROFIT_CHARGE, 1, "%",
@@ -197,8 +196,6 @@ async def async_setup_entry(
             0, 1.0, DEFAULT_ADDITIONAL_COST, 0.001, "EUR/kWh",
             "mdi:cash-plus", NumberMode.BOX
         ),
-        # Note: Arbitrage Protection removed in v1.2.0
-        # Profit thresholds now naturally control window qualification
 
         # Auto-optimization minimum savings threshold
         CEWNumber(
@@ -213,7 +210,6 @@ async def async_setup_entry(
         ("charging_windows_tomorrow", "Charging Windows Tomorrow", DEFAULT_CHARGING_WINDOWS, 96, "windows"),
         ("expensive_windows_tomorrow", "Expensive Windows Tomorrow", DEFAULT_EXPENSIVE_WINDOWS, 96, "windows"),
         ("percentile_threshold_tomorrow", "Percentile Threshold Tomorrow", DEFAULT_PERCENTILE_THRESHOLD, 50, "%"),
-        # Profit thresholds (v1.2.0+)
         ("min_profit_charge_tomorrow", "Min Profit Charge Tomorrow", DEFAULT_MIN_PROFIT_CHARGE, 200, "%"),
         ("min_profit_discharge_tomorrow", "Min Profit Discharge Tomorrow", DEFAULT_MIN_PROFIT_DISCHARGE, 200, "%"),
         ("price_override_threshold_tomorrow", "Price Override Threshold Tomorrow", DEFAULT_PRICE_OVERRIDE_THRESHOLD, 0.5, "EUR/kWh"),

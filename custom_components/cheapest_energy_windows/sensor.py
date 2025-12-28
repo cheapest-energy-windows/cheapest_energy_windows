@@ -52,7 +52,6 @@ from .const import (
     ATTR_PLANNED_TOTAL_COST,
     ATTR_PLANNED_CHARGE_COST,
     ATTR_NUM_WINDOWS,
-    # Profit-based attributes (v1.2.0+)
     ATTR_CHARGE_PROFIT_PCT,
     ATTR_DISCHARGE_PROFIT_PCT,
     ATTR_CHARGE_PROFIT_MET,
@@ -64,7 +63,6 @@ from .const import (
     ATTR_TIME_OVERRIDE_ACTIVE,
     ATTR_CURRENT_SELL_PRICE,
     ATTR_SELL_PRICE_COUNTRY,
-    # Grid and battery state tracking (v1.2.0+)
     ATTR_GRID_KWH_ESTIMATED_TODAY,
     ATTR_GRID_KWH_ESTIMATED_TOMORROW,
     ATTR_BATTERY_STATE_CURRENT,
@@ -230,7 +228,7 @@ class CEWTodaySensor(CEWBaseSensor):
         config_changed = self.coordinator.data.get("config_changed", False)
         is_first_load = self.coordinator.data.get("is_first_load", False)
         scheduled_update = self.coordinator.data.get("scheduled_update", False)
-        energy_stats_changed = self.coordinator.data.get("energy_stats_changed", False)  # v2.2.3
+        energy_stats_changed = self.coordinator.data.get("energy_stats_changed", False)
 
         config = self.coordinator.data.get("config", {})
         current_automation_enabled = config.get("automation_enabled", True)
@@ -250,7 +248,6 @@ class CEWTodaySensor(CEWBaseSensor):
 
         raw_today = self.coordinator.data.get("raw_today", [])
         energy_statistics = self.coordinator.data.get("energy_statistics", {})
-        # v2.1 FIX: Get midnight battery state for full-day simulation
         midnight_battery_state = self.coordinator.data.get("midnight_battery_state")
         if midnight_battery_state is not None:
             config["_midnight_battery_state"] = midnight_battery_state
@@ -268,14 +265,12 @@ class CEWTodaySensor(CEWBaseSensor):
                     self.config_entry.entry_id, {}
                 ).get("force_recalculation", False)
 
-                # Don't optimize on regular scheduled updates, but force_recalc/energy_stats overrides this
-                # v2.2.3: energy_stats_changed also triggers recalculation (new hourly data)
                 skip_due_to_schedule = scheduled_update and not force_recalc and not energy_stats_changed
                 needs_optimization = (
                     is_first_load or
                     price_data_changed or
                     calc_config_changed or
-                    energy_stats_changed or  # v2.2.3: Recalc when new hourly data available
+                    energy_stats_changed or
                     force_recalc
                 ) and not skip_due_to_schedule
 
@@ -333,7 +328,7 @@ class CEWTodaySensor(CEWBaseSensor):
                                     try:
                                         period_time = datetime.fromisoformat(period["timestamp"]) if isinstance(period["timestamp"], str) else period["timestamp"]
                                         duration = period.get("duration", 15)  # Duration is in minutes
-                                        period_end = period_time + timedelta(minutes=duration)  # v2.2.3 FIX: was hours
+                                        period_end = period_time + timedelta(minutes=duration)
                                         if period_time <= now < period_end:
                                             new_state = STATE_OFF
                                             break
@@ -475,9 +470,7 @@ class CEWTodaySensor(CEWBaseSensor):
 
     def _build_attributes(self, result: Dict[str, Any]) -> Dict[str, Any]:
         """Build sensor attributes from calculation result."""
-        # Get last config update time from coordinator data
         last_config_update = self.coordinator.data.get("last_config_update") if self.coordinator.data else None
-        # v2.1 FIX: Get config for solar forecast visibility
         config = self.coordinator.data.get("config", {}) if self.coordinator.data else {}
 
         return {
@@ -508,7 +501,6 @@ class CEWTodaySensor(CEWBaseSensor):
             "net_planned_charge_kwh": result.get("net_planned_charge_kwh", 0.0),
             "net_planned_discharge_kwh": result.get("net_planned_discharge_kwh", 0.0),
             ATTR_NUM_WINDOWS: result.get("num_windows", 0),
-            # Profit-based attributes (v1.2.0+)
             ATTR_CHARGE_PROFIT_PCT: result.get("charge_profit_pct", 0.0),
             ATTR_DISCHARGE_PROFIT_PCT: result.get("discharge_profit_pct", 0.0),
             ATTR_CHARGE_PROFIT_MET: result.get("charge_profit_met", False),
@@ -569,7 +561,6 @@ class CEWTodaySensor(CEWBaseSensor):
             "discharge_windows_limited": result.get("discharge_windows_limited", False),
             "feasibility_issues": result.get("feasibility_issues", []),
             "has_feasibility_issues": result.get("has_feasibility_issues", False),
-            # Grid and battery state tracking (v1.2.0+)
             ATTR_GRID_KWH_ESTIMATED_TODAY: result.get("grid_kwh_estimated_today", 0.0),
             ATTR_BATTERY_STATE_CURRENT: result.get("battery_state_current", 0.0),
             ATTR_BATTERY_STATE_END_OF_DAY: result.get("battery_state_end_of_day", 0.0),
@@ -582,9 +573,7 @@ class CEWTodaySensor(CEWBaseSensor):
             "solar_total_contribution_kwh": result.get("solar_total_contribution_kwh", 0.0),
             "grid_savings_from_solar": result.get("grid_savings_from_solar", 0.0),
             "expected_solar_kwh": result.get("expected_solar_kwh", 0.0),
-            # v2.1 FIX: Solar forecast visibility attributes
             "solar_forecast_enabled": config.get("use_solar_forecast", True),
-            # v2.2.5: Include "ha_energy" as source when HA Energy Dashboard is enabled
             "solar_forecast_source": (
                 "ha_energy" if config.get("use_ha_energy_dashboard", False)
                 else "sensor" if config.get("use_solar_forecast_sensor", False)
@@ -598,7 +587,6 @@ class CEWTodaySensor(CEWBaseSensor):
             "battery_discharged_to_base_kwh": result.get("battery_discharged_to_base_kwh", 0.0),
             "battery_discharged_to_grid_kwh": result.get("battery_discharged_to_grid_kwh", 0.0),
             "battery_discharged_avg_price": result.get("battery_discharged_avg_price", 0.0),
-            # v2.3: Actual battery flows from HA Energy (includes ALL charging incl. manual)
             "actual_battery_charged_from_grid_kwh": result.get("actual_battery_charged_from_grid_kwh", 0.0),
             "actual_battery_charged_from_solar_kwh": result.get("actual_battery_charged_from_solar_kwh", 0.0),
             "actual_battery_charge_cost": result.get("actual_battery_charge_cost", 0.0),
@@ -612,6 +600,15 @@ class CEWTodaySensor(CEWBaseSensor):
             "rte_preserved_kwh": result.get("rte_preserved_kwh", 0.0),
             "rte_preserved_periods": result.get("rte_preserved_periods", []),
             "rte_breakeven_price": result.get("rte_breakeven_price", 0.0),
+            "rte_breakeven_source": result.get("rte_breakeven_source", "simulation"),
+            "rte_solar_opportunity_price": result.get("rte_solar_opportunity_price", 0.0),
+            "rte_actual_grid_charge_kwh": result.get("rte_actual_grid_charge_kwh", 0.0),
+            "rte_actual_grid_charge_cost": result.get("rte_actual_grid_charge_cost", 0.0),
+            # Manual charging detection
+            "manual_charge_detected": result.get("manual_charge_detected", False),
+            "manual_charge_hours": result.get("manual_charge_hours", []),
+            "manual_charge_kwh": result.get("manual_charge_kwh", 0.0),
+            "manual_charge_cost": result.get("manual_charge_cost", 0.0),
             # Auto-optimization attributes
             "auto_optimized": result.get("auto_optimized", False),
             "optimal_charge_windows": result.get("optimal_charge_windows"),
@@ -636,19 +633,18 @@ class CEWTodaySensor(CEWBaseSensor):
             "energy_solar_sensor": result.get("energy_solar_sensor", "none"),
             "energy_solar_source": result.get("energy_solar_source", "today"),
             "energy_avg_hourly_solar": result.get("energy_avg_hourly_solar", 0.0),
-            "energy_total_solar_production_kwh": result.get("energy_total_solar_production_kwh", 0.0),  # v2.2.3
-            "energy_solar_forecast_today": result.get("energy_solar_forecast_today"),  # v2.2.3
-            "energy_solar_forecast_tomorrow": result.get("energy_solar_forecast_tomorrow"),  # v2.2.3
-            "energy_solar_forecast_hourly_today": result.get("energy_solar_forecast_hourly_today", {}),  # v2.2.3
-            "energy_solar_forecast_hourly_tomorrow": result.get("energy_solar_forecast_hourly_tomorrow", {}),  # v2.2.3
+            "energy_total_solar_production_kwh": result.get("energy_total_solar_production_kwh", 0.0),
+            "energy_solar_forecast_today": result.get("energy_solar_forecast_today"),
+            "energy_solar_forecast_tomorrow": result.get("energy_solar_forecast_tomorrow"),
+            "energy_solar_forecast_hourly_today": result.get("energy_solar_forecast_hourly_today", {}),
+            "energy_solar_forecast_hourly_tomorrow": result.get("energy_solar_forecast_hourly_tomorrow", {}),
             "energy_battery_sensor": result.get("energy_battery_sensor", "none"),
             "energy_battery_charge_source": result.get("energy_battery_charge_source", "today"),
             "energy_avg_hourly_battery_charge": result.get("energy_avg_hourly_battery_charge", 0.0),
-            "energy_total_battery_charge_kwh": result.get("energy_total_battery_charge_kwh", 0.0),  # v2.2.2
+            "energy_total_battery_charge_kwh": result.get("energy_total_battery_charge_kwh", 0.0),
             "energy_battery_discharge_source": result.get("energy_battery_discharge_source", "today"),
             "energy_avg_hourly_battery_discharge": result.get("energy_avg_hourly_battery_discharge", 0.0),
-            "energy_total_battery_discharge_kwh": result.get("energy_total_battery_discharge_kwh", 0.0),  # v2.2.2
-            # Real consumption (formula result) - new in v2
+            "energy_total_battery_discharge_kwh": result.get("energy_total_battery_discharge_kwh", 0.0),
             "energy_real_consumption_hourly": result.get("energy_real_consumption_hourly", {}),
             "energy_avg_real_consumption": result.get("energy_avg_real_consumption", 0.0),
             # Grid import/export raw data
@@ -659,11 +655,23 @@ class CEWTodaySensor(CEWBaseSensor):
             # Discovered sensors
             "energy_sensors": result.get("energy_sensors", {}),
             "energy_hours_with_data": result.get("energy_hours_with_data", 0),
+            # Weighted 72h consumption average (for stable baseline)
+            "energy_today_avg_consumption": result.get("energy_today_avg_consumption", 0.0),
+            "energy_today_hours": result.get("energy_today_hours", 0),
+            "energy_yesterday_avg_consumption": result.get("energy_yesterday_avg_consumption", 0.0),
+            "energy_day_before_avg_consumption": result.get("energy_day_before_avg_consumption", 0.0),
+            "energy_weighted_avg_consumption": result.get("energy_weighted_avg_consumption", 0.0),
+            "energy_weighted_source": result.get("energy_weighted_source", "manual"),
             # Energy consumption diagnostic tracking
             "energy_actual_kwh": result.get("energy_actual_kwh", 0.0),
             "energy_estimated_kwh": result.get("energy_estimated_kwh", 0.0),
             "energy_hours_with_actual": result.get("energy_hours_with_actual", 0),
             "energy_hours_with_estimate": result.get("energy_hours_with_estimate", 0),
+            # Debug: future projection tracking
+            "debug_future_applied": result.get("_debug_future_projection_applied", False),
+            "debug_future_cost": result.get("_debug_future_total_cost", 0.0),
+            "debug_completed_total": result.get("_debug_completed_total", 0.0),
+            "chrono_planned_total_cost": result.get("chrono_planned_total_cost", 0.0),
         }
 
 
@@ -699,7 +707,7 @@ class CEWTomorrowSensor(CEWBaseSensor):
         config_changed = self.coordinator.data.get("config_changed", False)
         is_first_load = self.coordinator.data.get("is_first_load", False)
         scheduled_update = self.coordinator.data.get("scheduled_update", False)
-        energy_stats_changed = self.coordinator.data.get("energy_stats_changed", False)  # v2.2.3
+        energy_stats_changed = self.coordinator.data.get("energy_stats_changed", False)
 
         config = self.coordinator.data.get("config", {})
         current_automation_enabled = config.get("automation_enabled", True)
@@ -748,14 +756,12 @@ class CEWTomorrowSensor(CEWBaseSensor):
                 # CRITICAL: Only run optimizer when data/config actually changed
                 # Skip on scheduled_update (time-based state transitions only)
 
-                # Don't optimize on regular scheduled updates, but force_recalc/energy_stats overrides
-                # v2.2.3: energy_stats_changed triggers recalc (affects projected buffer for tomorrow)
                 skip_due_to_schedule = scheduled_update and not force_recalc and not energy_stats_changed
                 needs_optimization = (
                     is_first_load or
                     price_data_changed or
                     calc_config_changed or
-                    energy_stats_changed or  # v2.2.3: Recalc when new hourly data available
+                    energy_stats_changed or
                     force_recalc
                 ) and not skip_due_to_schedule
 
@@ -881,9 +887,7 @@ class CEWTomorrowSensor(CEWBaseSensor):
 
     def _build_attributes(self, result: Dict[str, Any]) -> Dict[str, Any]:
         """Build sensor attributes for tomorrow."""
-        # Get last config update time from coordinator data
         last_config_update = self.coordinator.data.get("last_config_update") if self.coordinator.data else None
-        # v2.1 FIX: Get config for solar forecast visibility
         config = self.coordinator.data.get("config", {}) if self.coordinator.data else {}
 
         # Tomorrow sensor has fewer attributes (no completed windows, etc.)
@@ -897,7 +901,6 @@ class CEWTomorrowSensor(CEWBaseSensor):
             ATTR_ACTUAL_DISCHARGE_TIMES: result.get("actual_discharge_times", []),
             ATTR_ACTUAL_DISCHARGE_PRICES: result.get("actual_discharge_prices", []),
             ATTR_NUM_WINDOWS: result.get("num_windows", 0),
-            # Profit-based attributes (v1.2.0+)
             ATTR_CHARGE_PROFIT_PCT: result.get("charge_profit_pct", 0.0),
             ATTR_DISCHARGE_PROFIT_PCT: result.get("discharge_profit_pct", 0.0),
             ATTR_CHARGE_PROFIT_MET: result.get("charge_profit_met", False),
@@ -919,7 +922,6 @@ class CEWTomorrowSensor(CEWBaseSensor):
             "net_planned_charge_kwh": result.get("net_planned_charge_kwh", 0.0),
             "net_planned_discharge_kwh": result.get("net_planned_discharge_kwh", 0.0),
             "last_config_update": last_config_update.isoformat() if last_config_update else None,
-            # === DASHBOARD HELPER ATTRIBUTES ===
             "grouped_charge_windows": result.get("grouped_charge_windows", []),
             "grouped_discharge_windows": result.get("grouped_discharge_windows", []),
             "percentile_cheap_avg": result.get("percentile_cheap_avg", 0),
@@ -961,7 +963,6 @@ class CEWTomorrowSensor(CEWBaseSensor):
             "discharge_windows_limited": result.get("discharge_windows_limited", False),
             "feasibility_issues": result.get("feasibility_issues", []),
             "has_feasibility_issues": result.get("has_feasibility_issues", False),
-            # Grid and battery state tracking (v1.2.0+) - tomorrow specific
             ATTR_GRID_KWH_ESTIMATED_TOMORROW: result.get("grid_kwh_estimated_today", 0.0),  # Reuse today's field
             ATTR_BATTERY_STATE_END_OF_TOMORROW: result.get("battery_state_end_of_day", 0.0),  # Reuse today's field
             "battery_state_end_of_tomorrow_value": result.get("battery_state_end_of_day_value", 0.0),  # Reuse today's field
@@ -973,9 +974,7 @@ class CEWTomorrowSensor(CEWBaseSensor):
             "solar_total_contribution_kwh": result.get("solar_total_contribution_kwh", 0.0),
             "grid_savings_from_solar": result.get("grid_savings_from_solar", 0.0),
             "expected_solar_kwh": result.get("expected_solar_kwh", 0.0),
-            # v2.1 FIX: Solar forecast visibility attributes
             "solar_forecast_enabled": config.get("use_solar_forecast", True),
-            # v2.2.5: Include "ha_energy" as source when HA Energy Dashboard is enabled
             "solar_forecast_source": (
                 "ha_energy" if config.get("use_ha_energy_dashboard", False)
                 else "sensor" if config.get("use_solar_forecast_sensor", False)
@@ -989,7 +988,6 @@ class CEWTomorrowSensor(CEWBaseSensor):
             "battery_discharged_to_base_kwh": result.get("battery_discharged_to_base_kwh", 0.0),
             "battery_discharged_to_grid_kwh": result.get("battery_discharged_to_grid_kwh", 0.0),
             "battery_discharged_avg_price": result.get("battery_discharged_avg_price", 0.0),
-            # v2.3: Actual battery flows from HA Energy (includes ALL charging incl. manual)
             "actual_battery_charged_from_grid_kwh": result.get("actual_battery_charged_from_grid_kwh", 0.0),
             "actual_battery_charged_from_solar_kwh": result.get("actual_battery_charged_from_solar_kwh", 0.0),
             "actual_battery_charge_cost": result.get("actual_battery_charge_cost", 0.0),
@@ -1003,6 +1001,15 @@ class CEWTomorrowSensor(CEWBaseSensor):
             "rte_preserved_kwh": result.get("rte_preserved_kwh", 0.0),
             "rte_preserved_periods": result.get("rte_preserved_periods", []),
             "rte_breakeven_price": result.get("rte_breakeven_price", 0.0),
+            "rte_breakeven_source": result.get("rte_breakeven_source", "simulation"),
+            "rte_solar_opportunity_price": result.get("rte_solar_opportunity_price", 0.0),
+            "rte_actual_grid_charge_kwh": result.get("rte_actual_grid_charge_kwh", 0.0),
+            "rte_actual_grid_charge_cost": result.get("rte_actual_grid_charge_cost", 0.0),
+            # Manual charging detection
+            "manual_charge_detected": result.get("manual_charge_detected", False),
+            "manual_charge_hours": result.get("manual_charge_hours", []),
+            "manual_charge_kwh": result.get("manual_charge_kwh", 0.0),
+            "manual_charge_cost": result.get("manual_charge_cost", 0.0),
             # Auto-optimization attributes
             "auto_optimized": result.get("auto_optimized", False),
             "optimal_charge_windows": result.get("optimal_charge_windows"),
@@ -1027,19 +1034,18 @@ class CEWTomorrowSensor(CEWBaseSensor):
             "energy_solar_sensor": result.get("energy_solar_sensor", "none"),
             "energy_solar_source": result.get("energy_solar_source", "today"),
             "energy_avg_hourly_solar": result.get("energy_avg_hourly_solar", 0.0),
-            "energy_total_solar_production_kwh": result.get("energy_total_solar_production_kwh", 0.0),  # v2.2.3
-            "energy_solar_forecast_today": result.get("energy_solar_forecast_today"),  # v2.2.3
-            "energy_solar_forecast_tomorrow": result.get("energy_solar_forecast_tomorrow"),  # v2.2.3
-            "energy_solar_forecast_hourly_today": result.get("energy_solar_forecast_hourly_today", {}),  # v2.2.3
-            "energy_solar_forecast_hourly_tomorrow": result.get("energy_solar_forecast_hourly_tomorrow", {}),  # v2.2.3
+            "energy_total_solar_production_kwh": result.get("energy_total_solar_production_kwh", 0.0),
+            "energy_solar_forecast_today": result.get("energy_solar_forecast_today"),
+            "energy_solar_forecast_tomorrow": result.get("energy_solar_forecast_tomorrow"),
+            "energy_solar_forecast_hourly_today": result.get("energy_solar_forecast_hourly_today", {}),
+            "energy_solar_forecast_hourly_tomorrow": result.get("energy_solar_forecast_hourly_tomorrow", {}),
             "energy_battery_sensor": result.get("energy_battery_sensor", "none"),
             "energy_battery_charge_source": result.get("energy_battery_charge_source", "today"),
             "energy_avg_hourly_battery_charge": result.get("energy_avg_hourly_battery_charge", 0.0),
-            "energy_total_battery_charge_kwh": result.get("energy_total_battery_charge_kwh", 0.0),  # v2.2.2
+            "energy_total_battery_charge_kwh": result.get("energy_total_battery_charge_kwh", 0.0),
             "energy_battery_discharge_source": result.get("energy_battery_discharge_source", "today"),
             "energy_avg_hourly_battery_discharge": result.get("energy_avg_hourly_battery_discharge", 0.0),
-            "energy_total_battery_discharge_kwh": result.get("energy_total_battery_discharge_kwh", 0.0),  # v2.2.2
-            # Real consumption (formula result) - new in v2
+            "energy_total_battery_discharge_kwh": result.get("energy_total_battery_discharge_kwh", 0.0),
             "energy_real_consumption_hourly": result.get("energy_real_consumption_hourly", {}),
             "energy_avg_real_consumption": result.get("energy_avg_real_consumption", 0.0),
             # Grid import/export raw data
@@ -1050,6 +1056,13 @@ class CEWTomorrowSensor(CEWBaseSensor):
             # Discovered sensors
             "energy_sensors": result.get("energy_sensors", {}),
             "energy_hours_with_data": result.get("energy_hours_with_data", 0),
+            # Weighted 72h consumption average (for stable baseline)
+            "energy_today_avg_consumption": result.get("energy_today_avg_consumption", 0.0),
+            "energy_today_hours": result.get("energy_today_hours", 0),
+            "energy_yesterday_avg_consumption": result.get("energy_yesterday_avg_consumption", 0.0),
+            "energy_day_before_avg_consumption": result.get("energy_day_before_avg_consumption", 0.0),
+            "energy_weighted_avg_consumption": result.get("energy_weighted_avg_consumption", 0.0),
+            "energy_weighted_source": result.get("energy_weighted_source", "manual"),
             # Energy consumption diagnostic tracking
             "energy_actual_kwh": result.get("energy_actual_kwh", 0.0),
             "energy_estimated_kwh": result.get("energy_estimated_kwh", 0.0),

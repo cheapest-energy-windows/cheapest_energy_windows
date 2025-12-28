@@ -66,7 +66,7 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 "last_price_update": None,
                 "last_config_update": None,
                 "previous_config_hash": None,
-                "previous_energy_hash": None,  # v2.2.3: Track energy stats changes
+                "previous_energy_hash": None,
             }
         self._persistent_state = hass.data[persistent_key]
 
@@ -166,11 +166,11 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             self._persistent_state["previous_raw_tomorrow"] = self._previous_raw_tomorrow
             self._persistent_state["previous_config_hash"] = current_config_hash
 
-            # Fetch HA Energy Dashboard statistics if unified toggle is enabled (v2.2)
+            # Fetch HA Energy Dashboard statistics if toggle is enabled
             energy_statistics = {}
             solar_forecast_today = None
             solar_forecast_tomorrow = None
-            energy_stats_changed = False  # v2.2.3: Track energy stats changes
+            energy_stats_changed = False
 
             if config.get("use_ha_energy_dashboard", False):
                 try:
@@ -180,7 +180,6 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                     _LOGGER.warning("Failed to fetch HA Energy statistics: %s", e)
                     energy_statistics = {"stats_available": False}
 
-            # v2.2.3: Detect energy stats changes (new hourly data available)
             def _energy_stats_hash(stats):
                 """Hash based on which hours have data."""
                 if not stats:
@@ -202,18 +201,12 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 self._previous_energy_hash = current_energy_hash
                 self._persistent_state["previous_energy_hash"] = current_energy_hash
 
-            # v2.2.5 FIX: Fetch solar forecast ALWAYS when HA Energy Dashboard is enabled
-            # Previously this was inside energy_stats_changed block, causing None values
-            # when energy stats didn't change (e.g., on scheduled updates)
             if config.get("use_ha_energy_dashboard", False):
-                # v2.2.3: Fetch solar forecast from HA Energy Dashboard
                 try:
                     energy_prefs = await get_energy_preferences(self.hass)
                     forecast_config_entry = energy_prefs.get("solar_forecast_config_entry")
 
                     if forecast_config_entry:
-                        # Find entities from this config entry (typically Forecast.Solar)
-                        # v2.2.3 FIX: forecast_config_entry is an array of config entry IDs
                         entity_registry = er.async_get(self.hass)
                         for entity in entity_registry.entities.values():
                             if entity.config_entry_id in forecast_config_entry:
@@ -246,14 +239,11 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 energy_statistics["solar_forecast_today"] = solar_forecast_today
                 energy_statistics["solar_forecast_tomorrow"] = solar_forecast_tomorrow
 
-                # v2.2.3: Fetch HOURLY solar forecast from HA Energy Dashboard
-                # This allows proper per-hour distribution instead of flat average
                 solar_forecast_hourly_today = {}
                 solar_forecast_hourly_tomorrow = {}
 
                 if forecast_config_entry:
                     try:
-                        # v2.2.3: Import from energy submodule (not main module)
                         from homeassistant.components.forecast_solar.energy import async_get_solar_forecast
 
                         _LOGGER.debug("Fetching hourly solar forecast for entries: %s", forecast_config_entry)
@@ -298,9 +288,6 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 energy_statistics["solar_forecast_hourly_today"] = solar_forecast_hourly_today
                 energy_statistics["solar_forecast_hourly_tomorrow"] = solar_forecast_hourly_tomorrow
 
-            # v2.1 FIX: Fetch midnight battery state for accurate full-day simulation
-            # When battery sensor is enabled, get its value at midnight (start of day)
-            # This ensures the simulation starts from the correct battery level
             midnight_battery_state = None
             if config.get("use_battery_buffer_sensor", False):
                 sensor_entity = config.get("battery_available_energy_sensor", "")
@@ -327,15 +314,12 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 "config_changed": config_changed,
                 "is_first_load": is_first_load,
                 "scheduled_update": scheduled_update,
-                "energy_stats_changed": energy_stats_changed,  # v2.2.3: Energy stats change detection
+                "energy_stats_changed": energy_stats_changed,
                 "last_price_update": self._last_price_update,
                 "last_config_update": self._last_config_update,
-                # HA Energy Dashboard statistics
                 "energy_statistics": energy_statistics,
-                # v2.2.3: Solar forecast from HA Energy Dashboard
                 "solar_forecast_today": solar_forecast_today,
                 "solar_forecast_tomorrow": solar_forecast_tomorrow,
-                # v2.1 FIX: Midnight battery state for full-day simulation
                 "midnight_battery_state": midnight_battery_state,
             }
 
@@ -355,7 +339,6 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             DEFAULT_CHARGING_WINDOWS,
             DEFAULT_EXPENSIVE_WINDOWS,
             DEFAULT_PERCENTILE_THRESHOLD,
-            # Profit thresholds (v1.2.0+)
             DEFAULT_MIN_PROFIT_CHARGE,
             DEFAULT_MIN_PROFIT_DISCHARGE,
             DEFAULT_MIN_PRICE_DIFFERENCE,
@@ -390,7 +373,6 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             "charging_windows": float(options.get("charging_windows", DEFAULT_CHARGING_WINDOWS)),
             "expensive_windows": float(options.get("expensive_windows", DEFAULT_EXPENSIVE_WINDOWS)),
             "percentile_threshold": float(options.get("percentile_threshold", DEFAULT_PERCENTILE_THRESHOLD)),
-            # Profit thresholds (v1.2.0+)
             "min_profit_charge": float(options.get("min_profit_charge", DEFAULT_MIN_PROFIT_CHARGE)),
             "min_profit_discharge": float(options.get("min_profit_discharge", DEFAULT_MIN_PROFIT_DISCHARGE)),
             "min_price_difference": float(options.get("min_price_difference", DEFAULT_MIN_PRICE_DIFFERENCE)),
@@ -400,6 +382,7 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             # RTE-aware discharge (global battery setting)
             "rte_aware_discharge": bool(options.get("rte_aware_discharge", True)),
             "rte_discharge_margin": float(options.get("rte_discharge_margin", 2)),  # 2% default (as percentage)
+            "rte_protect_solar_charge": bool(options.get("rte_protect_solar_charge", True)),
             "base_usage": float(options.get("base_usage", DEFAULT_BASE_USAGE)),
             "base_usage_charge_strategy": options.get("base_usage_charge_strategy", DEFAULT_BASE_USAGE_CHARGE_STRATEGY),
             "base_usage_normal_strategy": options.get("base_usage_normal_strategy", DEFAULT_BASE_USAGE_NORMAL_STRATEGY),
@@ -411,7 +394,6 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             "charging_windows_tomorrow": float(options.get("charging_windows_tomorrow", DEFAULT_CHARGING_WINDOWS)),
             "expensive_windows_tomorrow": float(options.get("expensive_windows_tomorrow", DEFAULT_EXPENSIVE_WINDOWS)),
             "percentile_threshold_tomorrow": float(options.get("percentile_threshold_tomorrow", DEFAULT_PERCENTILE_THRESHOLD)),
-            # Profit thresholds tomorrow (v1.2.0+)
             "min_profit_charge_tomorrow": float(options.get("min_profit_charge_tomorrow", DEFAULT_MIN_PROFIT_CHARGE)),
             "min_profit_discharge_tomorrow": float(options.get("min_profit_discharge_tomorrow", DEFAULT_MIN_PROFIT_DISCHARGE)),
             "price_override_threshold_tomorrow": float(options.get("price_override_threshold_tomorrow", DEFAULT_PRICE_OVERRIDE_THRESHOLD)),
@@ -428,7 +410,6 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             "time_override_enabled_tomorrow": bool(options.get("time_override_enabled_tomorrow", False)),
             "calculation_window_enabled": bool(options.get("calculation_window_enabled", False)),
             "calculation_window_enabled_tomorrow": bool(options.get("calculation_window_enabled_tomorrow", False)),
-            # Note: Arbitrage Protection removed in v1.2.0 - profit thresholds control behavior
             "notify_automation_disabled": bool(options.get("notify_automation_disabled", False)),
             "notify_charging": bool(options.get("notify_charging", True)),
             "notify_discharge": bool(options.get("notify_discharge", True)),
@@ -438,7 +419,6 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             "pricing_window_duration": options.get("pricing_window_duration", "15_minutes"),
             "time_override_mode": options.get("time_override_mode", "charge"),
             "time_override_mode_tomorrow": options.get("time_override_mode_tomorrow", "charge"),
-            # Note: Arbitrage Protection mode removed in v1.2.0
 
             # Unified price country
             "price_country": options.get("price_country", DEFAULT_PRICE_COUNTRY),
@@ -486,7 +466,7 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             "min_daily_savings": float(options.get("min_daily_savings", 0.50)),
             "fast_search": options.get("fast_search", True),
 
-            # HA Energy Dashboard integration (v2.2: single binary toggle)
+            # HA Energy Dashboard integration
             "use_ha_energy_dashboard": bool(options.get("use_ha_energy_dashboard", False)),
 
             # Time values

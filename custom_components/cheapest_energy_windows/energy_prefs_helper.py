@@ -34,7 +34,7 @@ async def get_energy_preferences(hass: HomeAssistant) -> Dict[str, Any]:
         "solar_production_sensors": [],
         "battery_charge_sensors": [],
         "battery_discharge_sensors": [],
-        # v2.2.3: Solar forecast config entry (Forecast.Solar or similar)
+        # Solar forecast config entry
         "solar_forecast_config_entry": None,
     }
 
@@ -69,7 +69,7 @@ async def get_energy_preferences(hass: HomeAssistant) -> Dict[str, Any]:
                 stat_id = source.get("stat_energy_from")
                 if stat_id:
                     result["solar_production_sensors"].append(stat_id)
-                # v2.2.3: Solar forecast config entry (Forecast.Solar or similar)
+                # Solar forecast config entry
                 forecast_entry = source.get("config_entry_solar_forecast")
                 if forecast_entry and not result["solar_forecast_config_entry"]:
                     result["solar_forecast_config_entry"] = forecast_entry

@@ -35,7 +35,7 @@ _IDLE_TO_NORMAL_MIGRATION = {
 
 
 async def _async_migrate_idle_to_normal(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Migrate old 'idle' config keys to 'normal' (v1.2.0+ breaking change)."""
+    """Migrate old 'idle' config keys to 'normal'."""
     needs_update = False
     new_options = dict(entry.options)
     new_data = dict(entry.data)
@@ -105,7 +105,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Cheapest Energy Windows from a config entry."""
     _LOGGER.info("Setting up Cheapest Energy Windows integration")
 
-    # Migrate old "idle" keys to "normal" (v1.2.0+ breaking change)
+    # Migrate old "idle" keys to "normal"
     await _async_migrate_idle_to_normal(hass, entry)
 
     # Store domain data

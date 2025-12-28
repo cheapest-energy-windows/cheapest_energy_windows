@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
@@ -61,6 +61,71 @@ def calculate_real_consumption(
         real_consumption[hour] = max(0, consumption)
 
     return real_consumption
+
+
+def calculate_weighted_consumption_avg(
+    today_avg: float,
+    today_hours: int,
+    yesterday_avg: float,
+    day_before_avg: float,
+) -> Tuple[float, str]:
+    """
+    Calculate weighted 72h average consumption.
+
+    The weighting formula progressively increases today's weight as more hours pass:
+    - weight_today = hours_with_data / 24 (0.0 to 1.0, grows linearly)
+    - Remaining weight split: 70% yesterday, 30% day-before
+
+    This provides a stable baseline at midnight (uses historical data) that
+    self-corrects as the day progresses (today's data takes over).
+
+    Example weights by hour:
+    - Hour 0:  today=4%, yesterday=67%, day_before=29%
+    - Hour 12: today=54%, yesterday=32%, day_before=14%
+    - Hour 23: today=100%, yesterday=0%, day_before=0%
+
+    Args:
+        today_avg: Average consumption (kWh/hr) for today's hours
+        today_hours: Number of hours with data today (0-24)
+        yesterday_avg: Average consumption (kWh/hr) for yesterday (full 24h)
+        day_before_avg: Average consumption (kWh/hr) for day before (full 24h)
+
+    Returns:
+        Tuple of (weighted_avg, source_description)
+    """
+    # Calculate today's weight (grows as day progresses)
+    weight_today = today_hours / 24 if today_hours > 0 else 0.0
+    remaining_weight = 1 - weight_today
+
+    # Split remaining weight: 70% yesterday, 30% day-before
+    weight_yesterday = remaining_weight * 0.7
+    weight_day_before = remaining_weight * 0.3
+
+    # Handle missing data - redistribute weights
+    if yesterday_avg == 0 and day_before_avg == 0:
+        # No historical data - use today only
+        if today_avg > 0:
+            return (today_avg, "today_only")
+        return (0.0, "no_data")
+
+    if yesterday_avg == 0:
+        # No yesterday - redistribute to day-before
+        weight_day_before += weight_yesterday
+        weight_yesterday = 0
+
+    if day_before_avg == 0:
+        # No day-before - redistribute to yesterday
+        weight_yesterday += weight_day_before
+        weight_day_before = 0
+
+    # Calculate weighted average
+    weighted = (
+        today_avg * weight_today +
+        yesterday_avg * weight_yesterday +
+        day_before_avg * weight_day_before
+    )
+
+    return (weighted, "72h_weighted")
 
 
 async def is_recorder_available(hass: HomeAssistant) -> bool:
@@ -221,16 +286,21 @@ async def fetch_day_statistics(
         "avg_battery_charge": 0.0,
         "avg_battery_discharge": 0.0,
         "avg_real_consumption": 0.0,
-        # Totals for Activity display (v2.2.2)
         "total_battery_charge_kwh": 0.0,
         "total_battery_discharge_kwh": 0.0,
-        # v2.2.3: Solar production total
         "total_solar_production_kwh": 0.0,
         # Metadata
         "stats_available": False,
         "current_hour": now.hour,
         "hours_with_data": 0,
         "consumption_source": "manual",  # "today", "yesterday", or "manual"
+        # Weighted 72h consumption average (for stable baseline)
+        "today_avg_consumption": 0.0,
+        "today_hours_with_data": 0,
+        "yesterday_avg_consumption": 0.0,
+        "day_before_avg_consumption": 0.0,
+        "weighted_avg_consumption": 0.0,
+        "weighted_consumption_source": "manual",
         # Discovered sensor info for dashboard feedback
         "sensors": {
             "grid_import": [],
@@ -250,9 +320,6 @@ async def fetch_day_statistics(
         "battery_sensor": "none",
     }
 
-    # v2.2: Check if HA Energy Dashboard is enabled (single binary toggle)
-    # When ON: fetch ALL data (consumption, solar, battery) for consistency
-    # When OFF: skip entirely and use manual values (v1.3.5 behavior)
     use_ha_energy = config.get("use_ha_energy_dashboard", False)
 
     if not use_ha_energy:
@@ -272,12 +339,9 @@ async def fetch_day_statistics(
 
     yesterday_start = today_start - timedelta(days=1)
     yesterday_end = today_start
-    # v2.2.3 FIX: Fetch 1 hour earlier to get Hour 23 as reference for Hour 0's delta
-    # The delta calculation requires prev_sum, which is only available from the previous hour
     stats_start = today_start - timedelta(hours=1)
     use_yesterday_fallback = False
 
-    # v2.2: Fetch ALL energy data when HA Energy Dashboard is enabled
     # Grid consumption (import)
     import_sensors = energy_prefs.get("grid_consumption_sensors", [])
     export_sensors = energy_prefs.get("grid_return_sensors", [])
@@ -310,7 +374,6 @@ async def fetch_day_statistics(
             if yesterday_hourly:
                 result["stats_available"] = True
                 result["consumption_source"] = "yesterday"
-                # v2.2.3 FIX: Populate grid_import_hourly for real_consumption calculation
                 result["grid_import_hourly"] = yesterday_hourly
                 result["consumption_hourly"] = yesterday_hourly
                 total = sum(yesterday_hourly.values())
@@ -342,10 +405,6 @@ async def fetch_day_statistics(
             _LOGGER.debug("Grid export: avg %.3f kWh/hr", result["avg_grid_export"])
 
     # Solar production
-    # v2.2.5 FIX: Solar should NOT inherit yesterday fallback from grid consumption
-    # At midnight, grid might have no data (triggering fallback), but solar should show 0
-    # because it's a new day with no sun yet. Solar should only use yesterday's data
-    # if explicitly needed for forecasting, not for "production today" display.
     sensors = energy_prefs.get("solar_production_sensors", [])
     if sensors:
         result["sensors"]["solar"] = sensors
@@ -363,7 +422,7 @@ async def fetch_day_statistics(
             hours = len(result["solar_hourly"])
             result["avg_solar"] = total / hours if hours > 0 else 0
             result["avg_hourly_solar"] = result["avg_solar"]
-            result["total_solar_production_kwh"] = total  # v2.2.3: Add total for display
+            result["total_solar_production_kwh"] = total
             _LOGGER.debug("Solar: total %.3f kWh, avg %.3f kWh/hr", total, result["avg_solar"])
         else:
             # No solar data for today (normal at night/early morning)
@@ -399,7 +458,7 @@ async def fetch_day_statistics(
                 hours = len(result["battery_charge_hourly"])
                 result["avg_battery_charge"] = total / hours if hours > 0 else 0
                 result["avg_hourly_battery_charge"] = result["avg_battery_charge"]
-                result["total_battery_charge_kwh"] = total  # v2.2.2: Add total for Activity display
+                result["total_battery_charge_kwh"] = total
                 _LOGGER.debug("Battery charge: total %.3f kWh, avg %.3f kWh/hr", total, result["avg_battery_charge"])
 
         if discharge_sensors:
@@ -421,7 +480,7 @@ async def fetch_day_statistics(
                 hours = len(result["battery_discharge_hourly"])
                 result["avg_battery_discharge"] = total / hours if hours > 0 else 0
                 result["avg_hourly_battery_discharge"] = result["avg_battery_discharge"]
-                result["total_battery_discharge_kwh"] = total  # v2.2.2: Add total for Activity display
+                result["total_battery_discharge_kwh"] = total
                 _LOGGER.debug("Battery discharge: total %.3f kWh, avg %.3f kWh/hr", total, result["avg_battery_discharge"])
 
     # Calculate real consumption using the formula
@@ -444,6 +503,92 @@ async def fetch_day_statistics(
                 "Real consumption calculated: %d hours, avg %.3f kWh/hr",
                 hours, result["avg_real_consumption"]
             )
+
+    # Calculate weighted 72h consumption average for stable baseline
+    # This fetches yesterday and day-before data to provide stable baseline early in the day
+    if import_sensors and result["stats_available"]:
+        # Today's average (already calculated)
+        today_avg = result["avg_real_consumption"]
+        today_hours = len(result["real_consumption_hourly"]) if result["real_consumption_hourly"] else 0
+
+        # Store today's data
+        result["today_avg_consumption"] = today_avg
+        result["today_hours_with_data"] = today_hours
+
+        # Fetch yesterday (full 24h) - only if not already using yesterday fallback
+        yesterday_avg = 0.0
+        day_before_avg = 0.0
+
+        if not use_yesterday_fallback:
+            # Fetch yesterday's data
+            yesterday_import = await fetch_combined_hourly_statistics(
+                hass, import_sensors, yesterday_start, yesterday_end
+            )
+            yesterday_export = await fetch_combined_hourly_statistics(
+                hass, export_sensors, yesterday_start, yesterday_end
+            ) if export_sensors else {}
+            yesterday_solar = await fetch_combined_hourly_statistics(
+                hass, energy_prefs.get("solar_production_sensors", []), yesterday_start, yesterday_end
+            ) if energy_prefs.get("solar_production_sensors") else {}
+            yesterday_charge = await fetch_combined_hourly_statistics(
+                hass, charge_sensors, yesterday_start, yesterday_end
+            ) if charge_sensors else {}
+            yesterday_discharge = await fetch_combined_hourly_statistics(
+                hass, discharge_sensors, yesterday_start, yesterday_end
+            ) if discharge_sensors else {}
+
+            yesterday_consumption = calculate_real_consumption(
+                yesterday_import, yesterday_export, yesterday_solar,
+                yesterday_charge, yesterday_discharge
+            )
+            if yesterday_consumption:
+                yesterday_avg = sum(yesterday_consumption.values()) / len(yesterday_consumption)
+        else:
+            # Already using yesterday data as today's fallback - use that
+            yesterday_avg = today_avg
+
+        result["yesterday_avg_consumption"] = yesterday_avg
+
+        # Fetch day before yesterday (full 24h)
+        day_before_start = today_start - timedelta(days=2)
+        day_before_end = yesterday_start
+
+        day_before_import = await fetch_combined_hourly_statistics(
+            hass, import_sensors, day_before_start, day_before_end
+        )
+        day_before_export = await fetch_combined_hourly_statistics(
+            hass, export_sensors, day_before_start, day_before_end
+        ) if export_sensors else {}
+        day_before_solar = await fetch_combined_hourly_statistics(
+            hass, energy_prefs.get("solar_production_sensors", []), day_before_start, day_before_end
+        ) if energy_prefs.get("solar_production_sensors") else {}
+        day_before_charge = await fetch_combined_hourly_statistics(
+            hass, charge_sensors, day_before_start, day_before_end
+        ) if charge_sensors else {}
+        day_before_discharge = await fetch_combined_hourly_statistics(
+            hass, discharge_sensors, day_before_start, day_before_end
+        ) if discharge_sensors else {}
+
+        day_before_consumption = calculate_real_consumption(
+            day_before_import, day_before_export, day_before_solar,
+            day_before_charge, day_before_discharge
+        )
+        if day_before_consumption:
+            day_before_avg = sum(day_before_consumption.values()) / len(day_before_consumption)
+
+        result["day_before_avg_consumption"] = day_before_avg
+
+        # Calculate weighted average
+        weighted_avg, weighted_source = calculate_weighted_consumption_avg(
+            today_avg, today_hours, yesterday_avg, day_before_avg
+        )
+        result["weighted_avg_consumption"] = weighted_avg
+        result["weighted_consumption_source"] = weighted_source
+
+        _LOGGER.debug(
+            "Weighted consumption: today=%.3f (%dh), yesterday=%.3f, day_before=%.3f -> weighted=%.3f (%s)",
+            today_avg, today_hours, yesterday_avg, day_before_avg, weighted_avg, weighted_source
+        )
 
     return result
 

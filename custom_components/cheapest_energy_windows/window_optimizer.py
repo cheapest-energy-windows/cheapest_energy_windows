@@ -179,7 +179,7 @@ class WindowOptimizer:
                 solar_hours = 10.0  # Default fallback
 
             # Base usage during solar hours consumes solar first
-            # Use actual consumption from HA Energy Dashboard if available (v2.2: unified toggle)
+            # Use actual consumption from HA Energy Dashboard if available
             energy_stats = energy_statistics or {}
             use_ha_energy = config.get("use_ha_energy_dashboard", False) and energy_stats.get("stats_available", False)
             if use_ha_energy:

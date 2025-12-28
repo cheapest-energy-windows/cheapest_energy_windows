@@ -176,7 +176,7 @@ ATTR_TOTAL_COST: Final = "total_cost"
 ATTR_PLANNED_TOTAL_COST: Final = "planned_total_cost"
 ATTR_PLANNED_CHARGE_COST: Final = "planned_charge_cost"
 ATTR_NUM_WINDOWS: Final = "num_windows"
-# Profit-based attributes (v1.2.0+)
+# Profit-based attributes
 ATTR_CHARGE_PROFIT_PCT: Final = "charge_profit_pct"
 ATTR_DISCHARGE_PROFIT_PCT: Final = "discharge_profit_pct"
 ATTR_CHARGE_PROFIT_MET: Final = "charge_profit_met"
@@ -190,7 +190,7 @@ ATTR_TIME_OVERRIDE_ACTIVE: Final = "time_override_active"
 ATTR_CURRENT_SELL_PRICE: Final = "current_sell_price"
 ATTR_SELL_PRICE_COUNTRY: Final = "sell_price_country"
 
-# Grid and battery state tracking attributes (v1.2.0+)
+# Grid and battery state tracking attributes
 ATTR_GRID_KWH_CURRENT_WINDOW: Final = "grid_kwh_current_window"
 ATTR_GRID_KWH_ESTIMATED_TODAY: Final = "grid_kwh_estimated_today"
 ATTR_GRID_KWH_ESTIMATED_TOMORROW: Final = "grid_kwh_estimated_tomorrow"
@@ -219,7 +219,7 @@ CALCULATION_AFFECTING_KEYS: Final = {
     "min_price_difference",
     "min_price_diff_enabled",
 
-    # Profit thresholds (v1.2.0+)
+    # Profit thresholds
     "min_profit_charge",
     "min_profit_discharge",
 
@@ -251,6 +251,7 @@ CALCULATION_AFFECTING_KEYS: Final = {
     # RTE-aware discharge (global battery setting)
     "rte_aware_discharge",
     "rte_discharge_margin",
+    "rte_protect_solar_charge",
 
     # Price overrides
     "price_override_enabled",
@@ -308,7 +309,7 @@ CALCULATION_AFFECTING_KEYS: Final = {
     "use_min_sell_price",
     "min_sell_price_bypass_spread",
 
-    # Tomorrow profit thresholds (v1.2.0+)
+    # Tomorrow profit thresholds
     "min_profit_charge_tomorrow",
     "min_profit_discharge_tomorrow",
 
@@ -320,7 +321,7 @@ CALCULATION_AFFECTING_KEYS: Final = {
     # Optimizer search space
     "fast_search",
 
-    # HA Energy Dashboard integration (v2.2: single binary toggle)
+    # HA Energy Dashboard integration
     "use_ha_energy_dashboard",
 }
 

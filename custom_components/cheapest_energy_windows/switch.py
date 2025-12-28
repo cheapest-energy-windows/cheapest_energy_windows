@@ -59,11 +59,10 @@ async def async_setup_entry(
         ("use_solar_forecast_sensor", "Use Solar Forecast Sensor", False, "mdi:connection"),
         # RTE-aware discharge (global battery setting)
         ("rte_aware_discharge", "RTE-Aware Normal Discharge", True, "mdi:battery-sync"),
-        # Note: Arbitrage Protection removed in v1.2.0
-        # Profit thresholds now naturally control window qualification
+        ("rte_protect_solar_charge", "RTE Protect Solar Charge", True, "mdi:solar-power-variant"),
         # Optimizer search space
         ("fast_search", "Fast Search", True, "mdi:lightning-bolt"),
-        # HA Energy Dashboard integration (v2.2: single binary toggle)
+        # HA Energy Dashboard integration
         ("use_ha_energy_dashboard", "Use HA Energy Dashboard", False, "mdi:meter-electric"),
     ]
 
