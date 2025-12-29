@@ -602,6 +602,72 @@ class WindowOptimizer:
             else:
                 decision_tree.append(f"Savings: €{savings:.4f}/day")
 
+        # Add "What This Means" explanation section
+        decision_stats = best_result.get("decision_stats", {}) if best_result else {}
+        if decision_stats:
+            decision_tree.append("")
+            decision_tree.append("=== What This Means ===")
+            decision_tree.append("")
+
+            # Period breakdown
+            total = decision_stats.get("periods_total", 0)
+            charge = decision_stats.get("periods_charge", 0)
+            discharge = decision_stats.get("periods_discharge", 0)
+            solar = decision_stats.get("periods_solar_covered", 0)
+            rte = decision_stats.get("periods_rte_preserved", 0)
+            battery = decision_stats.get("periods_battery_covers", 0)
+            grid = decision_stats.get("periods_grid_covers", 0)
+
+            decision_tree.append(f"Period Breakdown ({total} total):")
+
+            # Charge/discharge with price ranges
+            charge_min = decision_stats.get("charge_price_min", 0)
+            charge_max = decision_stats.get("charge_price_max", 0)
+            if charge > 0:
+                decision_tree.append(f"  {charge} Charge (green): Buy €{charge_min:.3f}-{charge_max:.3f}/kWh")
+            else:
+                decision_tree.append(f"  {charge} Charge: No charging windows")
+
+            discharge_min = decision_stats.get("discharge_price_min", 0)
+            discharge_max = decision_stats.get("discharge_price_max", 0)
+            if discharge > 0:
+                decision_tree.append(f"  {discharge} Discharge (orange): Sell €{discharge_min:.3f}-{discharge_max:.3f}/kWh")
+            else:
+                decision_tree.append(f"  {discharge} Discharge: No discharge windows")
+
+            # Normal period breakdown
+            if solar > 0:
+                decision_tree.append(f"  {solar} Solar-Covered (gray): Solar covers base usage")
+            if battery > 0:
+                decision_tree.append(f"  {battery} Battery-Covers (gray): Battery covers base")
+            if rte > 0:
+                decision_tree.append(f"  {rte} RTE-Preserved (dark): Grid cheaper, battery preserved")
+            if grid > 0:
+                decision_tree.append(f"  {grid} Grid-Covers (gray): Grid covers base usage")
+
+            # RTE explanation if RTE preservation is active
+            breakeven = best_result.get("rte_breakeven_price", 0)
+            avg_charge = best_result.get("battery_charged_avg_price", 0)
+            if rte > 0 and breakeven > 0:
+                decision_tree.append("")
+                decision_tree.append("RTE Decision:")
+                decision_tree.append(f"  Avg charge price: €{avg_charge:.4f}/kWh")
+                battery_rte = test_config.get("battery_rte", 85) / 100
+                decision_tree.append(f"  Effective cost: €{avg_charge:.4f} ÷ {battery_rte:.0%} = €{avg_charge/battery_rte:.4f}/kWh")
+                decision_tree.append(f"  Breakeven: €{breakeven:.4f}/kWh")
+                decision_tree.append(f"  Below breakeven → grid cheaper → preserve battery")
+
+            # Solar summary if solar is active
+            expected_solar = best_result.get("expected_solar_kwh", 0)
+            solar_exported = best_result.get("solar_exported_kwh", 0)
+            solar_revenue = best_result.get("solar_export_revenue", 0)
+            if expected_solar > 0:
+                decision_tree.append("")
+                decision_tree.append("Solar Impact:")
+                decision_tree.append(f"  Expected: {expected_solar:.1f} kWh")
+                if solar_exported > 0:
+                    decision_tree.append(f"  Exported: {solar_exported:.1f} kWh (€{solar_revenue:.2f})")
+
         elapsed_ms = (time.time() - start_time) * 1000
         decision_tree.append("")
         decision_tree.append(f"Completed in {elapsed_ms:.0f}ms ({iterations} iterations)")

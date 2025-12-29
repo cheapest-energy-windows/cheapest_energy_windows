@@ -1642,6 +1642,11 @@ class WindowCalculationEngine:
         rte_breakeven_source = "simulation"  # "actual_ha" or "simulation"
         rte_solar_opportunity_price = 0.0  # Top percentile sell price for solar-only RTE
 
+        # Decision stats for optimizer report (period classification counters)
+        periods_solar_covered = 0  # Normal periods where solar fully covered base
+        periods_battery_covers = 0  # Normal periods where battery covered base (price > breakeven)
+        periods_grid_covers = 0  # Normal periods where grid covers (strategy or RTE fallback)
+
         # Energy consumption diagnostic tracking
         energy_actual_kwh = 0.0  # Sum of ACTUAL consumption used (past hours)
         energy_estimated_kwh = 0.0  # Sum of ESTIMATED consumption (future hours)
@@ -2077,12 +2082,17 @@ class WindowCalculationEngine:
                 # Remaining base demand after solar
                 base_from_other = base_demand - solar_to_base
 
+                # Track when solar fully covers base (for decision stats)
+                if base_from_other <= 0.001:  # Effectively zero
+                    periods_solar_covered += 1
+
                 # Handle remaining base demand with existing strategy
                 if base_from_other > 0:
                     if normal_strategy == "grid_covers":
                         # Grid provides remaining base usage
                         planned_base_usage_cost += price * base_from_other
                         grid_kwh_total += base_from_other
+                        periods_grid_covers += 1
                     elif normal_strategy in ("battery_covers", "battery_covers_limited"):
                         # RTE-aware discharge decision
                         use_battery = True
@@ -2121,6 +2131,7 @@ class WindowCalculationEngine:
                             battery_state -= battery_drain
                             battery_discharged_to_base_kwh += battery_drain
                             uncovered = base_from_other - battery_drain
+                            periods_battery_covers += 1
                         else:
                             # RTE-aware: preserve battery, use grid instead
                             battery_drain = 0
@@ -2242,6 +2253,20 @@ class WindowCalculationEngine:
             "energy_estimated_kwh": round(energy_estimated_kwh, 3),
             "energy_hours_with_actual": energy_hours_with_actual,
             "energy_hours_with_estimate": energy_hours_with_estimate,
+            # Decision stats for optimizer report (period classification)
+            "decision_stats": {
+                "periods_total": len(timeline),
+                "periods_charge": len(feasible_charge_windows),
+                "periods_discharge": len(feasible_discharge_windows),
+                "periods_solar_covered": periods_solar_covered,
+                "periods_battery_covers": periods_battery_covers,
+                "periods_rte_preserved": len(rte_preserved_periods),
+                "periods_grid_covers": periods_grid_covers,
+                "charge_price_min": round(min(grid_charging_prices), 4) if grid_charging_prices else 0.0,
+                "charge_price_max": round(max(grid_charging_prices), 4) if grid_charging_prices else 0.0,
+                "discharge_price_min": round(min(grid_discharging_prices), 4) if grid_discharging_prices else 0.0,
+                "discharge_price_max": round(max(grid_discharging_prices), 4) if grid_discharging_prices else 0.0,
+            },
         }
 
     def _build_result(
@@ -3098,6 +3123,8 @@ class WindowCalculationEngine:
             chrono_result["rte_preserved_kwh"] = elected_chrono_result.get("rte_preserved_kwh", 0.0)
             chrono_result["rte_preserved_periods"] = elected_chrono_result.get("rte_preserved_periods", [])
             chrono_result["rte_breakeven_price"] = elected_chrono_result.get("rte_breakeven_price", 0.0)
+            # Decision stats for optimizer report
+            chrono_result["decision_stats"] = elected_chrono_result.get("decision_stats", {})
 
             # CRITICAL: Update actual_discharge from re-run's feasible windows
             # The first run used ALL charge candidates, so some discharge windows may have been
@@ -3728,6 +3755,8 @@ class WindowCalculationEngine:
             "energy_estimated_kwh": chrono_result.get("energy_estimated_kwh", 0.0),
             "energy_hours_with_actual": chrono_result.get("energy_hours_with_actual", 0),
             "energy_hours_with_estimate": chrono_result.get("energy_hours_with_estimate", 0),
+            # Decision stats for optimizer report (period classification)
+            "decision_stats": chrono_result.get("decision_stats", {}),
             # Manual charging detection (charging outside CEW planned windows)
             "manual_charge_detected": manual_charging_info.get("manual_charge_detected", False),
             "manual_charge_hours": manual_charging_info.get("manual_charge_hours", []),
