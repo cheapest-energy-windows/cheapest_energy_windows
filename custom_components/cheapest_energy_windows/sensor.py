@@ -576,7 +576,6 @@ class CEWTodaySensor(CEWBaseSensor):
             "solar_forecast_enabled": config.get("use_solar_forecast", True),
             "solar_forecast_source": (
                 "ha_energy" if config.get("use_ha_energy_dashboard", False)
-                else "sensor" if config.get("use_solar_forecast_sensor", False)
                 else "manual"
             ),
             # Detailed battery tracking for energy flow report
@@ -977,7 +976,6 @@ class CEWTomorrowSensor(CEWBaseSensor):
             "solar_forecast_enabled": config.get("use_solar_forecast", True),
             "solar_forecast_source": (
                 "ha_energy" if config.get("use_ha_energy_dashboard", False)
-                else "sensor" if config.get("use_solar_forecast_sensor", False)
                 else "manual"
             ),
             # Detailed battery tracking for energy flow report

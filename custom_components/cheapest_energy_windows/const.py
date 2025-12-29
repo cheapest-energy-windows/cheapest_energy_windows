@@ -25,6 +25,7 @@ CONF_BASE_USAGE: Final = "base_usage"
 CONF_BASE_USAGE_CHARGE_STRATEGY: Final = "base_usage_charge_strategy"
 CONF_BASE_USAGE_NORMAL_STRATEGY: Final = "base_usage_normal_strategy"
 CONF_BASE_USAGE_DISCHARGE_STRATEGY: Final = "base_usage_discharge_strategy"
+CONF_BASE_USAGE_OFF_STRATEGY: Final = "base_usage_off_strategy"
 
 # Buffer/chronological calculation configuration keys
 CONF_BATTERY_BUFFER_KWH: Final = "battery_buffer_kwh"
@@ -80,6 +81,7 @@ DEFAULT_BASE_USAGE: Final = 500
 DEFAULT_BASE_USAGE_CHARGE_STRATEGY: Final = "grid_covers_both"
 DEFAULT_BASE_USAGE_NORMAL_STRATEGY: Final = "battery_covers_limited"
 DEFAULT_BASE_USAGE_DISCHARGE_STRATEGY: Final = "subtract_base"
+DEFAULT_BASE_USAGE_OFF_STRATEGY: Final = "grid_covers_solar_charges"
 
 # Buffer/chronological calculation defaults
 DEFAULT_BATTERY_BUFFER_KWH: Final = 0.0
@@ -126,6 +128,7 @@ DEFAULT_SELL_FORMULA_PARAM_B: Final = 1.0    # Multiplier (B)
 BASE_USAGE_CHARGE_OPTIONS: Final = ["grid_covers_both", "battery_covers_base"]
 BASE_USAGE_NORMAL_OPTIONS: Final = ["grid_covers", "battery_covers"]
 BASE_USAGE_DISCHARGE_OPTIONS: Final = ["already_included", "subtract_base"]
+BASE_USAGE_OFF_OPTIONS: Final = ["grid_covers", "grid_covers_solar_charges"]
 
 # Update intervals
 UPDATE_INTERVAL: Final = timedelta(seconds=10)
@@ -242,6 +245,7 @@ CALCULATION_AFFECTING_KEYS: Final = {
     "base_usage_charge_strategy",
     "base_usage_normal_strategy",
     "base_usage_discharge_strategy",
+    "base_usage_off_strategy",
 
     # Battery settings
     "battery_rte",
@@ -285,9 +289,6 @@ CALCULATION_AFFECTING_KEYS: Final = {
     "expected_solar_kwh",
     "expected_solar_kwh_tomorrow",
     "use_solar_forecast",
-    "use_solar_forecast_sensor",
-    "solar_forecast_sensor",
-    "solar_forecast_sensor_tomorrow",
 
     # Tomorrow settings
     "tomorrow_settings_enabled",

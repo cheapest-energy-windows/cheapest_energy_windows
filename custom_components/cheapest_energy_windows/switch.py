@@ -56,7 +56,6 @@ async def async_setup_entry(
         ("use_projected_buffer_tomorrow", "Use Projected Buffer Tomorrow", False, "mdi:battery-arrow-up"),
         # Solar production toggles
         ("use_solar_forecast", "Use Solar Forecast", True, "mdi:solar-power"),
-        ("use_solar_forecast_sensor", "Use Solar Forecast Sensor", False, "mdi:connection"),
         # RTE-aware discharge (global battery setting)
         ("rte_aware_discharge", "RTE-Aware Normal Discharge", True, "mdi:battery-sync"),
         # Optimizer search space

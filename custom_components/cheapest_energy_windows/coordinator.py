@@ -455,9 +455,6 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             "expected_solar_kwh": float(options.get("expected_solar_kwh", DEFAULT_EXPECTED_SOLAR_KWH)),
             "expected_solar_kwh_tomorrow": float(options.get("expected_solar_kwh_tomorrow", DEFAULT_EXPECTED_SOLAR_KWH)),
             "use_solar_forecast": bool(options.get("use_solar_forecast", True)),
-            "use_solar_forecast_sensor": bool(options.get("use_solar_forecast_sensor", False)),
-            "solar_forecast_sensor": options.get("solar_forecast_sensor", "not_configured"),
-            "solar_forecast_sensor_tomorrow": options.get("solar_forecast_sensor_tomorrow", "not_configured"),
 
             # Auto-optimization settings
             "auto_optimize_strategy": options.get("auto_optimize_strategy", "off"),

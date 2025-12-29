@@ -1200,23 +1200,7 @@ class WindowCalculationEngine:
         if not config.get("use_solar_forecast", True):
             return 0.0
 
-        # Try sensor if enabled and hass is available
-        if config.get("use_solar_forecast_sensor", False) and hass:
-            sensor_key = "solar_forecast_sensor_tomorrow" if is_tomorrow else "solar_forecast_sensor"
-            sensor_entity = config.get(sensor_key, "not_configured")
-
-            if sensor_entity and sensor_entity != "not_configured":
-                try:
-                    sensor_state = hass.states.get(sensor_entity)
-                    if sensor_state and sensor_state.state not in ("unknown", "unavailable", None):
-                        solar_value = float(sensor_state.state)
-                        _LOGGER.debug(f"Solar forecast from sensor {sensor_entity}: {solar_value} kWh")
-                        return solar_value
-                except (ValueError, TypeError) as e:
-                    _LOGGER.warning(f"Could not read solar forecast sensor {sensor_entity}: {e}")
-                    # Fall through to manual values
-
-        # Fall back to manual values
+        # Use manual values
         if is_tomorrow:
             # Tomorrow uses tomorrow-specific setting if enabled
             suffix = "_tomorrow" if config.get("tomorrow_settings_enabled", False) else ""
@@ -2035,6 +2019,10 @@ class WindowCalculationEngine:
                 solar_to_base = min(solar_available, base_demand)
                 solar_remaining = solar_available - solar_to_base
 
+                # Track solar exported this period for potential OFF strategy handling
+                solar_exported_this_period = 0.0
+                solar_export_sell_price_this_period = 0.0
+
                 # Track solar contribution to base
                 if solar_to_base > 0:
                     solar_offset_base_kwh += solar_to_base
@@ -2082,6 +2070,9 @@ class WindowCalculationEngine:
                             "revenue": revenue,
                             "kwh": solar_remaining
                         })
+                        # Track for potential OFF strategy handling
+                        solar_exported_this_period = solar_remaining
+                        solar_export_sell_price_this_period = sell_price
 
                 # Remaining base demand after solar
                 base_from_other = base_demand - solar_to_base
@@ -2142,6 +2133,36 @@ class WindowCalculationEngine:
                                 "breakeven": round(current_breakeven_price, 4),
                                 "preserved_kwh": round(min(base_from_other, effective_battery), 3)
                             })
+
+                            # Apply OFF strategy for solar charging during RTE-preserved periods
+                            off_strategy = config.get("base_usage_off_strategy", "grid_covers_solar_charges")
+                            if off_strategy == "grid_covers_solar_charges" and solar_exported_this_period > 0:
+                                # Solar should charge battery instead of being exported
+                                charge_room = max(0, battery_capacity - battery_state)
+                                max_charge_rate = charge_power * duration_hours
+                                solar_to_batt = min(solar_exported_this_period, charge_room, max_charge_rate)
+
+                                if solar_to_batt > 0:
+                                    # Undo the export tracking
+                                    solar_exported_kwh -= solar_to_batt
+                                    export_revenue_to_remove = solar_to_batt * solar_export_sell_price_this_period
+                                    solar_export_revenue -= export_revenue_to_remove
+
+                                    # Update the export event (reduce or remove)
+                                    if solar_export_events and solar_export_events[-1].get("timestamp") == period["timestamp"]:
+                                        solar_export_events[-1]["kwh"] -= solar_to_batt
+                                        solar_export_events[-1]["revenue"] -= export_revenue_to_remove
+                                        if solar_export_events[-1]["kwh"] <= 0.001:  # Near-zero cleanup
+                                            solar_export_events.pop()
+
+                                    # Track RTE loss for solar charging
+                                    rte_loss = solar_to_batt * (1 - battery_rte)
+                                    rte_loss_kwh += rte_loss
+                                    rte_loss_value += rte_loss * solar_export_sell_price_this_period
+
+                                    # Charge battery (apply RTE)
+                                    battery_state += solar_to_batt * battery_rte
+                                    solar_to_battery_kwh += solar_to_batt
 
                         if uncovered > 0:
                             # Grid fallback: battery empty/preserved, grid covers the rest
