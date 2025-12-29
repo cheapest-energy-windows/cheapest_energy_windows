@@ -3491,7 +3491,8 @@ class WindowCalculationEngine:
         )
 
         # Calculate completed_net_grid_kwh using actual HA data when available
-        if use_ha_energy and grid_import_hourly and grid_export_hourly:
+        # Only use HA meter data for TODAY (not tomorrow, which has no meter data yet)
+        if use_ha_energy and grid_import_hourly and grid_export_hourly and not is_tomorrow:
             # Actual net grid from meter: import - export for completed hours
             completed_net_grid_kwh = (
                 sum(v for h, v in grid_import_hourly.items() if h <= current_hour) -
@@ -3516,8 +3517,39 @@ class WindowCalculationEngine:
             else:
                 # Fallback to real consumption avg if weighted not available
                 future_base_kwh = max(0, energy_statistics.get("avg_real_consumption", base_usage) * hours_remaining - remaining_solar)
-            # Override net_grid_kwh with actual + future estimate (minus solar offset)
-            net_grid_kwh = completed_net_grid_kwh + future_base_kwh
+
+            # Calculate future window impacts on grid (windows that haven't happened yet)
+            # Charge windows DRAW from grid, discharge windows EXPORT to grid
+            future_charge_windows = [w for w in actual_charge if w["timestamp"].hour > current_hour]
+            future_discharge_windows = [w for w in actual_discharge if w["timestamp"].hour > current_hour]
+            future_charge_hours = len(future_charge_windows) * window_duration_hours
+            future_discharge_hours = len(future_discharge_windows) * window_duration_hours
+
+            # Calculate hours where BATTERY covers base (not grid)
+            # - Discharge with subtract_base: battery covers house first, exports remainder
+            # - Charge with battery_covers_base: battery covers house during charging
+            battery_covers_base_hours = 0
+            if discharge_strategy == "subtract_base":
+                battery_covers_base_hours += future_discharge_hours
+            if charge_strategy == "battery_covers_base":
+                battery_covers_base_hours += future_charge_hours
+
+            # future_base_kwh includes base for ALL hours, but battery covers base during
+            # discharge and battery_covers_base charge hours. Subtract those.
+            base_covered_by_battery = battery_covers_base_hours * base_usage
+            adjusted_future_base = max(0, future_base_kwh - base_covered_by_battery)
+
+            # Grid draw for charge windows: always charge_power (not effective_charge_power)
+            # - grid_covers_both: grid provides charge + base (base already in adjusted_future_base)
+            # - battery_covers_base: grid provides charge only (base removed from adjusted_future_base)
+            future_charge_grid_kwh = future_charge_hours * charge_power
+
+            # Grid export for discharge: use effective_discharge_power (net export after covering base)
+            future_discharge_grid_kwh = future_discharge_hours * effective_discharge_power
+
+            # Override net_grid_kwh with actual + future estimate
+            # Formula: completed (actual) + base (adjusted) + charge - discharge
+            net_grid_kwh = completed_net_grid_kwh + adjusted_future_base + future_charge_grid_kwh - future_discharge_grid_kwh
         else:
             # Simulation mode: reconstruct from individual components
             completed_net_grid_kwh = (

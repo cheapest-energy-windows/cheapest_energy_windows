@@ -318,6 +318,7 @@ CALCULATION_AFFECTING_KEYS: Final = {
     "auto_optimize_strategy",
     "auto_optimize_strategy_tomorrow",
     "min_daily_savings",
+    "min_daily_savings_tomorrow",
 
     # Optimizer search space
     "fast_search",

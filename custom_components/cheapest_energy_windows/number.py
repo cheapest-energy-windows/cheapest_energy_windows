@@ -202,10 +202,10 @@ async def async_setup_entry(
             "mdi:cash-plus", NumberMode.BOX
         ),
 
-        # Auto-optimization minimum savings threshold
+        # Auto-optimization threshold (negative = accept extra cost for strategy goal)
         CEWNumber(
-            hass, config_entry, "min_daily_savings", "Min Daily Savings",
-            0, 5.0, 0.50, 0.05, "EUR",
+            hass, config_entry, "min_daily_savings", "Optimization Threshold",
+            -10, 5.0, 0.50, 0.05, "EUR",
             "mdi:currency-eur", NumberMode.BOX
         ),
     ])
@@ -219,10 +219,11 @@ async def async_setup_entry(
         ("min_profit_discharge_tomorrow", "Min Profit Discharge Tomorrow", DEFAULT_MIN_PROFIT_DISCHARGE, 200, "%"),
         ("price_override_threshold_tomorrow", "Price Override Threshold Tomorrow", DEFAULT_PRICE_OVERRIDE_THRESHOLD, 0.5, "EUR/kWh"),
         ("battery_buffer_kwh_tomorrow", "Battery Buffer Energy Tomorrow", DEFAULT_BATTERY_BUFFER_KWH, 100, "kWh"),
+        ("min_daily_savings_tomorrow", "Optimization Threshold Tomorrow", 0.50, 5.0, "EUR"),
     ]
 
     for key, name, default, max_val, unit in tomorrow_configs:
-        min_val = 1 if "percentile" in key else -100 if "min_profit" in key else 0 if "windows" in key else 0
+        min_val = 1 if "percentile" in key else -100 if "min_profit" in key else 0 if "windows" in key else -10 if "min_daily_savings" in key else 0
         step = 1 if "%" in unit or "windows" in unit else 0.1 if "kWh" in unit else 0.001
         numbers.append(
             CEWNumber(

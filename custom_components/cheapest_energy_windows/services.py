@@ -263,6 +263,8 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             ("min_profit_discharge_tomorrow", "min_profit_discharge"),
             # Price override
             ("price_override_threshold_tomorrow", "price_override_threshold"),
+            # Auto-optimizer min savings threshold
+            ("min_daily_savings_tomorrow", "min_daily_savings"),
         ]
 
         # Rotate number settings

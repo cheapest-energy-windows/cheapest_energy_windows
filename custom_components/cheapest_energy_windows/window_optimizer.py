@@ -249,30 +249,63 @@ class WindowOptimizer:
         # Apply safety margin - don't plan to use 100% of available energy
         return required_kwh <= available_kwh * self.ENERGY_UTILIZATION_MARGIN
 
-    def _get_optimization_score(self, result: Dict[str, Any], strategy: str) -> float:
+    def _get_optimization_score(self, result: Dict[str, Any], strategy: str, config: Dict[str, Any] = None) -> float:
         """Get the score to optimize for based on strategy.
 
-        Returns a value where HIGHER is better for both strategies.
+        Returns a value where HIGHER is better for all strategies.
         This allows unified comparison logic regardless of strategy.
 
         Args:
             result: Calculation result dictionary
-            strategy: "minimize_cost" or "maximize_value"
+            strategy: Optimization strategy name
+            config: Configuration dictionary (needed for some strategies)
 
         Returns:
             Score where higher is better
         """
-        if strategy == "maximize_value":
-            # Maximize total value = savings + EOD battery value
-            # savings = baseline_cost - planned_total_cost (what we saved vs doing nothing)
-            # EOD value = remaining battery value for tomorrow
+        if strategy == "minimize_cost":
+            # minimize_cost: Return NEGATIVE cost (so higher = better)
+            return -result.get("planned_total_cost", float('inf'))
+
+        elif strategy == "balanced":
+            # Balanced: 70% weight on cost savings, 30% on EOD battery state
             baseline_cost = result.get("baseline_cost", 0)
             planned_total_cost = result.get("planned_total_cost", float('inf'))
-            eod_value = result.get("battery_state_end_of_day_value", 0)
             savings = baseline_cost - planned_total_cost
-            return savings + eod_value
+
+            battery_capacity = float(config.get("battery_capacity", 10)) if config else 10
+            eod_state = result.get("battery_state_end_of_day", 0)
+            eod_soc = eod_state / battery_capacity if battery_capacity > 0 else 0
+
+            # 70% savings weight, 30% buffer weight (scaled for meaningful contribution)
+            return (savings * 0.7) + (eod_soc * 3.0)
+
+        elif strategy == "maximize_self_sufficiency":
+            # Grid Independence: Minimize grid consumption
+            # grid_kwh_total = charge from grid + uncovered base usage from grid
+            grid_kwh = result.get("grid_kwh_total", 0)
+            # base_usage_kwh = total daily base consumption in kWh
+            base_kwh = result.get("base_usage_kwh", 1)
+            # Total consumption = base usage + any additional loads
+            total_kwh = max(base_kwh, 1)  # Avoid division by zero
+            self_sufficiency = 1 - (grid_kwh / total_kwh)
+            # Clamp to 0-100 range
+            self_sufficiency = max(0, min(1, self_sufficiency))
+            return self_sufficiency * 100  # 0-100%
+
+        elif strategy == "maximize_solar_use":
+            # Use My Solar: Maximize solar self-consumption ratio
+            # Calculate solar self-consumed = expected - exported
+            expected_solar = result.get("expected_solar_kwh", 0)
+            solar_export = result.get("solar_exported_kwh", 0)
+            solar_self = max(0, expected_solar - solar_export)
+            solar_total = expected_solar
+            if solar_total > 0:
+                return (solar_self / solar_total) * 100
+            return 100.0  # No solar = 100% self-consumed (nothing to export)
+
         else:
-            # minimize_cost: Return NEGATIVE cost (so higher = better)
+            # Default fallback to minimize_cost
             return -result.get("planned_total_cost", float('inf'))
 
     def _bypass_thresholds(self, config: Dict[str, Any], suffix: str = "") -> Dict[str, Any]:
@@ -334,7 +367,11 @@ class WindowOptimizer:
         best_by_percentile: Dict[int, Tuple[int, int, float]] = {}  # {percentile: (charge, discharge, cost)}
 
         suffix = "_tomorrow" if is_tomorrow and config.get("tomorrow_settings_enabled", False) else ""
-        min_daily_savings = config.get("min_daily_savings", 0.50)
+        # Use per-day min_daily_savings threshold
+        if is_tomorrow:
+            min_daily_savings = config.get("min_daily_savings_tomorrow", config.get("min_daily_savings", 0.50))
+        else:
+            min_daily_savings = config.get("min_daily_savings", 0.50)
 
         # Bypass thresholds to find true optimal
         test_config = self._bypass_thresholds(config, suffix)
@@ -353,8 +390,10 @@ class WindowOptimizer:
 
         # Build decision tree header
         STRATEGY_NAMES = {
-            "minimize_cost": "Minimize Cost",
-            "maximize_value": "Maximize Value"
+            "minimize_cost": "Minimize Electricity Costs",
+            "balanced": "Save Money + Keep Reserve",
+            "maximize_self_sufficiency": "Minimize Grid Dependency",
+            "maximize_solar_use": "Use My Own Solar First",
         }
         strategy_display = STRATEGY_NAMES.get(strategy, strategy)
         decision_tree.append(f"Strategy: {strategy_display}")
@@ -396,7 +435,7 @@ class WindowOptimizer:
             raw_prices, baseline_config, is_tomorrow, hass, energy_statistics
         )
         baseline_cost = baseline_result.get("planned_total_cost", float('inf'))
-        baseline_score = self._get_optimization_score(baseline_result, strategy)
+        baseline_score = self._get_optimization_score(baseline_result, strategy, config)
         iterations += 1
 
         # Start with baseline as best
@@ -444,7 +483,7 @@ class WindowOptimizer:
                         raw_prices, iter_config, is_tomorrow, hass, energy_statistics
                     )
                     iterations += 1
-                    score = self._get_optimization_score(result, strategy)
+                    score = self._get_optimization_score(result, strategy, config)
                     cost = result.get("planned_total_cost", float('inf'))
 
                     # Track best per percentile (using score for comparison)
@@ -500,7 +539,7 @@ class WindowOptimizer:
 
             charge_range = range(charge_min, charge_max_fine + 1)
             discharge_range = range(discharge_min, discharge_max_fine + 1)
-            percentile_range = range(percentile_min, percentile_max + 1, 3)
+            percentile_range = range(percentile_min, percentile_max + 1, 1)  # Step=1 for more precise refinement
 
             decision_tree.append("--- Phase 2: Fine Refinement ---")
             decision_tree.append(f"Search around: {coarse_charge}C/{coarse_discharge}D @ {coarse_percentile}%")
@@ -532,7 +571,7 @@ class WindowOptimizer:
                         )
                         iterations += 1
                         fine_iterations += 1
-                        score = self._get_optimization_score(result, strategy)
+                        score = self._get_optimization_score(result, strategy, config)
                         cost = result.get("planned_total_cost", float('inf'))
 
                         if score > best_score:  # Higher score is better
@@ -554,14 +593,18 @@ class WindowOptimizer:
             decision_tree.append("")
 
         # Check if improvement meets minimum threshold
-        # For minimize_cost: savings = baseline_cost - best_cost
-        # For maximize_value: improvement = best_score - baseline_score (value improvement)
-        if strategy == "maximize_value":
-            # For maximize_value, compare scores (value improvement)
+        # Different strategies use different improvement metrics
+        if strategy in ("minimize_cost", "balanced"):
+            # Cost-based strategies: use cost savings
+            improvement = baseline_cost - best_cost
+            below_min_savings = improvement < min_daily_savings and best_config != (0, 0, 25)
+        elif strategy in ("maximize_self_sufficiency", "maximize_solar_use"):
+            # Percentage-based strategies: use score difference (already 0-100%)
             improvement = best_score - baseline_score
+            # For percentage strategies, min_daily_savings is interpreted as minimum % improvement
             below_min_savings = improvement < min_daily_savings and best_config != (0, 0, 25)
         else:
-            # For minimize_cost, use cost savings
+            # Default fallback to cost savings
             improvement = baseline_cost - best_cost
             below_min_savings = improvement < min_daily_savings and best_config != (0, 0, 25)
 
@@ -576,8 +619,12 @@ class WindowOptimizer:
 
         # Decision section
         decision_tree.append("--- Decision ---")
-        improvement_label = "value improvement" if strategy == "maximize_value" else "savings"
-        decision_tree.append(f"Potential {improvement_label}: €{improvement:.4f}")
+        if strategy in ("maximize_self_sufficiency", "maximize_solar_use"):
+            improvement_label = "% improvement"
+            decision_tree.append(f"Potential {improvement_label}: {improvement:.2f}%")
+        else:
+            improvement_label = "savings"
+            decision_tree.append(f"Potential {improvement_label}: €{improvement:.4f}")
         decision_tree.append(f"Min threshold: €{min_daily_savings:.2f}")
 
         if below_min_savings:
@@ -676,8 +723,8 @@ class WindowOptimizer:
         available_kwh = self._calculate_available_discharge_kwh(best_config[0], test_config, suffix, energy_statistics)
         required_kwh = self._calculate_required_discharge_kwh(best_config[1], test_config)
 
-        # Calculate total_value from best_result
-        final_total_value = self._get_optimization_score(best_result, "maximize_value")
+        # Calculate total_value from best_result (for backward compatibility logging)
+        final_total_value = self._get_optimization_score(best_result, "balanced", config)
 
         _LOGGER.info(
             f"Optimizer ({strategy}): charge={best_config[0]}, discharge={best_config[1]}, "

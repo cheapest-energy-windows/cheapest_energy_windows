@@ -49,12 +49,13 @@ async def async_setup_entry(
         ("base_usage_charge_strategy", "Base Usage: During Charging", ["grid_covers_both", "battery_covers_base"], "grid_covers_both", "mdi:battery-charging"),
         ("base_usage_normal_strategy", "Base Usage: During Normal", ["battery_covers_limited", "battery_covers", "grid_covers"], "battery_covers_limited", "mdi:home-lightning-bolt"),
         ("base_usage_discharge_strategy", "Base Usage: During Discharge", ["already_included", "subtract_base"], "subtract_base", "mdi:battery-arrow-down"),
+        ("base_usage_off_strategy", "Base Usage: During Off/RTE", ["grid_covers", "grid_covers_solar_charges"], "grid_covers_solar_charges", "mdi:battery-off"),
         ("price_country", "Price Formula", country_display_names, default_country_display, "mdi:map-marker"),
         # Solar production priority strategy
         ("solar_priority_strategy", "Solar Priority", ["base_then_grid", "base_then_battery"], DEFAULT_SOLAR_PRIORITY_STRATEGY, "mdi:solar-power-variant"),
         # Auto-optimization strategy
-        ("auto_optimize_strategy", "Auto Optimize Strategy", ["off", "minimize_cost", "maximize_value"], "off", "mdi:auto-fix"),
-        ("auto_optimize_strategy_tomorrow", "Auto Optimize Strategy Tomorrow", ["off", "minimize_cost", "maximize_value"], "off", "mdi:auto-fix"),
+        ("auto_optimize_strategy", "Auto Optimize Strategy", ["off", "minimize_cost", "balanced", "maximize_self_sufficiency", "maximize_solar_use"], "off", "mdi:auto-fix"),
+        ("auto_optimize_strategy_tomorrow", "Auto Optimize Strategy Tomorrow", ["off", "minimize_cost", "balanced", "maximize_self_sufficiency", "maximize_solar_use"], "off", "mdi:auto-fix"),
     ]
 
     for key, name, options, default, icon in select_configs:

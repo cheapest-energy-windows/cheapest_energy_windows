@@ -460,6 +460,7 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             "auto_optimize_strategy": options.get("auto_optimize_strategy", "off"),
             "auto_optimize_strategy_tomorrow": options.get("auto_optimize_strategy_tomorrow", "off"),
             "min_daily_savings": float(options.get("min_daily_savings", 0.50)),
+            "min_daily_savings_tomorrow": float(options.get("min_daily_savings_tomorrow", 0.50)),
             "fast_search": options.get("fast_search", True),
 
             # HA Energy Dashboard integration

@@ -292,16 +292,20 @@
         "name": "Today's Strategy",
         "state": {
           "off": "Off (Manual)",
-          "minimize_cost": "Minimize Cost",
-          "maximize_value": "Maximize Value"
+          "minimize_cost": "Minimize Electricity Costs",
+          "balanced": "Save Money + Keep Reserve",
+          "maximize_self_sufficiency": "Minimize Grid Dependency",
+          "maximize_solar_use": "Use My Own Solar First"
         }
       },
       "auto_optimize_strategy_tomorrow": {
         "name": "Tomorrow's Strategy",
         "state": {
           "off": "Off (Manual)",
-          "minimize_cost": "Minimize Cost",
-          "maximize_value": "Maximize Value"
+          "minimize_cost": "Minimize Electricity Costs",
+          "balanced": "Save Money + Keep Reserve",
+          "maximize_self_sufficiency": "Minimize Grid Dependency",
+          "maximize_solar_use": "Use My Own Solar First"
         }
       }
     }
