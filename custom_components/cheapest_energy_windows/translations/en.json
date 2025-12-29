@@ -246,6 +246,13 @@
           "already_included": "Export full discharge power"
         }
       },
+      "base_usage_off_strategy": {
+        "name": "Base Usage: During Off/RTE",
+        "state": {
+          "grid_covers": "Grid covers (battery idle)",
+          "grid_covers_solar_charges": "Grid covers, solar charges battery"
+        }
+      },
       "solar_priority_strategy": {
         "name": "Solar Priority",
         "state": {
@@ -323,6 +330,12 @@
       "options": {
         "subtract_base": "House first, export remainder",
         "already_included": "Export full discharge power"
+      }
+    },
+    "base_usage_off_strategy": {
+      "options": {
+        "grid_covers": "Grid covers (battery idle)",
+        "grid_covers_solar_charges": "Grid covers, solar charges battery"
       }
     },
     "price_country": {
