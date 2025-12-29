@@ -3428,9 +3428,11 @@ class WindowCalculationEngine:
                 )
             else:
                 # Original calculation: estimate from windows (full day simulation)
+                # NOTE: grid_savings_from_solar is NOT subtracted here because it's already
+                # reflected in lower planned_base_usage_cost (solar-covered base is not charged)
                 planned_total_cost = round(
                     planned_charge_cost + planned_base_usage_cost - planned_discharge_revenue
-                    - solar_export_revenue - completed_solar_export_revenue - grid_savings_from_solar, 3
+                    - solar_export_revenue - completed_solar_export_revenue, 3
                 )
 
             # Recalculate uncovered cost after chrono filtering (battery_covers_limited fallback to grid)
