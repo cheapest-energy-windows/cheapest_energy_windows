@@ -257,9 +257,9 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             ("expensive_windows_tomorrow", "expensive_windows"),
             # Percentile threshold
             ("percentile_threshold_tomorrow", "percentile_threshold"),
-            # Spreads
-            ("min_spread_tomorrow", "min_spread"),
-            ("min_spread_discharge_tomorrow", "min_spread_discharge"),
+            # Profit thresholds (replaced old min_spread settings)
+            ("min_profit_charge_tomorrow", "min_profit_charge"),
+            ("min_profit_discharge_tomorrow", "min_profit_discharge"),
             # Price override
             ("price_override_threshold_tomorrow", "price_override_threshold"),
         ]
@@ -304,6 +304,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         # Rotate select settings
         select_settings = [
             ("time_override_mode_tomorrow", "time_override_mode"),
+            ("auto_optimize_strategy_tomorrow", "auto_optimize_strategy"),
         ]
 
         for tomorrow_key, today_key in select_settings:
