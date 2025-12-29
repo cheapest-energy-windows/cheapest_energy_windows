@@ -59,7 +59,6 @@ async def async_setup_entry(
         ("use_solar_forecast_sensor", "Use Solar Forecast Sensor", False, "mdi:connection"),
         # RTE-aware discharge (global battery setting)
         ("rte_aware_discharge", "RTE-Aware Normal Discharge", True, "mdi:battery-sync"),
-        ("rte_protect_solar_charge", "RTE Protect Solar Charge", True, "mdi:solar-power-variant"),
         # Optimizer search space
         ("fast_search", "Fast Search", True, "mdi:lightning-bolt"),
         # HA Energy Dashboard integration

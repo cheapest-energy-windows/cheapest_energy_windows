@@ -251,7 +251,6 @@ CALCULATION_AFFECTING_KEYS: Final = {
     # RTE-aware discharge (global battery setting)
     "rte_aware_discharge",
     "rte_discharge_margin",
-    "rte_protect_solar_charge",
 
     # Price overrides
     "price_override_enabled",

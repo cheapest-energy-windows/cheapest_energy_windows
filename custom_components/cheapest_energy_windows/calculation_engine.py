@@ -1281,7 +1281,12 @@ class WindowCalculationEngine:
                 elif str(period_hour) in hourly_forecast:
                     return hourly_forecast[str(period_hour)]
 
-                # Fallback: distribute remaining forecast across remaining window
+                # If hourly forecast exists but doesn't have this hour, return 0
+                # (forecast says no solar at this hour - don't fall through to window distribution)
+                if hourly_forecast:
+                    return 0.0
+
+                # Fallback only when no hourly forecast at all: distribute remaining
                 actual_solar_so_far = sum(solar_hourly.values())
                 remaining_forecast = max(0, expected_solar_kwh - actual_solar_so_far)
 
@@ -1303,6 +1308,11 @@ class WindowCalculationEngine:
                 return hourly_forecast[period_hour]
             elif str(period_hour) in hourly_forecast:
                 return hourly_forecast[str(period_hour)]
+
+            # If hourly forecast exists but doesn't have this hour, return 0
+            # (forecast says no solar at this hour - don't fall through to window distribution)
+            if hourly_forecast:
+                return 0.0
 
         # Parse solar window times
         try:
@@ -1588,7 +1598,8 @@ class WindowCalculationEngine:
         current_hour = energy_stats.get("current_hour", 23)  # For past/future determination
         # Legacy compatibility aliases
         consumption_hourly = real_consumption_hourly
-        avg_hourly_consumption = avg_real_consumption
+        # For future hours, use weighted 72h average (base_usage), not today's avg which may be unrepresentative
+        avg_hourly_consumption = base_usage
 
         # Strategies
         charge_strategy = config.get("base_usage_charge_strategy", "grid_covers_both")
@@ -2109,32 +2120,9 @@ class WindowCalculationEngine:
                                 # Only use battery if current price exceeds breakeven + margin
                                 use_battery = price > current_breakeven_price
                             else:
-                                # Simulation had NO grid charging - battery_state came from SOLAR
-                                # Check if user wants RTE protection for solar-charged battery
-                                rte_protect_solar = config.get("rte_protect_solar_charge", True)
-
-                                if rte_protect_solar:
-                                    # Use TOP percentile sell prices as opportunity baseline
-                                    # This represents what we COULD sell the energy for
-                                    all_sell_prices = [p["sell_price"] for p in timeline if p.get("sell_price", 0) > 0]
-
-                                    if all_sell_prices:
-                                        # Use top 20% of sell prices as opportunity baseline
-                                        sorted_prices = sorted(all_sell_prices, reverse=True)
-                                        top_count = max(1, len(sorted_prices) // 5)  # Top 20%
-                                        top_sell_prices = sorted_prices[:top_count]
-                                        avg_opportunity = sum(top_sell_prices) / len(top_sell_prices)
-
-                                        # Breakeven = opportunity price minus margin
-                                        current_breakeven_price = avg_opportunity * (1 - rte_discharge_margin)
-                                        use_battery = price > current_breakeven_price
-                                        rte_solar_opportunity_price = avg_opportunity
-                                    else:
-                                        # No price data - freely use battery
-                                        use_battery = True
-                                else:
-                                    # User disabled solar RTE protection - freely use solar-charged battery
-                                    use_battery = True
+                                # Simulation had NO grid charging - battery came from SOLAR
+                                # Solar energy has no cost basis, so freely use it for base usage
+                                use_battery = True
 
                         if use_battery:
                             # Battery provides remaining base usage (drain battery)
@@ -2383,8 +2371,8 @@ class WindowCalculationEngine:
                 period_hour = timestamp.hour if hasattr(timestamp, 'hour') else 0
                 if period_hour in real_consumption_hourly:
                     return real_consumption_hourly[period_hour]  # kWh/hour = kW
-                elif avg_real_consumption > 0:
-                    return avg_real_consumption
+                # For future hours (or hours without data), use weighted 72h average (base_usage)
+                # NOT today's avg which may be unrepresentative early in the day
             return base_usage
 
         # Get strategies
@@ -3467,12 +3455,20 @@ class WindowCalculationEngine:
             hours_remaining = 24 - current_hour  # At hour 23: 1 hour left until EOD
             # Use weighted 72h avg for future estimate (more stable than daily avg)
             weighted_avg = energy_statistics.get("weighted_avg_consumption", 0.0)
+
+            # Calculate remaining solar forecast for future hours (reduces grid consumption)
+            solar_forecast_hourly = energy_statistics.get("solar_forecast_hourly_today", {})
+            remaining_solar = sum(
+                v for h, v in solar_forecast_hourly.items()
+                if int(h) > current_hour
+            )
+
             if weighted_avg > 0:
-                future_base_kwh = weighted_avg * hours_remaining
+                future_base_kwh = max(0, weighted_avg * hours_remaining - remaining_solar)
             else:
                 # Fallback to real consumption avg if weighted not available
-                future_base_kwh = energy_statistics.get("avg_real_consumption", base_usage) * hours_remaining
-            # Override net_grid_kwh with actual + future estimate
+                future_base_kwh = max(0, energy_statistics.get("avg_real_consumption", base_usage) * hours_remaining - remaining_solar)
+            # Override net_grid_kwh with actual + future estimate (minus solar offset)
             net_grid_kwh = completed_net_grid_kwh + future_base_kwh
         else:
             # Simulation mode: reconstruct from individual components

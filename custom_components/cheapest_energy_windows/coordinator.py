@@ -382,7 +382,6 @@ class CEWCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             # RTE-aware discharge (global battery setting)
             "rte_aware_discharge": bool(options.get("rte_aware_discharge", True)),
             "rte_discharge_margin": float(options.get("rte_discharge_margin", 2)),  # 2% default (as percentage)
-            "rte_protect_solar_charge": bool(options.get("rte_protect_solar_charge", True)),
             "base_usage": float(options.get("base_usage", DEFAULT_BASE_USAGE)),
             "base_usage_charge_strategy": options.get("base_usage_charge_strategy", DEFAULT_BASE_USAGE_CHARGE_STRATEGY),
             "base_usage_normal_strategy": options.get("base_usage_normal_strategy", DEFAULT_BASE_USAGE_NORMAL_STRATEGY),
