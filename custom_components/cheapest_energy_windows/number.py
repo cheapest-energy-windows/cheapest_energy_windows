@@ -156,6 +156,12 @@ async def async_setup_entry(
             0.1, 200, DEFAULT_BATTERY_CAPACITY, 0.1, "kWh",
             "mdi:battery", NumberMode.BOX
         ),
+        # Minimum usable battery threshold - below this level, battery is considered depleted
+        CEWNumber(
+            hass, config_entry, "battery_min_usable_kwh", "Battery Min Usable",
+            0, 5, 0.2, 0.1, "kWh",
+            "mdi:battery-low", NumberMode.BOX
+        ),
         # Solar production entities
         CEWNumber(
             hass, config_entry, "expected_solar_kwh", "Expected Solar Today",

@@ -274,6 +274,7 @@ CALCULATION_AFFECTING_KEYS: Final = {
     "battery_available_energy_sensor",
     "use_battery_buffer_sensor",
     "battery_capacity",
+    "battery_min_usable_kwh",  # Minimum usable threshold - below this, battery is depleted
     "limit_discharge_to_buffer",
     "discharge_buffer_limit_kwh",
     "use_projected_buffer_tomorrow",

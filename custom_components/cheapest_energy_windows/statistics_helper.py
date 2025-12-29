@@ -79,8 +79,13 @@ def calculate_weighted_consumption_avg(
     This provides a stable baseline at midnight (uses historical data) that
     self-corrects as the day progresses (today's data takes over).
 
+    IMPORTANT: At midnight (today_hours < 1), we maintain continuity by using
+    yesterday's full average as the primary source. This prevents a sudden jump
+    when the day changes.
+
     Example weights by hour:
-    - Hour 0:  today=4%, yesterday=67%, day_before=29%
+    - Hour 0 (no data yet): today=0%, yesterday=70%, day_before=30%
+    - Hour 1:  today=4%, yesterday=67%, day_before=29%
     - Hour 12: today=54%, yesterday=32%, day_before=14%
     - Hour 23: today=100%, yesterday=0%, day_before=0%
 
@@ -93,13 +98,22 @@ def calculate_weighted_consumption_avg(
     Returns:
         Tuple of (weighted_avg, source_description)
     """
-    # Calculate today's weight (grows as day progresses)
-    weight_today = today_hours / 24 if today_hours > 0 else 0.0
-    remaining_weight = 1 - weight_today
+    # Handle midnight edge case: when today has no data yet, use yesterday
+    # as the primary reference to maintain continuity across midnight
+    if today_hours < 1 and yesterday_avg > 0:
+        # At midnight, yesterday's average should be the baseline
+        # This is what "today" was just an hour ago, so it maintains continuity
+        weight_today = 0.0
+        weight_yesterday = 0.7
+        weight_day_before = 0.3
+    else:
+        # Normal case: calculate today's weight (grows as day progresses)
+        weight_today = today_hours / 24 if today_hours > 0 else 0.0
+        remaining_weight = 1 - weight_today
 
-    # Split remaining weight: 70% yesterday, 30% day-before
-    weight_yesterday = remaining_weight * 0.7
-    weight_day_before = remaining_weight * 0.3
+        # Split remaining weight: 70% yesterday, 30% day-before
+        weight_yesterday = remaining_weight * 0.7
+        weight_day_before = remaining_weight * 0.3
 
     # Handle missing data - redistribute weights
     if yesterday_avg == 0 and day_before_avg == 0:
@@ -442,46 +456,52 @@ async def fetch_day_statistics(
         if charge_sensors:
             result["sensors"]["battery_charge"] = charge_sensors
 
-            if not use_yesterday_fallback:
-                result["battery_charge_hourly"] = await fetch_combined_hourly_statistics(
-                    hass, charge_sensors, stats_start, now
-                )
-            else:
-                result["battery_charge_hourly"] = await fetch_combined_hourly_statistics(
-                    hass, charge_sensors, yesterday_start, yesterday_end
-                )
+            # Always fetch TODAY's battery data - never fallback to yesterday
+            # Battery totals should be 0 until actual data comes in for today
+            # Use today_start (midnight) not stats_start to avoid getting yesterday's late-night data
+            result["battery_charge_hourly"] = await fetch_combined_hourly_statistics(
+                hass, charge_sensors, today_start, now
+            )
 
             if result["battery_charge_hourly"]:
                 result["stats_available"] = True
-                result["battery_charge_source"] = "today" if not use_yesterday_fallback else "yesterday"
+                result["battery_charge_source"] = "today"
                 total = sum(result["battery_charge_hourly"].values())
                 hours = len(result["battery_charge_hourly"])
                 result["avg_battery_charge"] = total / hours if hours > 0 else 0
                 result["avg_hourly_battery_charge"] = result["avg_battery_charge"]
                 result["total_battery_charge_kwh"] = total
                 _LOGGER.debug("Battery charge: total %.3f kWh, avg %.3f kWh/hr", total, result["avg_battery_charge"])
+            else:
+                # No battery data for today yet - keep totals at 0
+                result["battery_charge_source"] = "today"
+                result["total_battery_charge_kwh"] = 0.0
+                _LOGGER.debug("Battery charge: no data for today yet, total = 0")
 
         if discharge_sensors:
             result["sensors"]["battery_discharge"] = discharge_sensors
 
-            if not use_yesterday_fallback:
-                result["battery_discharge_hourly"] = await fetch_combined_hourly_statistics(
-                    hass, discharge_sensors, stats_start, now
-                )
-            else:
-                result["battery_discharge_hourly"] = await fetch_combined_hourly_statistics(
-                    hass, discharge_sensors, yesterday_start, yesterday_end
-                )
+            # Always fetch TODAY's battery data - never fallback to yesterday
+            # Battery totals should be 0 until actual data comes in for today
+            # Use today_start (midnight) not stats_start to avoid getting yesterday's late-night data
+            result["battery_discharge_hourly"] = await fetch_combined_hourly_statistics(
+                hass, discharge_sensors, today_start, now
+            )
 
             if result["battery_discharge_hourly"]:
                 result["stats_available"] = True
-                result["battery_discharge_source"] = "today" if not use_yesterday_fallback else "yesterday"
+                result["battery_discharge_source"] = "today"
                 total = sum(result["battery_discharge_hourly"].values())
                 hours = len(result["battery_discharge_hourly"])
                 result["avg_battery_discharge"] = total / hours if hours > 0 else 0
                 result["avg_hourly_battery_discharge"] = result["avg_battery_discharge"]
                 result["total_battery_discharge_kwh"] = total
                 _LOGGER.debug("Battery discharge: total %.3f kWh, avg %.3f kWh/hr", total, result["avg_battery_discharge"])
+            else:
+                # No battery data for today yet - keep totals at 0
+                result["battery_discharge_source"] = "today"
+                result["total_battery_discharge_kwh"] = 0.0
+                _LOGGER.debug("Battery discharge: no data for today yet, total = 0")
 
     # Calculate real consumption using the formula
     # real_consumption = solar + grid_import - grid_export + battery_discharge - battery_charge
@@ -509,7 +529,13 @@ async def fetch_day_statistics(
     if import_sensors and result["stats_available"]:
         # Today's average (already calculated)
         today_avg = result["avg_real_consumption"]
-        today_hours = len(result["real_consumption_hourly"]) if result["real_consumption_hourly"] else 0
+
+        # IMPORTANT: If we're using yesterday fallback, today has no actual data yet
+        # Don't count yesterday's hours as today's hours - that would break the weighted average
+        if use_yesterday_fallback:
+            today_hours = 0  # No actual today data - we're using yesterday as fallback
+        else:
+            today_hours = len(result["real_consumption_hourly"]) if result["real_consumption_hourly"] else 0
 
         # Store today's data
         result["today_avg_consumption"] = today_avg
@@ -519,54 +545,56 @@ async def fetch_day_statistics(
         yesterday_avg = 0.0
         day_before_avg = 0.0
 
-        if not use_yesterday_fallback:
-            # Fetch yesterday's data
-            yesterday_import = await fetch_combined_hourly_statistics(
-                hass, import_sensors, yesterday_start, yesterday_end
-            )
-            yesterday_export = await fetch_combined_hourly_statistics(
-                hass, export_sensors, yesterday_start, yesterday_end
-            ) if export_sensors else {}
-            yesterday_solar = await fetch_combined_hourly_statistics(
-                hass, energy_prefs.get("solar_production_sensors", []), yesterday_start, yesterday_end
-            ) if energy_prefs.get("solar_production_sensors") else {}
-            yesterday_charge = await fetch_combined_hourly_statistics(
-                hass, charge_sensors, yesterday_start, yesterday_end
-            ) if charge_sensors else {}
-            yesterday_discharge = await fetch_combined_hourly_statistics(
-                hass, discharge_sensors, yesterday_start, yesterday_end
-            ) if discharge_sensors else {}
+        # Always fetch yesterday's full data for accurate weighted average
+        # Even when use_yesterday_fallback is True, we need all components (solar, battery)
+        # because the fallback only copied grid data, not solar/battery
+        # NOTE: We extend start by 1 hour to capture the baseline sum needed for hour 0's delta
+        yesterday_fetch_start = yesterday_start - timedelta(hours=1)
+        yesterday_import = await fetch_combined_hourly_statistics(
+            hass, import_sensors, yesterday_fetch_start, yesterday_end
+        )
+        yesterday_export = await fetch_combined_hourly_statistics(
+            hass, export_sensors, yesterday_fetch_start, yesterday_end
+        ) if export_sensors else {}
+        yesterday_solar = await fetch_combined_hourly_statistics(
+            hass, energy_prefs.get("solar_production_sensors", []), yesterday_fetch_start, yesterday_end
+        ) if energy_prefs.get("solar_production_sensors") else {}
+        yesterday_charge = await fetch_combined_hourly_statistics(
+            hass, charge_sensors, yesterday_fetch_start, yesterday_end
+        ) if charge_sensors else {}
+        yesterday_discharge = await fetch_combined_hourly_statistics(
+            hass, discharge_sensors, yesterday_fetch_start, yesterday_end
+        ) if discharge_sensors else {}
 
-            yesterday_consumption = calculate_real_consumption(
-                yesterday_import, yesterday_export, yesterday_solar,
-                yesterday_charge, yesterday_discharge
-            )
-            if yesterday_consumption:
-                yesterday_avg = sum(yesterday_consumption.values()) / len(yesterday_consumption)
-        else:
-            # Already using yesterday data as today's fallback - use that
-            yesterday_avg = today_avg
+        yesterday_consumption = calculate_real_consumption(
+            yesterday_import, yesterday_export, yesterday_solar,
+            yesterday_charge, yesterday_discharge
+        )
+        if yesterday_consumption:
+            yesterday_avg = sum(yesterday_consumption.values()) / len(yesterday_consumption)
 
         result["yesterday_avg_consumption"] = yesterday_avg
 
         # Fetch day before yesterday (full 24h)
         day_before_start = today_start - timedelta(days=2)
         day_before_end = yesterday_start
+        # NOTE: We extend start by 1 hour to capture the baseline sum needed for hour 0's delta
+        day_before_fetch_start = day_before_start - timedelta(hours=1)
 
         day_before_import = await fetch_combined_hourly_statistics(
-            hass, import_sensors, day_before_start, day_before_end
+            hass, import_sensors, day_before_fetch_start, day_before_end
         )
         day_before_export = await fetch_combined_hourly_statistics(
-            hass, export_sensors, day_before_start, day_before_end
+            hass, export_sensors, day_before_fetch_start, day_before_end
         ) if export_sensors else {}
         day_before_solar = await fetch_combined_hourly_statistics(
-            hass, energy_prefs.get("solar_production_sensors", []), day_before_start, day_before_end
+            hass, energy_prefs.get("solar_production_sensors", []), day_before_fetch_start, day_before_end
         ) if energy_prefs.get("solar_production_sensors") else {}
         day_before_charge = await fetch_combined_hourly_statistics(
-            hass, charge_sensors, day_before_start, day_before_end
+            hass, charge_sensors, day_before_fetch_start, day_before_end
         ) if charge_sensors else {}
         day_before_discharge = await fetch_combined_hourly_statistics(
-            hass, discharge_sensors, day_before_start, day_before_end
+            hass, discharge_sensors, day_before_fetch_start, day_before_end
         ) if discharge_sensors else {}
 
         day_before_consumption = calculate_real_consumption(

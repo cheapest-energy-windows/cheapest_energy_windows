@@ -2085,7 +2085,10 @@ class WindowCalculationEngine:
                         # RTE-aware discharge decision
                         use_battery = True
 
-                        if rte_aware_discharge and battery_state > 0:
+                        # Apply min usable threshold - below this, battery is considered depleted
+                        min_usable_kwh = config.get("battery_min_usable_kwh", 0.0)
+                        effective_battery = max(0, battery_state - min_usable_kwh)
+                        if rte_aware_discharge and effective_battery > 0:
                             # Calculate breakeven price based on what charged the SIMULATION battery
                             # IMPORTANT: battery_state is the SIMULATION state, so we must use
                             # SIMULATION charging data to determine RTE behavior, not HA Energy data.
@@ -2143,13 +2146,13 @@ class WindowCalculationEngine:
                             # RTE-aware: preserve battery, use grid instead
                             battery_drain = 0
                             uncovered = base_from_other
-                            rte_preserved_kwh += min(base_from_other, battery_state)  # What we would have drained
+                            rte_preserved_kwh += min(base_from_other, effective_battery)  # What we would have drained
                             rte_preserved_periods.append({
                                 "timestamp": period["timestamp"].isoformat() if hasattr(period["timestamp"], 'isoformat') else str(period["timestamp"]),
                                 "duration": period["duration"],
                                 "price": round(price, 4),
                                 "breakeven": round(current_breakeven_price, 4),
-                                "preserved_kwh": round(min(base_from_other, battery_state), 3)
+                                "preserved_kwh": round(min(base_from_other, effective_battery), 3)
                             })
 
                         if uncovered > 0:
@@ -2390,6 +2393,7 @@ class WindowCalculationEngine:
         discharge_strategy = config.get("base_usage_discharge_strategy", "subtract_base")
 
         # Get buffer energy early - needed for usable_kwh calculations
+        # Note: min_usable threshold is applied later at the RTE preservation decision point
         buffer_energy = self._get_buffer_energy(config, is_tomorrow, hass)
 
         # Get sell price config for revenue calculations
@@ -2759,6 +2763,12 @@ class WindowCalculationEngine:
         # === CHRONOLOGICAL BUFFER TRACKING ===
         # Get buffer energy and limiting mode from config
         buffer_energy = self._get_buffer_energy(config, is_tomorrow, hass)
+
+        # Apply minimum usable threshold - below this level, battery is considered depleted
+        min_usable_kwh = config.get("battery_min_usable_kwh", 0.0)
+        if min_usable_kwh > 0:
+            buffer_energy = max(0, buffer_energy - min_usable_kwh)
+
         limit_discharge = config.get("limit_discharge_to_buffer", False)
         battery_capacity = config.get("battery_capacity", 100.0)
 
@@ -2840,18 +2850,21 @@ class WindowCalculationEngine:
         current_battery_state = buffer_energy  # Default to starting value
         use_sensor = config.get("use_battery_buffer_sensor", False)
         sensor_entity = config.get("battery_available_energy_sensor", "")
+        sensor_value_obtained = False
 
         # For today: use real sensor value if available (most accurate)
         if not is_tomorrow and use_sensor and sensor_entity and hass:
             try:
                 sensor_state = hass.states.get(sensor_entity)
                 if sensor_state and sensor_state.state not in ("unknown", "unavailable", None):
+                    # Show raw sensor value - min_usable threshold is applied in RTE calculations only
                     current_battery_state = float(sensor_state.state)
+                    sensor_value_obtained = True
             except (ValueError, TypeError):
                 pass  # Fall back to trajectory below
 
         # If no sensor value obtained, use simulated trajectory
-        if current_battery_state == buffer_energy:
+        if not sensor_value_obtained:
             battery_trajectory = chrono_result.get("battery_trajectory", [])
             if battery_trajectory and not is_tomorrow:
                 now = dt_util.now()
@@ -3094,14 +3107,17 @@ class WindowCalculationEngine:
 
             # Re-lookup current battery state from the new trajectory
             current_battery_state = buffer_energy
+            sensor_value_obtained = False
             if not is_tomorrow and use_sensor and sensor_entity and hass:
                 try:
                     sensor_state = hass.states.get(sensor_entity)
                     if sensor_state and sensor_state.state not in ("unknown", "unavailable", None):
+                        # Show raw sensor value - min_usable threshold is applied in RTE calculations only
                         current_battery_state = float(sensor_state.state)
+                        sensor_value_obtained = True
                 except (ValueError, TypeError):
                     pass
-            if current_battery_state == buffer_energy:
+            if not sensor_value_obtained:
                 battery_trajectory = elected_chrono_result.get("battery_trajectory", [])
                 if battery_trajectory and not is_tomorrow:
                     now = dt_util.now()
@@ -3158,13 +3174,34 @@ class WindowCalculationEngine:
 
             if not future_timeline:
                 # No future periods left - EOD IS the current state
+                # But we still need to estimate cost for remaining time in current hour
+                hours_remaining = 24 - current_hour  # At hour 23: 1 hour remaining
+                weighted_avg = energy_statistics.get("weighted_avg_consumption", 0.0) if energy_statistics else 0.0
+                if weighted_avg > 0 and hours_remaining > 0:
+                    # Get current price from all_prices (look up price for current time)
+                    current_price = 0.0
+                    for p in all_prices:
+                        p_ts = p.get("timestamp")
+                        if p_ts and p_ts <= now < p_ts + timedelta(hours=1):
+                            current_price = p.get("price", 0.0)
+                            break
+                    if current_price > 0:
+                        future_base_cost = weighted_avg * hours_remaining * current_price
+                        future_total_cost = future_base_cost
+                        _LOGGER.info(
+                            f"No future periods - estimated remaining base cost: "
+                            f"{hours_remaining}h × {weighted_avg:.3f}kWh × €{current_price:.3f} = €{future_base_cost:.3f}"
+                        )
+                    else:
+                        future_total_cost = 0.0
+                else:
+                    future_total_cost = 0.0
                 _LOGGER.info(
                     f"No future periods - EOD battery = current battery = {current_battery_state:.2f} kWh"
                 )
                 final_battery_state = current_battery_state
                 chrono_result["final_battery_state"] = final_battery_state
                 future_projection_applied = True
-                future_total_cost = 0.0  # No future costs when no future periods
                 buffer_delta = 0.0
             else:
                 _LOGGER.info(

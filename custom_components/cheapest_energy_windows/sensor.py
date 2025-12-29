@@ -1312,15 +1312,58 @@ class CEWPriceSensorProxy(SensorEntity):
         raw_today = self._attr_extra_state_attributes.get("raw_today") or []
         raw_tomorrow = self._attr_extra_state_attributes.get("raw_tomorrow") or []
 
-        calculated_buy_today = self._calculate_prices(raw_today)
-        calculated_buy_tomorrow = self._calculate_prices(raw_tomorrow)
+        # Date filtering: ensure calculated_today only contains today's prices
+        # and calculated_tomorrow only contains tomorrow's prices.
+        # This prevents stale data after midnight rotation.
+        now = dt_util.now()
+        today_date = now.date()
+        tomorrow_date = today_date + timedelta(days=1)
+
+        def parse_ts(ts):
+            """Parse timestamp string to datetime."""
+            if ts is None:
+                return None
+            if isinstance(ts, datetime):
+                return ts
+            if isinstance(ts, str):
+                try:
+                    return datetime.fromisoformat(ts.replace('Z', '+00:00'))
+                except (ValueError, TypeError):
+                    return None
+            return None
+
+        # Filter raw_today to only include today's prices
+        filtered_today = []
+        for p in raw_today:
+            p_ts = parse_ts(p.get("start"))
+            if p_ts and p_ts.date() == today_date:
+                filtered_today.append(p)
+
+        # Filter raw_tomorrow to only include tomorrow's prices
+        filtered_tomorrow = []
+        for p in raw_tomorrow:
+            p_ts = parse_ts(p.get("start"))
+            if p_ts and p_ts.date() == tomorrow_date:
+                filtered_tomorrow.append(p)
+
+        # Fallback: if filtered_today is empty but raw_tomorrow has today's data, use it
+        # This handles the case where Nord Pool has rotated but the raw_ attributes haven't
+        if not filtered_today:
+            for p in raw_tomorrow:
+                p_ts = parse_ts(p.get("start"))
+                if p_ts and p_ts.date() == today_date:
+                    filtered_today.append(p)
+
+        # Use filtered data for calculations
+        calculated_buy_today = self._calculate_prices(filtered_today)
+        calculated_buy_tomorrow = self._calculate_prices(filtered_tomorrow)
 
         self._attr_extra_state_attributes["calculated_today"] = calculated_buy_today
         self._attr_extra_state_attributes["calculated_tomorrow"] = calculated_buy_tomorrow
 
-        # Calculate sell prices (uses buy prices as input)
-        calculated_sell_today = self._calculate_sell_prices(raw_today, calculated_buy_today)
-        calculated_sell_tomorrow = self._calculate_sell_prices(raw_tomorrow, calculated_buy_tomorrow)
+        # Calculate sell prices (uses filtered buy prices as input)
+        calculated_sell_today = self._calculate_sell_prices(filtered_today, calculated_buy_today)
+        calculated_sell_tomorrow = self._calculate_sell_prices(filtered_tomorrow, calculated_buy_tomorrow)
 
         self._attr_extra_state_attributes["calculated_sell_today"] = calculated_sell_today
         self._attr_extra_state_attributes["calculated_sell_tomorrow"] = calculated_sell_tomorrow
