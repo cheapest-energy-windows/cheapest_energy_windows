@@ -13,6 +13,7 @@ from homeassistant.components.sensor import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
@@ -95,7 +96,7 @@ async def async_setup_entry(
     async_add_entities(sensors)
 
 
-class CEWBaseSensor(CoordinatorEntity, SensorEntity):
+class CEWBaseSensor(CoordinatorEntity, RestoreEntity, SensorEntity):
     """Base class for CEW sensors."""
 
     def __init__(
@@ -122,6 +123,9 @@ class CEWBaseSensor(CoordinatorEntity, SensorEntity):
         # Track previous values to detect changes
         self._previous_state = None
         self._previous_attributes = None
+
+        # Track if state was restored from persistence (survives restarts)
+        self._restored_from_persistence = False
 
         # Persist automation_enabled across sensor recreations (integration reloads)
         # This allows us to detect actual changes in automation state
@@ -195,8 +199,10 @@ class CEWBaseSensor(CoordinatorEntity, SensorEntity):
         # Add HA Energy Dashboard setting - toggling this changes data source
         calc_values.append(config.get("use_ha_energy_dashboard", False))
 
-        # Create hash from all values
-        return str(hash(tuple(str(v) for v in calc_values)))
+        # Create hash from all values using deterministic hash (Python's hash() is not stable across restarts)
+        import hashlib
+        value_str = str(tuple(str(v) for v in calc_values))
+        return hashlib.md5(value_str.encode()).hexdigest()
 
 
 class CEWTodaySensor(CEWBaseSensor):
@@ -208,6 +214,99 @@ class CEWTodaySensor(CEWBaseSensor):
         self._calculation_engine = WindowCalculationEngine()
         self._window_optimizer = WindowOptimizer()
         self._optimization_running = False
+
+    async def async_added_to_hass(self) -> None:
+        """Restore state on startup."""
+        # CRITICAL: Restore state BEFORE registering with coordinator
+        # Otherwise, the coordinator update callback may clear our restored state
+        last_state = await self.async_get_last_state()
+        if last_state is not None and last_state.state not in (None, "unknown", "unavailable"):
+            self._attr_native_value = last_state.state
+            self._previous_state = last_state.state
+
+            # Restore attributes (these contain all calculated windows)
+            if last_state.attributes:
+                self._attr_extra_state_attributes = dict(last_state.attributes)
+                self._previous_attributes = dict(last_state.attributes)
+                self._restored_from_persistence = True
+                # Also restore the calc_config_hash to prevent unnecessary recalculation
+                restored_hash = last_state.attributes.get("_calc_config_hash")
+                if restored_hash:
+                    self._previous_calc_config_hash = restored_hash
+                    _LOGGER.info(f"Today: Restored state '{last_state.state}' with calc_config_hash from persistence")
+                else:
+                    _LOGGER.info(f"Today: Restored state '{last_state.state}' with {len(last_state.attributes)} attributes from persistence")
+        else:
+            self._restored_from_persistence = False
+            _LOGGER.debug("Today: No previous state to restore")
+
+        # NOW register with coordinator (may trigger update, but we've already restored)
+        await super().async_added_to_hass()
+
+    def _do_time_based_state_update(self, config: Dict[str, Any]) -> None:
+        """Do lightweight time-based state update using restored windows.
+
+        This is used when we have restored state and just need to update
+        the current state based on time (charge/discharge/normal).
+        """
+        if not self._previous_attributes:
+            return
+
+        # Get windows from restored state
+        charge_times = self._previous_attributes.get("actual_charge_times", [])
+        discharge_times = self._previous_attributes.get("actual_discharge_times", [])
+        rte_preserved = self._previous_attributes.get("rte_preserved_periods", [])
+
+        # Simple state determination based on current time
+        import zoneinfo
+        now = datetime.now(zoneinfo.ZoneInfo("Europe/Amsterdam"))
+
+        new_state = STATE_NORMAL  # Default
+        automation_enabled = config.get("automation_enabled", True)
+
+        if not automation_enabled:
+            new_state = STATE_OFF
+        else:
+            # Check if current time is in any charge window
+            for t in charge_times:
+                try:
+                    window_time = datetime.fromisoformat(t) if isinstance(t, str) else t
+                    window_end = window_time + timedelta(minutes=15)
+                    if window_time <= now < window_end:
+                        new_state = STATE_CHARGE
+                        break
+                except:
+                    pass
+
+            if new_state == STATE_NORMAL:
+                for t in discharge_times:
+                    try:
+                        window_time = datetime.fromisoformat(t) if isinstance(t, str) else t
+                        window_end = window_time + timedelta(minutes=15)
+                        if window_time <= now < window_end:
+                            new_state = STATE_DISCHARGE
+                            break
+                    except:
+                        pass
+
+            # Check RTE-preserved (off) periods
+            if new_state == STATE_NORMAL and rte_preserved:
+                for period in rte_preserved:
+                    try:
+                        period_time = datetime.fromisoformat(period["timestamp"]) if isinstance(period["timestamp"], str) else period["timestamp"]
+                        duration = period.get("duration", 15)
+                        period_end = period_time + timedelta(minutes=duration)
+                        if period_time <= now < period_end:
+                            new_state = STATE_OFF
+                            break
+                    except:
+                        pass
+
+        if new_state != self._previous_state:
+            _LOGGER.info(f"Today: State transition {self._previous_state} → {new_state}")
+            self._attr_native_value = new_state
+            self._previous_state = new_state
+            self.async_write_ha_state()
 
     @callback
     def _handle_coordinator_update(self) -> None:
@@ -252,33 +351,58 @@ class CEWTodaySensor(CEWBaseSensor):
         if midnight_battery_state is not None:
             config["_midnight_battery_state"] = midnight_battery_state
 
+        # Check for per-day flags BEFORE raw_today check
+        entry_data = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id, {})
+        force_recalc = entry_data.get("force_recalculation_today", False)
+        clear_windows = entry_data.get("clear_windows_today", False)
+
+        # Clear the flags immediately after reading
+        if force_recalc:
+            self.hass.data[DOMAIN][self.config_entry.entry_id]["force_recalculation_today"] = False
+            _LOGGER.info("Today: Manual recalculation requested")
+            self._restored_from_persistence = False  # Allow fresh calculation
+        if clear_windows:
+            self.hass.data[DOMAIN][self.config_entry.entry_id]["clear_windows_today"] = False
+            # Clear windows and return early
+            _LOGGER.info("Today: Clearing windows (auto-optimizer disabled)")
+            self._attr_native_value = STATE_OFF
+            self._attr_extra_state_attributes = {"windows_cleared": True, "auto_optimized": False}
+            self._previous_state = STATE_OFF
+            self._previous_attributes = None
+            self._restored_from_persistence = False
+            self.async_write_ha_state()
+            return
+
+        # CRITICAL: Check for restored state BEFORE checking raw_today
+        # If we restored with windows and no force_recalc AND no config change, do time-based state update only
+        restored_has_windows = (
+            self._previous_attributes and
+            self._previous_attributes.get("actual_charge_times") is not None
+        )
+        _LOGGER.debug(f"Today: restored={self._restored_from_persistence}, has_windows={restored_has_windows}, force={force_recalc}, calc_config_changed={calc_config_changed}")
+
+        # IMPORTANT: Also check calc_config_changed - if config affecting calculations changed,
+        # we must recalculate even if restored (e.g., user toggled use_ha_energy_dashboard)
+        if self._restored_from_persistence and restored_has_windows and not force_recalc and not calc_config_changed:
+            # Use restored state - just do time-based state transitions
+            _LOGGER.info("Today: Using restored state from persistence, doing state transition only")
+            self._do_time_based_state_update(config)
+            return
+
         if raw_today:
             # Check if auto-optimization is enabled
             strategy = config.get("auto_optimize_strategy", "off")
 
             if strategy != "off":
                 # Auto-optimization enabled
-                # CRITICAL: Only run optimizer when data/config actually changed
-                # Skip on scheduled_update (time-based state transitions only)
-                # Also check for manual recalculation trigger (button press)
-                force_recalc = self.hass.data.get(DOMAIN, {}).get(
-                    self.config_entry.entry_id, {}
-                ).get("force_recalculation", False)
-
-                skip_due_to_schedule = scheduled_update and not force_recalc and not energy_stats_changed
+                skip_due_to_schedule = scheduled_update and not force_recalc
+                # NOTE: energy_stats_changed no longer triggers recalculation - windows stay stable
                 needs_optimization = (
                     is_first_load or
                     price_data_changed or
                     calc_config_changed or
-                    energy_stats_changed or
                     force_recalc
                 ) and not skip_due_to_schedule
-
-                # Log if manual recalculation requested (flag cleared by Tomorrow sensor)
-                if force_recalc:
-                    _LOGGER.info("Today: Manual recalculation requested")
-                elif energy_stats_changed:
-                    _LOGGER.info("Today: Energy stats changed (new hourly data), recalculating")
 
                 if not needs_optimization:
                     # Skip full optimization - but still do lightweight state update
@@ -391,6 +515,8 @@ class CEWTodaySensor(CEWBaseSensor):
             self._previous_calc_config_hash = current_calc_config_hash
             self._persistent_sensor_state["previous_automation_enabled"] = current_automation_enabled
             self._persistent_sensor_state["previous_calc_config_hash"] = current_calc_config_hash
+            # Save hash to attributes for persistence across restarts
+            self._attr_extra_state_attributes["_calc_config_hash"] = current_calc_config_hash
             self.async_write_ha_state()
         else:
             self._previous_automation_enabled = current_automation_enabled
@@ -454,6 +580,8 @@ class CEWTodaySensor(CEWBaseSensor):
             self._previous_calc_config_hash = current_calc_config_hash
             self._persistent_sensor_state["previous_automation_enabled"] = current_automation_enabled
             self._persistent_sensor_state["previous_calc_config_hash"] = current_calc_config_hash
+            # Save hash to attributes for persistence across restarts
+            self._attr_extra_state_attributes["_calc_config_hash"] = current_calc_config_hash
 
             _LOGGER.info(f"Today: Optimized → {new_state} (charge={opt_result.optimal_charge_windows}, discharge={opt_result.optimal_discharge_windows})")
 
@@ -683,10 +811,49 @@ class CEWTomorrowSensor(CEWBaseSensor):
         self._calculation_engine = WindowCalculationEngine()
         self._window_optimizer = WindowOptimizer()
         self._optimization_running = False
+        self._entity_initialized = False  # Set True after async_added_to_hass
+
+    async def async_added_to_hass(self) -> None:
+        """Restore state on startup."""
+        # CRITICAL: Restore state BEFORE registering with coordinator
+        # Otherwise, the coordinator update callback may clear our restored state
+        last_state = await self.async_get_last_state()
+        if last_state is not None and last_state.state not in (None, "unknown", "unavailable"):
+            self._attr_native_value = last_state.state
+            self._previous_state = last_state.state
+
+            # Restore attributes (these contain all calculated windows)
+            if last_state.attributes:
+                self._attr_extra_state_attributes = dict(last_state.attributes)
+                self._previous_attributes = dict(last_state.attributes)
+                self._restored_from_persistence = True
+                # Also restore the calc_config_hash to prevent unnecessary recalculation
+                restored_hash = last_state.attributes.get("_calc_config_hash")
+                if restored_hash:
+                    self._previous_calc_config_hash = restored_hash
+                    _LOGGER.info(f"Tomorrow: Restored state '{last_state.state}' with calc_config_hash from persistence")
+                else:
+                    _LOGGER.info(f"Tomorrow: Restored state '{last_state.state}' with {len(last_state.attributes)} attributes from persistence")
+        else:
+            self._restored_from_persistence = False
+            _LOGGER.debug("Tomorrow: No previous state to restore")
+
+        # Mark entity as initialized BEFORE registering with coordinator
+        # This ensures coordinator callbacks will find the entity ready
+        self._entity_initialized = True
+
+        # NOW register with coordinator (may trigger update, but we've already restored)
+        await super().async_added_to_hass()
 
     @callback
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
+        # CRITICAL: Ignore coordinator updates until entity is fully initialized
+        # Otherwise, coordinator refresh might run before async_added_to_hass completes
+        if not self._entity_initialized:
+            _LOGGER.debug("Tomorrow: Ignoring coordinator update - entity not initialized yet")
+            return
+
         if not self.coordinator.data:
             # No coordinator data - maintain previous state if we have one
             if self._previous_state is not None:
@@ -728,16 +895,43 @@ class CEWTomorrowSensor(CEWBaseSensor):
         raw_tomorrow = self.coordinator.data.get("raw_tomorrow", [])
         energy_statistics = self.coordinator.data.get("energy_statistics", {})
 
-        # Check for manual recalculation trigger (button press)
-        # Must be done BEFORE tomorrow_valid check to ensure flag is always cleared
-        force_recalc = self.hass.data.get(DOMAIN, {}).get(
-            self.config_entry.entry_id, {}
-        ).get("force_recalculation", False)
+        # Check for per-day flags
+        entry_data = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id, {})
+        force_recalc = entry_data.get("force_recalculation_tomorrow", False)
+        clear_windows = entry_data.get("clear_windows_tomorrow", False)
 
+        # Clear the flags immediately after reading
         if force_recalc:
-            _LOGGER.info("Tomorrow: Manual recalculation requested, clearing flag")
-            # Clear the flag after both sensors have read it
-            self.hass.data[DOMAIN][self.config_entry.entry_id]["force_recalculation"] = False
+            _LOGGER.info("Tomorrow: Manual recalculation requested")
+            self.hass.data[DOMAIN][self.config_entry.entry_id]["force_recalculation_tomorrow"] = False
+            self._restored_from_persistence = False  # Allow fresh calculation
+        if clear_windows:
+            self.hass.data[DOMAIN][self.config_entry.entry_id]["clear_windows_tomorrow"] = False
+            # Clear windows and return early
+            _LOGGER.info("Tomorrow: Clearing windows (auto-optimizer disabled)")
+            self._attr_native_value = STATE_OFF
+            self._attr_extra_state_attributes = {"windows_cleared": True, "auto_optimized": False}
+            self._previous_state = STATE_OFF
+            self._previous_attributes = None
+            self._restored_from_persistence = False
+            self.async_write_ha_state()
+            return
+
+        # CRITICAL: Check for restored state BEFORE checking tomorrow_valid
+        # If we restored with windows and no force_recalc AND no config change, preserve the restored state
+        # even if tomorrow_valid is False (prices not loaded yet after restart)
+        restored_has_windows = (
+            self._previous_attributes and
+            self._previous_attributes.get("actual_charge_times") is not None
+        )
+        _LOGGER.debug(f"Tomorrow: restored={self._restored_from_persistence}, has_windows={restored_has_windows}, force={force_recalc}, calc_config_changed={calc_config_changed}")
+
+        # IMPORTANT: Also check calc_config_changed - if config affecting calculations changed,
+        # we must recalculate even if restored (e.g., user toggled use_ha_energy_dashboard)
+        if self._restored_from_persistence and restored_has_windows and not force_recalc and not calc_config_changed:
+            _LOGGER.info("Tomorrow: Using restored state from persistence, skipping recalculation")
+            # Don't overwrite restored state - just return
+            return
 
         if tomorrow_valid and raw_tomorrow:
             # Use today's projected end-of-day as tomorrow's starting buffer (if enabled)
@@ -752,15 +946,15 @@ class CEWTomorrowSensor(CEWBaseSensor):
 
             if strategy != "off":
                 # Auto-optimization enabled
-                # CRITICAL: Only run optimizer when data/config actually changed
-                # Skip on scheduled_update (time-based state transitions only)
+                # Skip check for restored state is handled above (before tomorrow_valid check)
+                # Here we just check if we need to run the optimizer based on data changes
 
-                skip_due_to_schedule = scheduled_update and not force_recalc and not energy_stats_changed
+                skip_due_to_schedule = scheduled_update and not force_recalc
+                # NOTE: Tomorrow does not include energy_stats_changed - windows stay stable
                 needs_optimization = (
                     is_first_load or
                     price_data_changed or
                     calc_config_changed or
-                    energy_stats_changed or
                     force_recalc
                 ) and not skip_due_to_schedule
 
@@ -811,6 +1005,8 @@ class CEWTomorrowSensor(CEWBaseSensor):
             self._previous_calc_config_hash = current_calc_config_hash
             self._persistent_sensor_state["previous_automation_enabled"] = current_automation_enabled
             self._persistent_sensor_state["previous_calc_config_hash"] = current_calc_config_hash
+            # Save hash to attributes for persistence across restarts
+            self._attr_extra_state_attributes["_calc_config_hash"] = current_calc_config_hash
             self.async_write_ha_state()
         else:
             # Still update tracking even if state didn't change
@@ -870,6 +1066,8 @@ class CEWTomorrowSensor(CEWBaseSensor):
             self._previous_calc_config_hash = current_calc_config_hash
             self._persistent_sensor_state["previous_automation_enabled"] = current_automation_enabled
             self._persistent_sensor_state["previous_calc_config_hash"] = current_calc_config_hash
+            # Save hash to attributes for persistence across restarts
+            self._attr_extra_state_attributes["_calc_config_hash"] = current_calc_config_hash
 
             _LOGGER.info(f"Tomorrow: Optimized → {new_state} (charge={opt_result.optimal_charge_windows}, discharge={opt_result.optimal_discharge_windows})")
 

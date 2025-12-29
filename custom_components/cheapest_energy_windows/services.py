@@ -7,6 +7,7 @@ import yaml
 
 from homeassistant.core import HomeAssistant, ServiceCall
 import homeassistant.helpers.config_validation as cv
+from homeassistant.util import dt as dt_util
 import voluptuous as vol
 
 from .const import (
@@ -342,6 +343,35 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                     blocking=True,
                 )
                 _LOGGER.debug(f"Rotated {tomorrow_key} -> {today_key}: {tomorrow_state.state}")
+
+        # Rotate calculated windows: tomorrow -> today
+        # This preserves the calculated windows across midnight
+        _LOGGER.info("Rotating calculated windows: tomorrow -> today")
+
+        tomorrow_sensor = hass.states.get(f"sensor.{PREFIX}tomorrow")
+        if tomorrow_sensor and tomorrow_sensor.attributes:
+            # Find the entry_id - should be the first (and only) one
+            if DOMAIN in hass.data and hass.data[DOMAIN]:
+                entry_id = list(hass.data[DOMAIN].keys())[0]
+                hass.data[DOMAIN][entry_id]["rotated_windows_today"] = {
+                    "actual_charge_times": tomorrow_sensor.attributes.get("actual_charge_times", []),
+                    "actual_charge_prices": tomorrow_sensor.attributes.get("actual_charge_prices", []),
+                    "actual_discharge_times": tomorrow_sensor.attributes.get("actual_discharge_times", []),
+                    "actual_discharge_prices": tomorrow_sensor.attributes.get("actual_discharge_prices", []),
+                    "grouped_charge_windows": tomorrow_sensor.attributes.get("grouped_charge_windows", []),
+                    "grouped_discharge_windows": tomorrow_sensor.attributes.get("grouped_discharge_windows", []),
+                    "charge_window_count": tomorrow_sensor.attributes.get("charge_window_count", 0),
+                    "discharge_window_count": tomorrow_sensor.attributes.get("discharge_window_count", 0),
+                    "total_charge_cost": tomorrow_sensor.attributes.get("total_charge_cost", 0),
+                    "total_discharge_revenue": tomorrow_sensor.attributes.get("total_discharge_revenue", 0),
+                    "net_benefit": tomorrow_sensor.attributes.get("net_benefit", 0),
+                    "windows_calculated": tomorrow_sensor.attributes.get("windows_calculated", False),
+                    "calculation_complete": tomorrow_sensor.attributes.get("calculation_complete", False),
+                    "rotation_timestamp": dt_util.now().isoformat(),
+                }
+                _LOGGER.info("Window rotation complete - tomorrow's windows stored for today")
+        else:
+            _LOGGER.debug("No tomorrow sensor or attributes to rotate")
 
         # Fire event
         hass.bus.async_fire(EVENT_SETTINGS_ROTATED, {})

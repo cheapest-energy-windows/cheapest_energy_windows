@@ -129,13 +129,6 @@ class CEWTime(TimeEntity):
 
         self.async_write_ha_state()
 
-        # Only trigger coordinator update for times that affect calculations
-        # Check against the centralized registry of calculation-affecting keys
-        if self._key in CALCULATION_AFFECTING_KEYS:
-            if DOMAIN in self.hass.data and self._config_entry.entry_id in self.hass.data[DOMAIN]:
-                coordinator = self.hass.data[DOMAIN][self._config_entry.entry_id].get("coordinator")
-                if coordinator:
-                    _LOGGER.debug(f"Time {self._key} affects calculations, triggering coordinator refresh")
-                    await coordinator.async_request_refresh()
-        else:
-            _LOGGER.debug(f"Time {self._key} is UI/notification only (quiet hours), skipping coordinator refresh")
+        # NOTE: Settings changes no longer trigger recalculation
+        # Users must press recalculate button to apply setting changes
+        # This preserves calculated windows across settings tweaks

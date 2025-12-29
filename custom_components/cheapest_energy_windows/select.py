@@ -10,7 +10,6 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import (
-    CALCULATION_AFFECTING_KEYS,
     DOMAIN,
     LOGGER_NAME,
     PREFIX,
@@ -159,13 +158,38 @@ class CEWSelect(SelectEntity):
 
         self.async_write_ha_state()
 
-        # Only trigger coordinator update for selects that affect calculations
-        # Check against the centralized registry of calculation-affecting keys
-        if self._key in CALCULATION_AFFECTING_KEYS:
-            if DOMAIN in self.hass.data and self._config_entry.entry_id in self.hass.data[DOMAIN]:
-                coordinator = self.hass.data[DOMAIN][self._config_entry.entry_id].get("coordinator")
-                if coordinator:
-                    _LOGGER.debug(f"Select {self._key} affects calculations, triggering coordinator refresh")
-                    await coordinator.async_request_refresh()
-        else:
-            _LOGGER.debug(f"Select {self._key} doesn't affect calculations, skipping coordinator refresh")
+        # Special handling for auto-optimizer toggles - these are the ONLY selects that trigger recalculation
+        # All other selects require user to press recalculate button to apply changes
+        if self._key == "auto_optimize_strategy":
+            if save_value != "off":
+                _LOGGER.info("Today: Auto-optimizer enabled, triggering recalculation")
+                if DOMAIN in self.hass.data and self._config_entry.entry_id in self.hass.data[DOMAIN]:
+                    self.hass.data[DOMAIN][self._config_entry.entry_id]["force_recalculation_today"] = True
+                    coordinator = self.hass.data[DOMAIN][self._config_entry.entry_id].get("coordinator")
+                    if coordinator:
+                        await coordinator.async_request_refresh()
+            else:
+                # Auto-optimizer OFF: Clear windows (user decision)
+                _LOGGER.info("Today: Auto-optimizer disabled, clearing windows")
+                if DOMAIN in self.hass.data and self._config_entry.entry_id in self.hass.data[DOMAIN]:
+                    self.hass.data[DOMAIN][self._config_entry.entry_id]["clear_windows_today"] = True
+                    coordinator = self.hass.data[DOMAIN][self._config_entry.entry_id].get("coordinator")
+                    if coordinator:
+                        await coordinator.async_request_refresh()
+        elif self._key == "auto_optimize_strategy_tomorrow":
+            if save_value != "off":
+                _LOGGER.info("Tomorrow: Auto-optimizer enabled, triggering recalculation")
+                if DOMAIN in self.hass.data and self._config_entry.entry_id in self.hass.data[DOMAIN]:
+                    self.hass.data[DOMAIN][self._config_entry.entry_id]["force_recalculation_tomorrow"] = True
+                    coordinator = self.hass.data[DOMAIN][self._config_entry.entry_id].get("coordinator")
+                    if coordinator:
+                        await coordinator.async_request_refresh()
+            else:
+                # Auto-optimizer OFF: Clear windows (user decision)
+                _LOGGER.info("Tomorrow: Auto-optimizer disabled, clearing windows")
+                if DOMAIN in self.hass.data and self._config_entry.entry_id in self.hass.data[DOMAIN]:
+                    self.hass.data[DOMAIN][self._config_entry.entry_id]["clear_windows_tomorrow"] = True
+                    coordinator = self.hass.data[DOMAIN][self._config_entry.entry_id].get("coordinator")
+                    if coordinator:
+                        await coordinator.async_request_refresh()
+        # Other selects: no recalculation trigger - users must press recalculate button

@@ -10,7 +10,6 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import (
-    CALCULATION_AFFECTING_KEYS,
     DOMAIN,
     LOGGER_NAME,
     PREFIX,
@@ -198,10 +197,11 @@ class CEWText(TextEntity):
 
         self.async_write_ha_state()
 
-        # Trigger coordinator update for calculation-affecting text entities
-        if self._key in CALCULATION_AFFECTING_KEYS or self._key == "price_sensor_entity":
+        # Only price_sensor_entity triggers a refresh (needs to fetch from new source)
+        # Other text settings do NOT trigger recalculation - users must press recalculate button
+        if self._key == "price_sensor_entity":
             if DOMAIN in self.hass.data and self._config_entry.entry_id in self.hass.data[DOMAIN]:
                 coordinator = self.hass.data[DOMAIN][self._config_entry.entry_id].get("coordinator")
                 if coordinator:
-                    _LOGGER.debug(f"Text {self._key} affects calculations, triggering coordinator refresh")
+                    _LOGGER.info("Price sensor changed, triggering coordinator refresh to fetch new data")
                     await coordinator.async_request_refresh()

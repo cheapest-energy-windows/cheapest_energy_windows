@@ -126,8 +126,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator = CEWCoordinator(hass, entry)
 
     # Store coordinator BEFORE platforms so they can access it
+    # Initialize per-day recalculation and window flags for reboot survival
     hass.data[DOMAIN][entry.entry_id] = {
         "coordinator": coordinator,
+        # Per-day recalculation control flags
+        "force_recalculation_today": False,
+        "force_recalculation_tomorrow": False,
+        # Flags to clear windows when auto-optimizer is toggled OFF
+        "clear_windows_today": False,
+        "clear_windows_tomorrow": False,
+        # Storage for rotated windows from midnight service
+        "rotated_windows_today": None,
     }
 
     # Set up platforms FIRST so entities exist

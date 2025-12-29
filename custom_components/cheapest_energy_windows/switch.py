@@ -10,7 +10,6 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import (
-    CALCULATION_AFFECTING_KEYS,
     DOMAIN,
     LOGGER_NAME,
     PREFIX,
@@ -135,9 +134,6 @@ class CEWSwitch(SwitchEntity):
 
         self.async_write_ha_state()
 
-        # Only trigger coordinator refresh for switches that affect calculations
-        if self._key in CALCULATION_AFFECTING_KEYS:
-            if DOMAIN in self.hass.data and self._config_entry.entry_id in self.hass.data[DOMAIN]:
-                coordinator = self.hass.data[DOMAIN][self._config_entry.entry_id].get("coordinator")
-                if coordinator:
-                    await coordinator.async_request_refresh()
+        # NOTE: Settings changes no longer trigger recalculation
+        # Users must press recalculate button to apply setting changes
+        # This preserves calculated windows across settings tweaks
