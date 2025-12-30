@@ -1,7 +1,7 @@
 {
   "domain": "cheapest_energy_windows",
   "name": "Cheapest Energy Windows",
-  "after_dependencies": ["input_number", "input_boolean", "input_select", "input_datetime", "input_text"],
+  "after_dependencies": ["input_number", "input_boolean", "input_select", "input_datetime", "input_text", "energy", "forecast_solar", "recorder"],
   "codeowners": ["@cheapest-energy-windows"],
   "config_flow": true,
   "dependencies": [],
