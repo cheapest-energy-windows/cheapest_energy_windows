@@ -1653,6 +1653,10 @@ class WindowCalculationEngine:
         energy_hours_with_actual = 0  # Count of hours using actual data
         energy_hours_with_estimate = 0  # Count of hours using estimates
 
+        # Hourly base usage tracking for dashboard breakdown
+        # Tracks per-hour: total base usage, sources (solar/battery/grid)
+        hourly_base_usage: Dict[int, Dict[str, Any]] = {}
+
         # Sell formula parameters for solar export revenue
         sell_country = config.get("price_country", DEFAULT_PRICE_COUNTRY)
         sell_param_a = config.get("sell_formula_param_a", DEFAULT_SELL_FORMULA_PARAM_A)
@@ -1678,6 +1682,12 @@ class WindowCalculationEngine:
             sell_price = period["sell_price"]
             window_type = period["window_type"]
             battery_before = battery_state
+
+            # Per-period base usage tracking (for hourly breakdown)
+            period_base_from_solar = 0.0
+            period_base_from_battery = 0.0
+            period_base_from_grid = 0.0
+            period_base_total = 0.0
 
             # Calculate effective base usage for this period (HA Energy Dashboard integration)
             # When HA Energy ON: use ONLY HA Energy data (NO fallback to manual)
@@ -1811,8 +1821,10 @@ class WindowCalculationEngine:
                         planned_charge_cost += price * actual_grid_charge
                         grid_kwh_total += actual_grid_charge
                         # If battery can't cover base (goes negative), grid must cover the shortfall
+                        period_shortfall = 0.0  # Track for hourly breakdown
                         if battery_state < 0:
                             shortfall = -battery_state
+                            period_shortfall = shortfall  # Capture before reset
                             planned_base_usage_cost += price * shortfall
                             grid_kwh_total += shortfall
                             uncovered_base_kwh += shortfall
@@ -1826,6 +1838,15 @@ class WindowCalculationEngine:
                         battery_charged_from_grid_kwh += actual_grid_charge
                         battery_charged_from_grid_cost += actual_grid_charge * price
                         grid_charging_prices.append(price)
+
+                    # Track base usage sources for this period (charge window)
+                    period_base_total = base_demand
+                    period_base_from_solar = solar_to_base
+                    if charge_strategy == "grid_covers_both":
+                        period_base_from_grid = base_from_other
+                    else:  # battery_covers_base
+                        period_base_from_battery = base_from_other - period_shortfall
+                        period_base_from_grid = period_shortfall
                 else:
                     # Battery too full - skip this charge window
                     skipped_charge_windows.append({
@@ -1833,6 +1854,10 @@ class WindowCalculationEngine:
                         "price": price,
                         "reason": f"Battery nearly full ({battery_state:.2f}/{battery_capacity:.2f} kWh, only {available_capacity:.2f} kWh space)"
                     })
+                    # Still track base usage for skipped charge window (solar+grid)
+                    period_base_total = base_demand
+                    period_base_from_solar = solar_to_base
+                    period_base_from_grid = base_demand - solar_to_base
 
             elif window_type == "discharge":
                 # Use discharge strategy for all discharge windows
@@ -2006,6 +2031,13 @@ class WindowCalculationEngine:
 
                 battery_state = max(0, battery_state)  # Ensure non-negative
 
+                # Track base usage sources for this period (discharge window)
+                period_base_total = base_demand
+                period_base_from_solar = solar_to_base
+                period_base_from_battery = actual_base_from_battery
+                # Grid covers any remaining (effective_base_demand - actual_base_from_battery)
+                period_base_from_grid = max(0, effective_base_demand - actual_base_from_battery)
+
             else:  # normal
                 base_demand = effective_base_usage_kw * duration_hours
 
@@ -2085,6 +2117,11 @@ class WindowCalculationEngine:
                 # Track when solar fully covers base (for decision stats)
                 if base_from_other <= 0.001:  # Effectively zero
                     periods_solar_covered += 1
+                    # Track base usage sources (solar covers all)
+                    period_base_total = base_demand
+                    period_base_from_solar = solar_to_base
+                    period_base_from_battery = 0.0
+                    period_base_from_grid = 0.0
 
                 # Handle remaining base demand with existing strategy
                 if base_from_other > 0:
@@ -2093,6 +2130,11 @@ class WindowCalculationEngine:
                         planned_base_usage_cost += price * base_from_other
                         grid_kwh_total += base_from_other
                         periods_grid_covers += 1
+                        # Track base usage sources (grid covers remaining after solar)
+                        period_base_total = base_demand
+                        period_base_from_solar = solar_to_base
+                        period_base_from_battery = 0.0
+                        period_base_from_grid = base_from_other
                     elif normal_strategy in ("battery_covers", "battery_covers_limited"):
                         # RTE-aware discharge decision
                         use_battery = True
@@ -2181,6 +2223,26 @@ class WindowCalculationEngine:
                             grid_kwh_total += uncovered
                             uncovered_base_kwh += uncovered
 
+                        # Track base usage sources for battery_covers strategy
+                        period_base_total = base_demand
+                        period_base_from_solar = solar_to_base
+                        period_base_from_battery = battery_drain
+                        period_base_from_grid = uncovered  # Grid covers whatever battery couldn't
+
+            # Aggregate period tracking to hourly_base_usage
+            period_hour = period["timestamp"].hour if hasattr(period["timestamp"], 'hour') else 0
+            if period_hour not in hourly_base_usage:
+                hourly_base_usage[period_hour] = {
+                    "base_kwh": 0.0,
+                    "from_solar": 0.0,
+                    "from_battery": 0.0,
+                    "from_grid": 0.0,
+                }
+            hourly_base_usage[period_hour]["base_kwh"] += period_base_total
+            hourly_base_usage[period_hour]["from_solar"] += period_base_from_solar
+            hourly_base_usage[period_hour]["from_battery"] += period_base_from_battery
+            hourly_base_usage[period_hour]["from_grid"] += period_base_from_grid
+
             battery_trajectory.append({
                 "timestamp": period["timestamp"].isoformat() if hasattr(period["timestamp"], 'isoformat') else str(period["timestamp"]),
                 "window_type": window_type,
@@ -2267,6 +2329,8 @@ class WindowCalculationEngine:
                 "discharge_price_min": round(min(grid_discharging_prices), 4) if grid_discharging_prices else 0.0,
                 "discharge_price_max": round(max(grid_discharging_prices), 4) if grid_discharging_prices else 0.0,
             },
+            # Hourly base usage breakdown for dashboard
+            "hourly_base_usage": hourly_base_usage,
         }
 
     def _build_result(
@@ -3559,6 +3623,78 @@ class WindowCalculationEngine:
                 completed_discharge_kwh - completed_solar_export_kwh - completed_solar_base_kwh
             )
 
+        # === PHASE 1: ACTIVITY CARDS UX ENHANCEMENT ===
+        # Calculate cost attribution breakdown
+        rte_loss_value_total = chrono_result.get("rte_loss_value", 0.0) + completed_rte_loss_value
+        cost_attribution = self._calculate_cost_attribution(
+            planned_charge_cost=planned_charge_cost,
+            planned_discharge_revenue=planned_discharge_revenue,
+            grid_savings_from_solar=chrono_result.get("grid_savings_from_solar", 0.0),
+            solar_export_revenue=chrono_result.get("solar_export_revenue", 0.0),
+            rte_loss_value=rte_loss_value_total,
+            base_usage_kwh=base_usage_kwh,
+            day_avg_price=day_avg_price,
+            planned_total_cost=planned_total_cost,
+            actual_charge=actual_charge,
+            actual_discharge=actual_discharge,
+            spread_avg=spread_avg,
+            min_profit_charge=min_profit_charge,
+            min_profit_discharge=min_profit_discharge,
+            charge_profit_pct=charge_profit_pct,
+            discharge_profit_pct=discharge_profit_pct,
+            buffer_energy=buffer_energy,
+            skipped_discharge_windows=chrono_result.get("skipped_discharge_windows", []),
+            skipped_charge_windows=chrono_result.get("skipped_charge_windows", []),
+        )
+
+        # Build per-window details for power user popups
+        window_details = self._build_window_details(
+            actual_charge=actual_charge,
+            actual_discharge=actual_discharge,
+            price_lookup=price_lookup,
+            window_duration_hours=window_duration_hours,
+            charge_power=charge_power,
+            discharge_power=discharge_power,
+            battery_rte=battery_rte,
+            sell_country=sell_country,
+            sell_param_a=sell_param_a,
+            sell_param_b=sell_param_b,
+            current_time=current_time,
+        )
+
+        # Build hourly breakdown for Energy Flow popup
+        hourly_breakdown = self._build_hourly_breakdown(
+            all_prices=all_prices,
+            actual_charge=actual_charge,
+            actual_discharge=actual_discharge,
+            energy_statistics=energy_statistics,
+            base_usage=base_usage,
+            charge_power=charge_power,
+            discharge_power=discharge_power,
+            sell_country=sell_country,
+            sell_param_a=sell_param_a,
+            sell_param_b=sell_param_b,
+            hourly_base_usage=chrono_result.get("hourly_base_usage", {}),
+            current_hour=current_time.hour,
+        )
+
+        # Pre-render markdown table for ha-markdown popup
+        hourly_breakdown_markdown = self._build_hourly_breakdown_markdown(hourly_breakdown)
+
+        # Calculate pre-computed display metrics
+        display_metrics = self._calculate_display_metrics(
+            actual_charge=actual_charge,
+            actual_discharge=actual_discharge,
+            planned_charge_cost=planned_charge_cost,
+            planned_discharge_revenue=planned_discharge_revenue,
+            rte_loss_value=rte_loss_value_total,
+            net_planned_charge_kwh=net_planned_charge_kwh,
+            net_planned_discharge_kwh=net_planned_discharge_kwh,
+            battery_rte=battery_rte,
+            day_avg_price=day_avg_price,
+            buffer_end_of_day=chrono_result.get("final_battery_state", 0.0),
+        )
+
         # Build result
         result = {
             "state": current_state,
@@ -3796,6 +3932,32 @@ class WindowCalculationEngine:
             "manual_charge_hours": manual_charging_info.get("manual_charge_hours", []),
             "manual_charge_kwh": manual_charging_info.get("manual_charge_kwh", 0.0),
             "manual_charge_cost": manual_charging_info.get("manual_charge_cost", 0.0),
+            # === ACTIVITY CARDS UX ENHANCEMENT (Phase 1) ===
+            # Cost attribution breakdown
+            "attribution_solar_savings": cost_attribution["attribution_solar_savings"],
+            "attribution_battery_net": cost_attribution["attribution_battery_net"],
+            "attribution_grid_timing": cost_attribution["attribution_grid_timing"],
+            "attribution_total_benefit": cost_attribution["attribution_total_benefit"],
+            "battery_net_positive": cost_attribution["battery_net_positive"],
+            "battery_loss_reason": cost_attribution["battery_loss_reason"],
+            # Activity status
+            "activity_status": cost_attribution["activity_status"],
+            "has_charge_activity": cost_attribution["has_charge_activity"],
+            "has_discharge_activity": cost_attribution["has_discharge_activity"],
+            "has_any_activity": cost_attribution["has_any_activity"],
+            "no_activity_reasons": cost_attribution["no_activity_reasons"],
+            # Per-window details (for power user popups)
+            "charge_window_details": window_details["charge_window_details"],
+            "discharge_window_details": window_details["discharge_window_details"],
+            # Hourly breakdown (for Energy Flow popup)
+            "hourly_breakdown": hourly_breakdown,
+            # Pre-rendered markdown table (avoids Jinja2 for-loop issues in ha-markdown)
+            "hourly_breakdown_markdown": hourly_breakdown_markdown,
+            # Pre-calculated display metrics (simplifies dashboard Jinja2)
+            "effective_charge_price_kwh": display_metrics["effective_charge_price_kwh"],
+            "storage_cost_kwh": display_metrics["storage_cost_kwh"],
+            "charge_margin_kwh": display_metrics["charge_margin_kwh"],
+            "storage_margin_kwh": display_metrics["storage_margin_kwh"],
         }
 
         return result
@@ -3889,6 +4051,387 @@ class WindowCalculationEngine:
             "spread_pct": round(spread_pct, 1),
             "num_windows": num_windows,
             "duration_hours": round(window_duration * num_windows, 2),
+        }
+
+    def _calculate_cost_attribution(
+        self,
+        planned_charge_cost: float,
+        planned_discharge_revenue: float,
+        grid_savings_from_solar: float,
+        solar_export_revenue: float,
+        rte_loss_value: float,
+        base_usage_kwh: float,
+        day_avg_price: float,
+        planned_total_cost: float,
+        actual_charge: List[Dict[str, Any]],
+        actual_discharge: List[Dict[str, Any]],
+        spread_avg: float,
+        min_profit_charge: float,
+        min_profit_discharge: float,
+        charge_profit_pct: float,
+        discharge_profit_pct: float,
+        buffer_energy: float,
+        skipped_discharge_windows: List[Dict[str, Any]],
+        skipped_charge_windows: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """Calculate cost attribution breakdown for Activity Cards.
+
+        Breaks down where savings/losses come from:
+        - Solar contribution (always positive)
+        - Battery arbitrage (can be positive or negative)
+        - Grid timing savings
+
+        Returns dict with attribution values for dashboard display.
+        """
+        # Solar contribution (always positive or zero)
+        attribution_solar = grid_savings_from_solar + solar_export_revenue
+
+        # Battery contribution (can be negative!)
+        # Net result = what we earned (discharge) - what we paid (charge) - losses (RTE)
+        attribution_battery = planned_discharge_revenue - planned_charge_cost - rte_loss_value
+
+        # Grid timing contribution
+        # Compare actual base cost to what it would cost at day average
+        # This shows value of buying at better-than-average times
+        baseline_base_cost = base_usage_kwh * day_avg_price
+        # Get actual base usage portion from planned_total_cost
+        # planned_total_cost = charge_cost + base_cost - discharge_revenue - solar_revenue
+        # So base_cost ≈ planned_total_cost - charge_cost + discharge_revenue + solar_revenue
+        actual_base_cost = planned_total_cost - planned_charge_cost + planned_discharge_revenue + attribution_solar
+        attribution_timing = baseline_base_cost - actual_base_cost
+
+        # Total benefit (positive = saved money, negative = paid more)
+        attribution_total = attribution_solar + attribution_battery + attribution_timing
+
+        # Determine if battery helped or hurt
+        battery_net_positive = attribution_battery >= 0
+
+        # Determine battery loss reason (if applicable)
+        battery_loss_reason = None
+        if attribution_battery < 0:
+            if rte_loss_value > abs(planned_discharge_revenue - planned_charge_cost):
+                battery_loss_reason = "rte_losses"
+            elif spread_avg < 15:  # Low spread threshold
+                battery_loss_reason = "low_spread"
+            else:
+                battery_loss_reason = "poor_timing"
+
+        # Determine activity status
+        has_charge = len(actual_charge) > 0
+        has_discharge = len(actual_discharge) > 0
+
+        if has_charge and has_discharge:
+            activity_status = "arbitrage"
+        elif has_charge:
+            activity_status = "charge_only"
+        elif has_discharge:
+            activity_status = "discharge_only"
+        else:
+            activity_status = "no_activity"
+
+        # Build no-activity reasons list
+        no_activity_reasons = []
+        if not has_charge and not has_discharge:
+            if charge_profit_pct < min_profit_charge:
+                no_activity_reasons.append("charge_profit_low")
+            if discharge_profit_pct < min_profit_discharge:
+                no_activity_reasons.append("discharge_profit_low")
+            if spread_avg < 10:
+                no_activity_reasons.append("spread_too_low")
+            if buffer_energy < 0.5:  # Less than 0.5 kWh
+                no_activity_reasons.append("battery_depleted")
+            if skipped_discharge_windows:
+                no_activity_reasons.append("insufficient_battery_for_discharge")
+            if skipped_charge_windows:
+                no_activity_reasons.append("battery_full")
+
+        return {
+            # Cost attribution breakdown
+            "attribution_solar_savings": round(attribution_solar, 2),
+            "attribution_battery_net": round(attribution_battery, 2),
+            "attribution_grid_timing": round(attribution_timing, 2),
+            "attribution_total_benefit": round(attribution_total, 2),
+            # Battery status
+            "battery_net_positive": battery_net_positive,
+            "battery_loss_reason": battery_loss_reason,
+            # Activity status
+            "activity_status": activity_status,
+            "has_charge_activity": has_charge,
+            "has_discharge_activity": has_discharge,
+            "has_any_activity": has_charge or has_discharge,
+            "no_activity_reasons": no_activity_reasons,
+        }
+
+    def _build_window_details(
+        self,
+        actual_charge: List[Dict[str, Any]],
+        actual_discharge: List[Dict[str, Any]],
+        price_lookup: Dict[datetime, Dict[str, Any]],
+        window_duration_hours: float,
+        charge_power: float,
+        discharge_power: float,
+        battery_rte: float,
+        sell_country: str,
+        sell_param_a: float,
+        sell_param_b: float,
+        current_time: datetime,
+    ) -> Dict[str, Any]:
+        """Build detailed per-window breakdown for power user popups.
+
+        Returns charge_window_details and discharge_window_details arrays
+        with cost/revenue per window.
+        """
+        charge_details = []
+        for w in actual_charge:
+            kwh_gross = window_duration_hours * charge_power
+            kwh_net = kwh_gross * battery_rte  # After RTE
+            cost = w["price"] * kwh_gross
+            window_end = w["timestamp"] + timedelta(minutes=w["duration"])
+            completed = window_end <= current_time
+
+            charge_details.append({
+                "timestamp": w["timestamp"].isoformat(),
+                "kwh_gross": round(kwh_gross, 3),
+                "kwh_net": round(kwh_net, 3),
+                "price": round(w["price"], 5),
+                "cost": round(cost, 3),
+                "completed": completed,
+                "source": "grid",  # Could be enhanced to detect solar charging
+            })
+
+        discharge_details = []
+        for w in actual_discharge:
+            kwh = window_duration_hours * discharge_power
+            # Calculate sell price
+            price_data = price_lookup.get(w["timestamp"], {})
+            raw_price = price_data.get("raw_price", w["price"])
+            sell_price = self._calculate_sell_price(raw_price, w["price"], sell_country, sell_param_a, sell_param_b)
+            revenue = sell_price * kwh
+            window_end = w["timestamp"] + timedelta(minutes=w["duration"])
+            completed = window_end <= current_time
+
+            discharge_details.append({
+                "timestamp": w["timestamp"].isoformat(),
+                "kwh": round(kwh, 3),
+                "sell_price": round(sell_price, 5),
+                "revenue": round(revenue, 3),
+                "completed": completed,
+                "destination": "grid",  # Could be "base" for subtract_base strategy
+            })
+
+        return {
+            "charge_window_details": charge_details,
+            "discharge_window_details": discharge_details,
+        }
+
+    def _build_hourly_breakdown(
+        self,
+        all_prices: List[Dict[str, Any]],
+        actual_charge: List[Dict[str, Any]],
+        actual_discharge: List[Dict[str, Any]],
+        energy_statistics: Dict[str, Any],
+        base_usage: float,
+        charge_power: float,
+        discharge_power: float,
+        sell_country: str,
+        sell_param_a: float,
+        sell_param_b: float,
+        hourly_base_usage: Dict[int, Dict[str, float]] = None,
+        current_hour: int = 0,
+    ) -> Dict[str, Dict[str, float]]:
+        """Build hour-by-hour cost breakdown for Energy Flow popup.
+
+        Returns dict keyed by hour (0-23) with detailed metrics per hour.
+
+        Args:
+            hourly_base_usage: From chrono simulation, tracks base usage sources per hour
+            current_hour: Current hour (0-23) to determine is_actual flag
+        """
+        hourly_base_usage = hourly_base_usage or {}
+        hourly = {}
+
+        # Build hour -> price lookup
+        hour_prices = {}
+        for p in all_prices:
+            hour = p["timestamp"].hour
+            if hour not in hour_prices:
+                hour_prices[hour] = {"buy": p["price"], "raw": p.get("raw_price", p["price"])}
+
+        # Build charge/discharge hour sets
+        charge_hours = {w["timestamp"].hour for w in actual_charge}
+        discharge_hours = {w["timestamp"].hour for w in actual_discharge}
+
+        # Get HA Energy hourly data if available
+        grid_import_hourly = (energy_statistics or {}).get("grid_import_hourly", {})
+        grid_export_hourly = (energy_statistics or {}).get("grid_export_hourly", {})
+        solar_hourly = (energy_statistics or {}).get("solar_hourly", {})
+        battery_charge_hourly = (energy_statistics or {}).get("battery_charge_hourly", {})
+        battery_discharge_hourly = (energy_statistics or {}).get("battery_discharge_hourly", {})
+
+        for hour in range(24):
+            hour_str = str(hour)
+            price_info = hour_prices.get(hour, {"buy": 0, "raw": 0})
+            buy_price = price_info["buy"]
+            raw_price = price_info["raw"]
+            sell_price = self._calculate_sell_price(raw_price, buy_price, sell_country, sell_param_a, sell_param_b)
+
+            # Get actual data from HA Energy if available, else estimate
+            grid_import = float(grid_import_hourly.get(hour_str, grid_import_hourly.get(hour, 0)))
+            grid_export = float(grid_export_hourly.get(hour_str, grid_export_hourly.get(hour, 0)))
+            solar_prod = float(solar_hourly.get(hour_str, solar_hourly.get(hour, 0)))
+            battery_charge = float(battery_charge_hourly.get(hour_str, battery_charge_hourly.get(hour, 0)))
+            battery_discharge = float(battery_discharge_hourly.get(hour_str, battery_discharge_hourly.get(hour, 0)))
+
+            # Calculate costs
+            grid_import_cost = grid_import * buy_price
+            grid_export_revenue = grid_export * sell_price
+            net_cost = grid_import_cost - grid_export_revenue
+
+            # Get base usage breakdown from chrono simulation
+            base_info = hourly_base_usage.get(hour, {})
+            base_kwh = base_info.get("base_kwh", 0.0)
+            base_from_solar = base_info.get("from_solar", 0.0)
+            base_from_battery = base_info.get("from_battery", 0.0)
+            base_from_grid = base_info.get("from_grid", 0.0)
+
+            # Determine if this hour has actual data (past) or is estimated (future)
+            is_actual = hour < current_hour
+
+            hourly[str(hour)] = {
+                "buy_price": round(buy_price, 5),
+                "sell_price": round(sell_price, 5),
+                "grid_import_kwh": round(grid_import, 3),
+                "grid_import_cost": round(grid_import_cost, 3),
+                "grid_export_kwh": round(grid_export, 3),
+                "grid_export_revenue": round(grid_export_revenue, 3),
+                "solar_production_kwh": round(solar_prod, 3),
+                "battery_charge_kwh": round(battery_charge, 3),
+                "battery_discharge_kwh": round(battery_discharge, 3),
+                "net_cost": round(net_cost, 3),
+                "is_charge_window": hour in charge_hours,
+                "is_discharge_window": hour in discharge_hours,
+                # New fields for hourly breakdown table
+                "is_actual": is_actual,
+                "base_usage_kwh": round(base_kwh, 3),
+                "base_from_solar": round(base_from_solar, 3),
+                "base_from_battery": round(base_from_battery, 3),
+                "base_from_grid": round(base_from_grid, 3),
+            }
+
+        return hourly
+
+    def _build_hourly_breakdown_markdown(
+        self,
+        hourly_breakdown: Dict[str, Dict[str, Any]],
+    ) -> str:
+        """Pre-render hourly breakdown as markdown table for ha-markdown popup.
+
+        This avoids Jinja2 for-loop rendering issues in ha-markdown cards.
+        """
+        lines = []
+
+        # Header with icons for clarity
+        lines.append("| Hour | Price | Base | ☀️Solar | 🔋Batt | ⚡Grid | 💰Cost | Status |")
+        lines.append("|:----:|------:|-----:|-------:|------:|------:|------:|:------:|")
+
+        # Sort hours numerically
+        for hour in range(24):
+            h = hourly_breakdown.get(str(hour), {})
+            if not h:
+                continue
+
+            buy_price = h.get("buy_price", 0)
+            base_kwh = h.get("base_usage_kwh", 0)
+            from_solar = h.get("base_from_solar", 0)
+            from_battery = h.get("base_from_battery", 0)
+            from_grid = h.get("base_from_grid", 0)
+            net_cost = h.get("net_cost", 0)
+            is_actual = h.get("is_actual", False)
+            is_charge = h.get("is_charge_window", False)
+            is_discharge = h.get("is_discharge_window", False)
+
+            # Format hour (00:00 format)
+            hour_str = f"{hour:02d}:00"
+
+            # Status indicator
+            if is_charge:
+                status = "🔌CHG"
+            elif is_discharge:
+                status = "⚡DIS"
+            elif is_actual:
+                status = "✓"
+            else:
+                status = "~"  # Estimated
+
+            # Format values - show dashes for zero
+            def fmt(v, decimals=1):
+                if v == 0:
+                    return "-"
+                return f"{v:.{decimals}f}"
+
+            lines.append(
+                f"| {hour_str} | {buy_price:.3f} | {fmt(base_kwh)} | {fmt(from_solar)} | "
+                f"{fmt(from_battery)} | {fmt(from_grid)} | {fmt(net_cost, 2)} | {status} |"
+            )
+
+        return "\n".join(lines)
+
+    def _calculate_display_metrics(
+        self,
+        actual_charge: List[Dict[str, Any]],
+        actual_discharge: List[Dict[str, Any]],
+        planned_charge_cost: float,
+        planned_discharge_revenue: float,
+        rte_loss_value: float,
+        net_planned_charge_kwh: float,
+        net_planned_discharge_kwh: float,
+        battery_rte: float,
+        day_avg_price: float,
+        buffer_end_of_day: float = 0.0,
+    ) -> Dict[str, Any]:
+        """Calculate pre-computed display metrics to simplify dashboard Jinja2.
+
+        Returns effective_charge_price_kwh, storage_cost_kwh, charge_margin_kwh, storage_margin_kwh.
+        """
+        # Effective charge price (cost per usable kWh after RTE)
+        usable_kwh = net_planned_charge_kwh * battery_rte
+        if usable_kwh > 0 and len(actual_charge) > 0:
+            effective_charge_price_kwh = planned_charge_cost / usable_kwh
+        else:
+            effective_charge_price_kwh = None
+
+        # Storage cost (cost per remaining kWh in buffer at end of day)
+        # Use actual buffer EOD from chronological simulation, threshold 0.1 kWh
+        if buffer_end_of_day >= 0.1 and len(actual_charge) > 0:
+            net_cost = planned_charge_cost - planned_discharge_revenue
+            storage_cost_kwh = net_cost / buffer_end_of_day
+        elif len(actual_charge) > 0:
+            # Buffer depleted - storage cost is 0 (nothing stored)
+            storage_cost_kwh = 0.0
+        else:
+            storage_cost_kwh = None
+
+        # Charge margin (day_avg - effective_charge_price)
+        if effective_charge_price_kwh is not None:
+            charge_margin_kwh = day_avg_price - effective_charge_price_kwh
+        else:
+            charge_margin_kwh = None
+
+        # Storage margin (day_avg - storage_cost)
+        # When buffer is depleted (storage_cost = 0), margin is also 0
+        if storage_cost_kwh is not None and storage_cost_kwh > 0:
+            storage_margin_kwh = day_avg_price - storage_cost_kwh
+        elif storage_cost_kwh == 0.0:
+            # Buffer depleted - no margin on stored energy
+            storage_margin_kwh = 0.0
+        else:
+            storage_margin_kwh = None
+
+        return {
+            "effective_charge_price_kwh": round(effective_charge_price_kwh, 5) if effective_charge_price_kwh is not None else None,
+            "storage_cost_kwh": round(storage_cost_kwh, 5) if storage_cost_kwh is not None else None,
+            "charge_margin_kwh": round(charge_margin_kwh, 5) if charge_margin_kwh is not None else None,
+            "storage_margin_kwh": round(storage_margin_kwh, 5) if storage_margin_kwh is not None else None,
         }
 
     def _empty_result(self, is_tomorrow: bool) -> Dict[str, Any]:
@@ -4060,4 +4603,29 @@ class WindowCalculationEngine:
             "energy_estimated_kwh": 0.0,
             "energy_hours_with_actual": 0,
             "energy_hours_with_estimate": 0,
+            # === ACTIVITY CARDS UX ENHANCEMENT (Phase 1) ===
+            # Cost attribution breakdown
+            "attribution_solar_savings": 0.0,
+            "attribution_battery_net": 0.0,
+            "attribution_grid_timing": 0.0,
+            "attribution_total_benefit": 0.0,
+            "battery_net_positive": True,
+            "battery_loss_reason": None,
+            # Activity status
+            "activity_status": "no_activity",
+            "has_charge_activity": False,
+            "has_discharge_activity": False,
+            "has_any_activity": False,
+            "no_activity_reasons": [],
+            # Per-window details (for power user popups)
+            "charge_window_details": [],
+            "discharge_window_details": [],
+            # Hourly breakdown (for Energy Flow popup)
+            "hourly_breakdown": {},
+            "hourly_breakdown_markdown": "",
+            # Pre-calculated display metrics
+            "effective_charge_price_kwh": None,
+            "storage_cost_kwh": None,
+            "charge_margin_kwh": None,
+            "storage_margin_kwh": None,
         }

@@ -800,6 +800,31 @@ class CEWTodaySensor(CEWBaseSensor):
             "debug_future_cost": result.get("_debug_future_total_cost", 0.0),
             "debug_completed_total": result.get("_debug_completed_total", 0.0),
             "chrono_planned_total_cost": result.get("chrono_planned_total_cost", 0.0),
+            # === ACTIVITY CARDS UX ENHANCEMENT (Phase 1) ===
+            # Cost attribution breakdown
+            "attribution_solar_savings": result.get("attribution_solar_savings", 0.0),
+            "attribution_battery_net": result.get("attribution_battery_net", 0.0),
+            "attribution_grid_timing": result.get("attribution_grid_timing", 0.0),
+            "attribution_total_benefit": result.get("attribution_total_benefit", 0.0),
+            "battery_net_positive": result.get("battery_net_positive", True),
+            "battery_loss_reason": result.get("battery_loss_reason", ""),
+            # Activity status
+            "activity_status": result.get("activity_status", "no_activity"),
+            "has_charge_activity": result.get("has_charge_activity", False),
+            "has_discharge_activity": result.get("has_discharge_activity", False),
+            "has_any_activity": result.get("has_any_activity", False),
+            "no_activity_reasons": result.get("no_activity_reasons", []),
+            # Per-window details (for power user popups)
+            "charge_window_details": result.get("charge_window_details", []),
+            "discharge_window_details": result.get("discharge_window_details", []),
+            # Hourly breakdown (for Energy Flow popup)
+            "hourly_breakdown": result.get("hourly_breakdown", {}),
+            "hourly_breakdown_markdown": result.get("hourly_breakdown_markdown", ""),
+            # Pre-calculated display metrics (simplifies dashboard Jinja2)
+            "effective_charge_price_kwh": result.get("effective_charge_price_kwh", 0.0),
+            "storage_cost_kwh": result.get("storage_cost_kwh", 0.0),
+            "charge_margin_kwh": result.get("charge_margin_kwh", 0.0),
+            "storage_margin_kwh": result.get("storage_margin_kwh", 0.0),
         }
 
 
@@ -1266,6 +1291,31 @@ class CEWTomorrowSensor(CEWBaseSensor):
             "energy_estimated_kwh": result.get("energy_estimated_kwh", 0.0),
             "energy_hours_with_actual": result.get("energy_hours_with_actual", 0),
             "energy_hours_with_estimate": result.get("energy_hours_with_estimate", 0),
+            # === ACTIVITY CARDS UX ENHANCEMENT (Phase 1) ===
+            # Cost attribution breakdown
+            "attribution_solar_savings": result.get("attribution_solar_savings", 0.0),
+            "attribution_battery_net": result.get("attribution_battery_net", 0.0),
+            "attribution_grid_timing": result.get("attribution_grid_timing", 0.0),
+            "attribution_total_benefit": result.get("attribution_total_benefit", 0.0),
+            "battery_net_positive": result.get("battery_net_positive", True),
+            "battery_loss_reason": result.get("battery_loss_reason", ""),
+            # Activity status
+            "activity_status": result.get("activity_status", "no_activity"),
+            "has_charge_activity": result.get("has_charge_activity", False),
+            "has_discharge_activity": result.get("has_discharge_activity", False),
+            "has_any_activity": result.get("has_any_activity", False),
+            "no_activity_reasons": result.get("no_activity_reasons", []),
+            # Per-window details (for power user popups)
+            "charge_window_details": result.get("charge_window_details", []),
+            "discharge_window_details": result.get("discharge_window_details", []),
+            # Hourly breakdown (for Energy Flow popup)
+            "hourly_breakdown": result.get("hourly_breakdown", {}),
+            "hourly_breakdown_markdown": result.get("hourly_breakdown_markdown", ""),
+            # Pre-calculated display metrics (simplifies dashboard Jinja2)
+            "effective_charge_price_kwh": result.get("effective_charge_price_kwh", 0.0),
+            "storage_cost_kwh": result.get("storage_cost_kwh", 0.0),
+            "charge_margin_kwh": result.get("charge_margin_kwh", 0.0),
+            "storage_margin_kwh": result.get("storage_margin_kwh", 0.0),
         }
 
 
