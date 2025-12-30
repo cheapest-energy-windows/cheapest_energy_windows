@@ -384,10 +384,90 @@ class CEWTodaySensor(CEWBaseSensor):
         # IMPORTANT: Also check calc_config_changed - if config affecting calculations changed,
         # we must recalculate even if restored (e.g., user toggled use_ha_energy_dashboard)
         if self._restored_from_persistence and restored_has_windows and not force_recalc and not calc_config_changed:
-            # Use restored state - just do time-based state transitions
-            _LOGGER.info("Today: Using restored state from persistence, doing state transition only")
-            self._do_time_based_state_update(config)
-            return
+            # Use restored state - but refresh completed metrics from HA Energy
+            # This is the Option C fix: windows stay stable, completed metrics are always fresh
+            _LOGGER.info("Today: Using restored windows, refreshing completed metrics from HA Energy")
+
+            # Check for midnight transition (day changed since last calculation)
+            import zoneinfo
+            now = datetime.now(zoneinfo.ZoneInfo("Europe/Amsterdam"))
+            calculation_date = self._previous_attributes.get("calculation_date")
+            if calculation_date and calculation_date != now.date().isoformat():
+                # Day changed - need full recalculation
+                _LOGGER.info(f"Today: Day changed ({calculation_date} → {now.date().isoformat()}), forcing recalculation")
+                self._restored_from_persistence = False
+                # Fall through to normal calculation path
+            else:
+                # Same day - refresh completed metrics only
+                try:
+                    restored_windows = {
+                        "actual_charge_times": self._previous_attributes.get("actual_charge_times", []),
+                        "actual_charge_prices": self._previous_attributes.get("actual_charge_prices", []),
+                        "actual_discharge_times": self._previous_attributes.get("actual_discharge_times", []),
+                        "actual_discharge_prices": self._previous_attributes.get("actual_discharge_prices", []),
+                    }
+
+                    # Refresh completed metrics from HA Energy data
+                    completed_metrics = self._calculation_engine.refresh_completed_metrics(
+                        raw_today,
+                        config,
+                        restored_windows,
+                        energy_statistics,
+                        now,
+                    )
+
+                    # Recalculate planned metrics using restored windows + current prices
+                    planned_metrics = self._calculation_engine.recalculate_planned_metrics(
+                        raw_today,
+                        config,
+                        restored_windows,
+                        completed_metrics,
+                        now,
+                    )
+
+                    # Merge fresh metrics with restored attributes
+                    # Start with restored attributes (windows stay stable)
+                    merged_attributes = dict(self._previous_attributes)
+                    # Update with fresh completed metrics
+                    merged_attributes.update(completed_metrics)
+                    # Update with recalculated planned metrics
+                    merged_attributes.update(planned_metrics)
+                    # Track calculation date
+                    merged_attributes["calculation_date"] = now.date().isoformat()
+                    merged_attributes["completed_metrics_refreshed"] = True
+                    merged_attributes["last_refresh_time"] = now.isoformat()
+
+                    # Fix RTE double counting: Use completed RTE from HA Energy
+                    # The old persisted rte_loss_kwh might include double-counted chrono RTE
+                    # Completed RTE is the accurate value for past charging
+                    merged_attributes["rte_loss_kwh"] = completed_metrics.get("completed_rte_loss_kwh", 0.0)
+                    merged_attributes["rte_loss_value"] = completed_metrics.get("completed_rte_loss_value", 0.0)
+
+                    # Fix attribution_battery_net: Recalculate from fresh planned metrics
+                    # The old persisted value may have been calculated with wrong RTE subtraction
+                    # Formula: discharge_revenue - charge_cost (RTE is NOT subtracted)
+                    planned_charge = merged_attributes.get("planned_charge_cost", 0)
+                    planned_discharge = merged_attributes.get("planned_discharge_revenue", 0)
+                    merged_attributes["attribution_battery_net"] = round(planned_discharge - planned_charge, 2)
+
+                    # Do time-based state update
+                    self._do_time_based_state_update(config)
+
+                    # Update attributes with fresh data
+                    self._attr_extra_state_attributes = merged_attributes
+                    self._previous_attributes = merged_attributes.copy()
+                    self.async_write_ha_state()
+
+                    _LOGGER.info(
+                        f"Today: Refreshed completed metrics - "
+                        f"charge_kwh={completed_metrics.get('completed_charge_kwh', 0)}, "
+                        f"net_grid_kwh={completed_metrics.get('completed_net_grid_kwh', 0)}"
+                    )
+                    return
+                except Exception as e:
+                    _LOGGER.error(f"Today: Option C failed with error: {e}", exc_info=True)
+                    # Fall through to full recalculation
+                    self._restored_from_persistence = False
 
         if raw_today:
             # Check if auto-optimization is enabled
@@ -414,7 +494,6 @@ class CEWTodaySensor(CEWBaseSensor):
                         rte_preserved = self._previous_attributes.get("rte_preserved_periods", [])
 
                         # Simple state determination based on current time
-                        from datetime import datetime
                         import zoneinfo
                         now = datetime.now(zoneinfo.ZoneInfo("Europe/Amsterdam"))
 
@@ -656,6 +735,8 @@ class CEWTodaySensor(CEWBaseSensor):
             "percentile_expensive_sell_avg": result.get("percentile_expensive_sell_avg", 0),
             "cheap_half_avg": result.get("cheap_half_avg", 0),
             "expensive_half_avg": result.get("expensive_half_avg", 0),
+            "sorted_buy_prices": result.get("sorted_buy_prices", []),
+            "sorted_sell_prices": result.get("sorted_sell_prices", []),
             "day_avg_price": result.get("day_avg_price", 0),
             "net_grid_kwh": result.get("net_grid_kwh", 0),
             "baseline_cost": result.get("baseline_cost", 0),
@@ -825,6 +906,10 @@ class CEWTodaySensor(CEWBaseSensor):
             "storage_cost_kwh": result.get("storage_cost_kwh", 0.0),
             "charge_margin_kwh": result.get("charge_margin_kwh", 0.0),
             "storage_margin_kwh": result.get("storage_margin_kwh", 0.0),
+            # State persistence tracking (Option C - Progressive Day Optimization foundation)
+            "calculation_date": result.get("calculation_date", datetime.now().date().isoformat()),
+            "completed_metrics_refreshed": result.get("completed_metrics_refreshed", False),
+            "last_refresh_time": result.get("last_refresh_time", None),
         }
 
 
@@ -850,16 +935,33 @@ class CEWTomorrowSensor(CEWBaseSensor):
 
             # Restore attributes (these contain all calculated windows)
             if last_state.attributes:
-                self._attr_extra_state_attributes = dict(last_state.attributes)
-                self._previous_attributes = dict(last_state.attributes)
-                self._restored_from_persistence = True
+                restored_attrs = dict(last_state.attributes)
+
+                # FIX: Check if restored attributes have invalid None values
+                has_valid_grouped = (
+                    restored_attrs.get("grouped_charge_windows") is not None and
+                    restored_attrs.get("grouped_discharge_windows") is not None
+                )
+                if not has_valid_grouped:
+                    _LOGGER.info("Tomorrow: Restored state has invalid grouped_windows (None), fixing now")
+                    # Build proper defaults and use those instead
+                    self._attr_extra_state_attributes = self._build_attributes({})
+                    self._previous_attributes = self._attr_extra_state_attributes.copy()
+                    self._restored_from_persistence = False  # Mark as NOT restored (already fixed)
+                else:
+                    self._attr_extra_state_attributes = restored_attrs
+                    self._previous_attributes = restored_attrs
+                    self._restored_from_persistence = True
+
                 # Also restore the calc_config_hash to prevent unnecessary recalculation
                 restored_hash = last_state.attributes.get("_calc_config_hash")
                 if restored_hash:
                     self._previous_calc_config_hash = restored_hash
-                    _LOGGER.info(f"Tomorrow: Restored state '{last_state.state}' with calc_config_hash from persistence")
+                    if has_valid_grouped:
+                        _LOGGER.info(f"Tomorrow: Restored state '{last_state.state}' with calc_config_hash from persistence")
                 else:
-                    _LOGGER.info(f"Tomorrow: Restored state '{last_state.state}' with {len(last_state.attributes)} attributes from persistence")
+                    if has_valid_grouped:
+                        _LOGGER.info(f"Tomorrow: Restored state '{last_state.state}' with {len(last_state.attributes)} attributes from persistence")
         else:
             self._restored_from_persistence = False
             _LOGGER.debug("Tomorrow: No previous state to restore")
@@ -881,7 +983,23 @@ class CEWTomorrowSensor(CEWBaseSensor):
             return
 
         if not self.coordinator.data:
-            # No coordinator data - maintain previous state if we have one
+            # No coordinator data - but still check for invalid restored state
+            restored_has_valid_grouped = (
+                self._previous_attributes and
+                self._previous_attributes.get("grouped_charge_windows") is not None and
+                self._previous_attributes.get("grouped_discharge_windows") is not None
+            )
+            if self._restored_from_persistence and not restored_has_valid_grouped:
+                _LOGGER.info("Tomorrow: No coordinator data, but fixing invalid restored state")
+                new_attributes = self._build_attributes({})
+                self._attr_native_value = STATE_OFF
+                self._attr_extra_state_attributes = new_attributes
+                self._previous_state = STATE_OFF
+                self._previous_attributes = new_attributes.copy()
+                self._restored_from_persistence = False
+                self.async_write_ha_state()
+                return
+            # Maintain previous state if we have one
             if self._previous_state is not None:
                 return
             else:
@@ -926,6 +1044,27 @@ class CEWTomorrowSensor(CEWBaseSensor):
         force_recalc = entry_data.get("force_recalculation_tomorrow", False)
         clear_windows = entry_data.get("clear_windows_tomorrow", False)
 
+        # CRITICAL: Check for restored state with invalid grouped windows FIRST
+        # This must happen before we clear any flags or set _restored_from_persistence = False
+        restored_has_valid_grouped = (
+            self._previous_attributes and
+            self._previous_attributes.get("grouped_charge_windows") is not None and
+            self._previous_attributes.get("grouped_discharge_windows") is not None
+        )
+
+        # FIX: If restored state has invalid attributes (None values), fix them immediately
+        if self._restored_from_persistence and not restored_has_valid_grouped:
+            _LOGGER.info("Tomorrow: Restored state has invalid grouped_windows (None), fixing with defaults")
+            new_attributes = self._build_attributes({})
+            self._attr_native_value = STATE_OFF
+            self._attr_extra_state_attributes = new_attributes
+            self._previous_state = STATE_OFF
+            self._previous_attributes = new_attributes.copy()
+            self._restored_from_persistence = False
+            self.async_write_ha_state()
+            _LOGGER.info("Tomorrow: Fixed invalid restored state")
+            return
+
         # Clear the flags immediately after reading
         if force_recalc:
             _LOGGER.info("Tomorrow: Manual recalculation requested")
@@ -950,11 +1089,12 @@ class CEWTomorrowSensor(CEWBaseSensor):
             self._previous_attributes and
             self._previous_attributes.get("actual_charge_times") is not None
         )
-        _LOGGER.debug(f"Tomorrow: restored={self._restored_from_persistence}, has_windows={restored_has_windows}, force={force_recalc}, calc_config_changed={calc_config_changed}")
+        _LOGGER.debug(f"Tomorrow: restored={self._restored_from_persistence}, has_windows={restored_has_windows}, valid_grouped={restored_has_valid_grouped}, force={force_recalc}, calc_config_changed={calc_config_changed}")
 
         # IMPORTANT: Also check calc_config_changed - if config affecting calculations changed,
         # we must recalculate even if restored (e.g., user toggled use_ha_energy_dashboard)
-        if self._restored_from_persistence and restored_has_windows and not force_recalc and not calc_config_changed:
+        # Also require valid grouped windows to avoid template errors from old restored state
+        if self._restored_from_persistence and restored_has_windows and restored_has_valid_grouped and not force_recalc and not calc_config_changed:
             _LOGGER.info("Tomorrow: Using restored state from persistence, skipping recalculation")
             # Don't overwrite restored state - just return
             return
@@ -1016,7 +1156,8 @@ class CEWTomorrowSensor(CEWBaseSensor):
         else:
             # No tomorrow data yet (Nordpool publishes after 13:00 CET)
             new_state = STATE_OFF
-            new_attributes = {}
+            # Use _build_attributes with empty dict to get all defaults
+            new_attributes = self._build_attributes({})
 
         # Only update if state or attributes have changed
         state_changed = new_state != self._previous_state
@@ -1153,6 +1294,8 @@ class CEWTomorrowSensor(CEWBaseSensor):
             "percentile_expensive_sell_avg": result.get("percentile_expensive_sell_avg", 0),
             "cheap_half_avg": result.get("cheap_half_avg", 0),
             "expensive_half_avg": result.get("expensive_half_avg", 0),
+            "sorted_buy_prices": result.get("sorted_buy_prices", []),
+            "sorted_sell_prices": result.get("sorted_sell_prices", []),
             "day_avg_price": result.get("day_avg_price", 0),
             "net_grid_kwh": result.get("net_grid_kwh", 0),
             "baseline_cost": result.get("baseline_cost", 0),

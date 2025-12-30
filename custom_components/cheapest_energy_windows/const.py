@@ -353,3 +353,121 @@ NON_CALCULATION_KEYS: Final = {
     # Price sensor (handled separately as it requires reload)
     "price_sensor_entity",
 }
+
+# =============================================================================
+# ATTRIBUTE CATEGORIES FOR STATE PERSISTENCE
+# =============================================================================
+# These categories define how attributes should be handled during state
+# restoration after HA restart/reload. This is the foundation for
+# Progressive Day Optimization.
+
+# RESTORABLE_ATTRIBUTES: Window selection decisions from the optimizer
+# These SHOULD be restored to maintain stable automations throughout the day.
+# The optimizer's decisions about when to charge/discharge should remain
+# stable even after a restart.
+RESTORABLE_ATTRIBUTES: Final = {
+    # Window scheduling (optimizer output)
+    "actual_charge_times",
+    "actual_charge_prices",
+    "actual_discharge_times",
+    "actual_discharge_prices",
+    "actual_discharge_sell_prices",
+    "cheapest_times",
+    "cheapest_prices",
+    "expensive_times",
+    "expensive_prices",
+
+    # Grouped windows for dashboard
+    "grouped_charge_windows",
+    "grouped_discharge_windows",
+
+    # RTE-preserved periods (optimizer decision)
+    "rte_preserved_periods",
+
+    # Optimization metadata
+    "auto_optimized",
+    "optimal_charge_windows",
+    "optimal_discharge_windows",
+    "optimal_percentile",
+    "optimization_iterations",
+
+    # Configuration snapshot (for detecting changes)
+    "_calc_config_hash",
+
+    # Day tracking
+    "calculation_date",
+}
+
+# COMPLETED_METRICS_ATTRIBUTES: "What actually happened" - must be fresh
+# These MUST be recalculated from HA Energy data on every restoration.
+# These represent actual energy flows that occurred, not simulations.
+COMPLETED_METRICS_ATTRIBUTES: Final = {
+    # Window completion counts
+    "completed_charge_windows",
+    "completed_discharge_windows",
+
+    # Financial completed metrics
+    "completed_charge_cost",
+    "completed_discharge_revenue",
+    "completed_solar_export_revenue",
+    "completed_base_usage_cost",
+    "completed_base_usage_battery",
+    "completed_solar_grid_savings",
+
+    # Energy flow completed metrics
+    "completed_charge_kwh",
+    "completed_discharge_kwh",
+    "completed_base_grid_kwh",
+    "completed_solar_base_kwh",
+    "completed_solar_export_kwh",
+    "completed_net_grid_kwh",
+    "uncovered_base_usage_kwh",
+    "uncovered_base_usage_cost",
+
+    # Actual battery flows (from HA Energy)
+    "actual_battery_charged_from_grid_kwh",
+    "actual_battery_charged_from_solar_kwh",
+    "actual_battery_charge_cost",
+    "actual_battery_discharged_to_base_kwh",
+    "actual_battery_discharged_to_grid_kwh",
+    "actual_battery_discharge_revenue",
+
+    # HA Energy raw hourly data
+    "energy_grid_import_hourly",
+    "energy_grid_export_hourly",
+    "energy_real_consumption_hourly",
+    "energy_solar_hourly",
+    "energy_battery_charge_hourly",
+    "energy_battery_discharge_hourly",
+}
+
+# PLANNED_METRICS_ATTRIBUTES: Projections based on restored windows + current prices
+# These should be recalculated using the restored window times and current
+# price data. They don't require re-running the optimizer.
+PLANNED_METRICS_ATTRIBUTES: Final = {
+    # Day projections (derived from windows)
+    "planned_total_cost",
+    "planned_charge_cost",
+    "planned_discharge_revenue",
+    "planned_base_usage_cost",
+
+    # Energy projections
+    "net_planned_charge_kwh",
+    "net_planned_discharge_kwh",
+    "net_grid_kwh",
+    "grid_kwh_estimated_today",
+
+    # Savings calculations
+    "baseline_cost",
+    "estimated_savings",
+    "true_savings",
+
+    # Battery state projections
+    "battery_state_current",
+    "battery_state_end_of_day",
+    "battery_state_end_of_day_value",
+
+    # Total cost (blend of completed + projected)
+    "total_cost",
+    "total_value",
+}
